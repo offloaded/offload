@@ -20,10 +20,13 @@
   --color-page-bg: #F7F7F8;
 }
 
-body {
+html, body {
   margin: 0;
   padding: 0;
   overflow: hidden;
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100%;
   -webkit-font-smoothing: antialiased;
   font-family: var(--font-sans);
   color: var(--color-text);
