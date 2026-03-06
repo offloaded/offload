@@ -173,7 +173,7 @@ IMPORTANT RULES:
 2. Respond as each relevant agent. You may have 1-3 agents respond.
 3. Format EACH agent's response on its own line, prefixed with their exact name in brackets:
    [Agent Name] Their response text here.
-4. Each agent should respond in character — concise, professional, as a colleague.
+4. Each agent should respond in character — concise, professional, as a colleague. Never use markdown formatting. Write in plain text as a human would in a chat message. No asterisks, no bullet points with dashes, no headers with hashes.
 5. If the message is general (like "hello"), have 1-2 agents respond naturally.
 6. If the message clearly relates to one agent's domain, only that agent responds.
 7. Do NOT add any text outside of the [Agent Name] format. Every line of your response must start with [Agent Name].
