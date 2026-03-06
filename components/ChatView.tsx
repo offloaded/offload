@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { Avatar } from "./Avatar";
 import { SendIcon, MenuIcon } from "./Icons";
 import type { Agent, Message } from "@/lib/types";
@@ -20,7 +20,7 @@ function formatTime(dateStr: string): string {
 }
 
 // Slack-style message row
-function MessageRow({
+const MessageRow = memo(function MessageRow({
   agent,
   text,
   time,
@@ -78,7 +78,7 @@ function MessageRow({
       </div>
     </div>
   );
-}
+});
 
 // Typing indicator
 function TypingRow({
@@ -130,9 +130,152 @@ function TypingRow({
 export { MessageRow, TypingRow };
 export type { ChatMessage };
 
-function autoResize(el: HTMLTextAreaElement) {
-  el.style.height = "auto";
-  el.style.height = Math.min(el.scrollHeight, 120) + "px";
+// Memoized message list — won't re-render when input changes
+const MessageList = memo(function MessageList({
+  messages,
+  agent,
+  loading,
+  loadingMore,
+  streaming,
+  streamText,
+}: {
+  messages: ChatMessage[];
+  agent: Agent;
+  loading: boolean;
+  loadingMore: boolean;
+  streaming: boolean;
+  streamText: string;
+}) {
+  return (
+    <>
+      {loadingMore && (
+        <div className="flex items-center justify-center py-3">
+          <span className="text-[13px] text-[var(--color-text-tertiary)]">
+            Loading older messages...
+          </span>
+        </div>
+      )}
+
+      {loading && (
+        <div className="flex items-center justify-center py-8">
+          <span className="text-[15px] text-[var(--color-text-tertiary)]">
+            Loading...
+          </span>
+        </div>
+      )}
+
+      {!loading && messages.length === 0 && (
+        <div className="flex items-center justify-center py-16">
+          <div className="text-center">
+            <div
+              className="text-[15px] font-medium mb-1"
+              style={{ color: agent.color }}
+            >
+              {agent.name}
+            </div>
+            <div className="text-[14px] text-[var(--color-text-tertiary)]">
+              Start a conversation
+            </div>
+          </div>
+        </div>
+      )}
+
+      {messages.map((m, i) => (
+        <MessageRow
+          key={m.id || i}
+          isUser={m.role === "user"}
+          agent={m.role === "assistant" ? agent : undefined}
+          text={m.content}
+          time={formatTime(m.created_at)}
+        />
+      ))}
+
+      {streaming && (
+        <TypingRow
+          agent={agent}
+          streamText={streamText || undefined}
+        />
+      )}
+    </>
+  );
+});
+
+// Isolated input component — manages its own state, doesn't re-render parent
+function ChatInput({
+  agentName,
+  streaming,
+  onSend,
+}: {
+  agentName: string;
+  streaming: boolean;
+  onSend: (text: string) => void;
+}) {
+  const [input, setInput] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleInput = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    const el = e.target;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 120) + "px";
+  }, []);
+
+  const send = useCallback(() => {
+    const text = input.trim();
+    if (!text || streaming) return;
+    onSend(text);
+    setInput("");
+    if (inputRef.current) {
+      inputRef.current.style.height = "auto";
+    }
+  }, [input, streaming, onSend]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  }, [send]);
+
+  // Refocus after streaming ends
+  useEffect(() => {
+    if (!streaming) {
+      inputRef.current?.focus();
+    }
+  }, [streaming]);
+
+  const canSend = input.trim() && !streaming;
+
+  return (
+    <div
+      className="fixed bottom-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 bg-[var(--color-surface)] px-3 pt-2 pb-[max(16px,env(safe-area-inset-bottom))] md:px-5 md:pb-5"
+    >
+      <div className="flex gap-2 items-end bg-[var(--color-input-bg)] rounded-xl pl-4 pr-1.5 py-1.5 border border-[var(--color-border)]">
+        <textarea
+          ref={inputRef}
+          value={input}
+          onChange={handleInput}
+          onKeyDown={handleKeyDown}
+          placeholder={`Message ${agentName}...`}
+          rows={1}
+          className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[15px] outline-none py-2 resize-none leading-relaxed"
+          style={{ maxHeight: 120 }}
+        />
+        <button
+          onClick={send}
+          disabled={!canSend}
+          className="w-9 h-9 rounded-lg border-none shrink-0 flex items-center justify-center transition-all duration-150 mb-0.5"
+          style={{
+            background: canSend ? "var(--color-accent)" : "transparent",
+            color: canSend ? "#fff" : "var(--color-text-tertiary)",
+            cursor: canSend ? "pointer" : "default",
+          }}
+        >
+          <SendIcon />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export function ChatView({
@@ -147,7 +290,6 @@ export function ChatView({
   const inflight = getInflightState(chatId);
 
   const [messages, setMessages] = useState<ChatMessage[]>(cached?.messages || []);
-  const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(inflight.streaming);
   const [streamText, setStreamText] = useState(inflight.streamText);
   const [conversationId, setConversationId] = useState<string | null>(
@@ -159,8 +301,9 @@ export function ChatView({
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
   const initialScrollDone = useRef(false);
+  const conversationIdRef = useRef(conversationId);
+  conversationIdRef.current = conversationId;
 
   // Subscribe to inflight state changes (background streaming)
   useEffect(() => {
@@ -193,7 +336,6 @@ export function ChatView({
     setLoading(true);
     setMessages([]);
     setConversationId(null);
-    setInput("");
 
     fetch(`/api/conversations?agent_id=${agent.id}`)
       .then((r) => (r.ok ? r.json() : { messages: [] }))
@@ -281,32 +423,9 @@ export function ChatView({
     }
   }, [loadingMore, conversationId, messages, agent.id, chatId]);
 
-  const send = useCallback(() => {
-    const text = input.trim();
-    if (!text || streaming) return;
-
-    setInput("");
-    if (inputRef.current) {
-      inputRef.current.style.height = "auto";
-    }
-
-    // Delegate to inflight module — runs in background, survives navigation
-    sendDM(chatId, agent.id, text, conversationId);
-  }, [input, streaming, agent.id, conversationId, chatId]);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      send();
-    }
-  };
-
-  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value);
-    autoResize(e.target);
-  };
-
-  const canSend = input.trim() && !streaming;
+  const handleSend = useCallback((text: string) => {
+    sendDM(chatId, agent.id, text, conversationIdRef.current);
+  }, [chatId, agent.id]);
 
   return (
     <div className="flex-1 flex flex-col bg-[var(--color-surface)] overflow-hidden">
@@ -331,90 +450,26 @@ export function ChatView({
         ref={scrollRef}
         className="flex-1 overflow-y-auto pt-[52px] pb-[72px] md:pt-4 md:pb-2 min-h-0"
       >
-        {/* Sentinel for loading older messages */}
         <div ref={sentinelRef} className="h-1" />
 
-        {loadingMore && (
-          <div className="flex items-center justify-center py-3">
-            <span className="text-[13px] text-[var(--color-text-tertiary)]">
-              Loading older messages...
-            </span>
-          </div>
-        )}
-
-        {loading && (
-          <div className="flex items-center justify-center py-8">
-            <span className="text-[15px] text-[var(--color-text-tertiary)]">
-              Loading...
-            </span>
-          </div>
-        )}
-
-        {!loading && messages.length === 0 && (
-          <div className="flex items-center justify-center py-16">
-            <div className="text-center">
-              <div
-                className="text-[15px] font-medium mb-1"
-                style={{ color: agent.color }}
-              >
-                {agent.name}
-              </div>
-              <div className="text-[14px] text-[var(--color-text-tertiary)]">
-                Start a conversation
-              </div>
-            </div>
-          </div>
-        )}
-
-        {messages.map((m, i) => (
-          <MessageRow
-            key={m.id || i}
-            isUser={m.role === "user"}
-            agent={m.role === "assistant" ? agent : undefined}
-            text={m.content}
-            time={formatTime(m.created_at)}
-          />
-        ))}
-
-        {streaming && (
-          <TypingRow
-            agent={agent}
-            streamText={streamText || undefined}
-          />
-        )}
+        <MessageList
+          messages={messages}
+          agent={agent}
+          loading={loading}
+          loadingMore={loadingMore}
+          streaming={streaming}
+          streamText={streamText}
+        />
 
         <div ref={endRef} />
       </div>
 
-      {/* Input — fixed on mobile, in-flow on desktop */}
-      <div
-        className="fixed bottom-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 bg-[var(--color-surface)] px-3 pt-2 pb-[max(16px,env(safe-area-inset-bottom))] md:px-5 md:pb-5"
-      >
-        <div className="flex gap-2 items-end bg-[var(--color-input-bg)] rounded-xl pl-4 pr-1.5 py-1.5 border border-[var(--color-border)]">
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={handleInput}
-            onKeyDown={handleKeyDown}
-            placeholder={`Message ${agent.name}...`}
-            rows={1}
-            className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[15px] outline-none py-2 resize-none leading-relaxed"
-            style={{ maxHeight: 120 }}
-          />
-          <button
-            onClick={send}
-            disabled={!canSend}
-            className="w-9 h-9 rounded-lg border-none shrink-0 flex items-center justify-center transition-all duration-150 mb-0.5"
-            style={{
-              background: canSend ? "var(--color-accent)" : "transparent",
-              color: canSend ? "#fff" : "var(--color-text-tertiary)",
-              cursor: canSend ? "pointer" : "default",
-            }}
-          >
-            <SendIcon />
-          </button>
-        </div>
-      </div>
+      {/* Input — isolated component with own state */}
+      <ChatInput
+        agentName={agent.name}
+        streaming={streaming}
+        onSend={handleSend}
+      />
     </div>
   );
 }

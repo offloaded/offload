@@ -51,7 +51,7 @@ Your purpose: ${agent.purpose}`;
     prompt += `\n\nWhen answering questions, reference the relevant documents from your knowledge base. Cite the document name and date when available (e.g. "In the July 2023 meeting, council resolved..."). If you don't have enough information in your documents to answer confidently, say so.`;
   }
 
-  prompt += `\n\nBe concise, professional, and helpful. You are a remote team member — communicate like a competent colleague, not an AI assistant.`;
+  prompt += `\n\nBe concise, professional, and helpful. You are a remote team member — communicate like a competent colleague, not an AI assistant. Never use markdown formatting in your responses. Write in plain text as a human colleague would in a chat message. No asterisks, no bullet points with dashes, no headers with hashes. Just natural conversational text.`;
 
   return prompt;
 }

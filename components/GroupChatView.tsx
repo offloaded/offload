@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { Avatar } from "./Avatar";
 import { SendIcon, MenuIcon, HashIcon } from "./Icons";
 import type { Agent, Message } from "@/lib/types";
@@ -52,7 +52,7 @@ function parseGroupResponse(
   return results;
 }
 
-function AgentMessage({
+const AgentMessage = memo(function AgentMessage({
   agent,
   text,
   time,
@@ -84,9 +84,9 @@ function AgentMessage({
       </div>
     </div>
   );
-}
+});
 
-function UserMessage({
+const UserMessage = memo(function UserMessage({
   text,
   time,
 }: {
@@ -115,7 +115,7 @@ function UserMessage({
       </div>
     </div>
   );
-}
+});
 
 // Extract @mentions from message text by matching known agent names
 function extractMentions(text: string, agents: Agent[]): string[] {
@@ -185,6 +185,303 @@ function autoResize(el: HTMLTextAreaElement) {
   el.style.height = Math.min(el.scrollHeight, 120) + "px";
 }
 
+// Memoized message list
+const GroupMessageList = memo(function GroupMessageList({
+  messages,
+  agents,
+  loading,
+  loadingMore,
+  streaming,
+  streamText,
+}: {
+  messages: ChatMessage[];
+  agents: Agent[];
+  loading: boolean;
+  loadingMore: boolean;
+  streaming: boolean;
+  streamText: string;
+}) {
+  const renderMessage = (msg: ChatMessage, idx: number) => {
+    if (msg.role === "user") {
+      return (
+        <UserMessage
+          key={msg.id || idx}
+          text={msg.content}
+          time={formatTime(msg.created_at)}
+        />
+      );
+    }
+
+    const parsed = parseGroupResponse(msg.content, agents);
+    if (parsed.length > 0) {
+      return parsed.map((p, j) => (
+        <AgentMessage
+          key={`${msg.id || idx}-${j}`}
+          agent={p.agent}
+          text={p.text}
+          time={formatTime(msg.created_at)}
+        />
+      ));
+    }
+
+    return (
+      <div
+        key={msg.id || idx}
+        className="px-4 py-2 md:px-6"
+      >
+        <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap max-w-[720px]">
+          {msg.content}
+        </div>
+      </div>
+    );
+  };
+
+  const renderStreamingBubbles = () => {
+    if (!streamText) {
+      return (
+        <div className="px-4 py-2 md:px-6">
+          <div className="flex items-center gap-1 pt-2.5">
+            {[0, 1, 2].map((d) => (
+              <div
+                key={d}
+                className="w-[6px] h-[6px] rounded-full bg-[var(--color-text-tertiary)]"
+                style={{
+                  animation: `typing-dot 1.2s ease-in-out ${d * 0.15}s infinite`,
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    const parsed = parseGroupResponse(streamText, agents);
+    if (parsed.length > 0) {
+      return parsed.map((p, j) => (
+        <AgentMessage
+          key={`stream-${j}`}
+          agent={p.agent}
+          text={p.text}
+          time={formatTime(new Date().toISOString())}
+        />
+      ));
+    }
+
+    return (
+      <div className="px-4 py-2 md:px-6">
+        <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap max-w-[720px]">
+          {streamText}
+          <span className="inline-block w-0.5 h-4 bg-[var(--color-text-tertiary)] ml-0.5 align-middle animate-[typing-dot_1s_steps(2)_infinite]" />
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <>
+      {loadingMore && (
+        <div className="flex items-center justify-center py-3">
+          <span className="text-[13px] text-[var(--color-text-tertiary)]">
+            Loading older messages...
+          </span>
+        </div>
+      )}
+
+      {loading && (
+        <div className="flex items-center justify-center py-8">
+          <span className="text-[15px] text-[var(--color-text-tertiary)]">
+            Loading...
+          </span>
+        </div>
+      )}
+
+      {!loading && messages.length === 0 && (
+        <div className="flex items-center justify-center py-16">
+          <div className="text-center">
+            <div className="text-[15px] font-medium text-[var(--color-accent)] mb-1">
+              # All
+            </div>
+            <div className="text-[14px] text-[var(--color-text-tertiary)]">
+              Message your team — the right agents will respond
+            </div>
+          </div>
+        </div>
+      )}
+
+      {messages.map((m, i) => renderMessage(m, i))}
+
+      {streaming && renderStreamingBubbles()}
+    </>
+  );
+});
+
+// Isolated input component with @mention support — manages its own state
+function GroupChatInput({
+  agents,
+  streaming,
+  onSend,
+}: {
+  agents: Agent[];
+  streaming: boolean;
+  onSend: (text: string, mentions: string[]) => void;
+}) {
+  const [input, setInput] = useState("");
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionFilter, setMentionFilter] = useState("");
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentionStart, setMentionStart] = useState(-1);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const filteredMentionAgents = mentionOpen
+    ? agents.filter((a) =>
+        a.name.toLowerCase().includes(mentionFilter.toLowerCase())
+      )
+    : [];
+
+  const insertMention = useCallback(
+    (agent: Agent) => {
+      if (mentionStart < 0) return;
+      const before = input.slice(0, mentionStart);
+      const after = input.slice(mentionStart + 1 + mentionFilter.length);
+      const newInput = `${before}@${agent.name} ${after}`;
+      setInput(newInput);
+      setMentionOpen(false);
+      setMentionFilter("");
+      setMentionStart(-1);
+      setMentionIndex(0);
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        if (el) {
+          const pos = before.length + agent.name.length + 2;
+          el.focus();
+          el.setSelectionRange(pos, pos);
+          autoResize(el);
+        }
+      });
+    },
+    [input, mentionStart, mentionFilter]
+  );
+
+  const send = useCallback(() => {
+    const text = input.trim();
+    if (!text || streaming) return;
+    const mentions = extractMentions(text, agents);
+    onSend(text, mentions);
+    setInput("");
+    setMentionOpen(false);
+    if (inputRef.current) {
+      inputRef.current.style.height = "auto";
+    }
+  }, [input, streaming, agents, onSend]);
+
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    const cursorPos = e.target.selectionStart || val.length;
+    setInput(val);
+    autoResize(e.target);
+
+    const textBeforeCursor = val.slice(0, cursorPos);
+    const atIndex = textBeforeCursor.lastIndexOf("@");
+    if (atIndex >= 0 && (atIndex === 0 || textBeforeCursor[atIndex - 1] === " " || textBeforeCursor[atIndex - 1] === "\n")) {
+      const query = textBeforeCursor.slice(atIndex + 1);
+      if (!query.includes("\n") && query.length <= 30) {
+        setMentionOpen(true);
+        setMentionFilter(query);
+        setMentionStart(atIndex);
+        setMentionIndex(0);
+        return;
+      }
+    }
+    setMentionOpen(false);
+  }, []);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (mentionOpen && filteredMentionAgents.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionIndex((i) =>
+          i < filteredMentionAgents.length - 1 ? i + 1 : 0
+        );
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionIndex((i) =>
+          i > 0 ? i - 1 : filteredMentionAgents.length - 1
+        );
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        insertMention(filteredMentionAgents[mentionIndex]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionOpen(false);
+        return;
+      }
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  }, [mentionOpen, filteredMentionAgents, mentionIndex, insertMention, send]);
+
+  useEffect(() => {
+    if (!streaming) {
+      inputRef.current?.focus();
+    }
+  }, [streaming]);
+
+  const canSend = input.trim() && !streaming;
+
+  return (
+    <div
+      className="fixed bottom-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 bg-[var(--color-surface)] px-3 pt-2 pb-[max(16px,env(safe-area-inset-bottom))] md:px-5 md:pb-5"
+    >
+      <div className="relative">
+        {mentionOpen && filteredMentionAgents.length > 0 && (
+          <MentionDropdown
+            agents={agents}
+            filter={mentionFilter}
+            onSelect={insertMention}
+            selectedIndex={mentionIndex}
+          />
+        )}
+
+        <div className="flex gap-2 items-end bg-[var(--color-input-bg)] rounded-xl pl-4 pr-1.5 py-1.5 border border-[var(--color-border)]">
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            onBlur={() => {
+              setTimeout(() => setMentionOpen(false), 150);
+            }}
+            placeholder="Message #All... (@ to mention)"
+            rows={1}
+            className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[15px] outline-none py-2 resize-none leading-relaxed"
+            style={{ maxHeight: 120 }}
+          />
+          <button
+            onClick={send}
+            disabled={!canSend}
+            className="w-9 h-9 rounded-lg border-none shrink-0 flex items-center justify-center transition-all duration-150 mb-0.5"
+            style={{
+              background: canSend ? "var(--color-accent)" : "transparent",
+              color: canSend ? "#fff" : "var(--color-text-tertiary)",
+              cursor: canSend ? "pointer" : "default",
+            }}
+          >
+            <SendIcon />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const CHAT_ID = "group";
 
 export function GroupChatView({
@@ -198,7 +495,6 @@ export function GroupChatView({
   const inflight = getInflightState(CHAT_ID);
 
   const [messages, setMessages] = useState<ChatMessage[]>(cached?.messages || []);
-  const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(inflight.streaming);
   const [streamText, setStreamText] = useState(inflight.streamText);
   const [conversationId, setConversationId] = useState<string | null>(
@@ -207,15 +503,12 @@ export function GroupChatView({
   const [loading, setLoading] = useState(!cached);
   const [hasMore, setHasMore] = useState(cached?.hasMore ?? false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [mentionOpen, setMentionOpen] = useState(false);
-  const [mentionFilter, setMentionFilter] = useState("");
-  const [mentionIndex, setMentionIndex] = useState(0);
-  const [mentionStart, setMentionStart] = useState(-1);
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
   const initialScrollDone = useRef(false);
+  const conversationIdRef = useRef(conversationId);
+  conversationIdRef.current = conversationId;
 
   // Subscribe to inflight state changes (background streaming)
   useEffect(() => {
@@ -247,7 +540,6 @@ export function GroupChatView({
     setLoading(true);
     setMessages([]);
     setConversationId(null);
-    setInput("");
 
     fetch("/api/conversations?agent_id=group")
       .then((r) => (r.ok ? r.json() : { messages: [] }))
@@ -335,187 +627,9 @@ export function GroupChatView({
     }
   }, [loadingMore, conversationId, messages]);
 
-  const send = useCallback(() => {
-    const text = input.trim();
-    if (!text || streaming) return;
-
-    const mentions = extractMentions(text, agents);
-
-    setInput("");
-    setMentionOpen(false);
-    if (inputRef.current) {
-      inputRef.current.style.height = "auto";
-    }
-
-    // Delegate to inflight module — runs in background, survives navigation
-    sendGroup(CHAT_ID, text, conversationId, mentions);
-  }, [input, streaming, conversationId, agents]);
-
-  const filteredMentionAgents = mentionOpen
-    ? agents.filter((a) =>
-        a.name.toLowerCase().includes(mentionFilter.toLowerCase())
-      )
-    : [];
-
-  const insertMention = useCallback(
-    (agent: Agent) => {
-      if (mentionStart < 0) return;
-      const before = input.slice(0, mentionStart);
-      const after = input.slice(
-        mentionStart + 1 + mentionFilter.length
-      );
-      const newInput = `${before}@${agent.name} ${after}`;
-      setInput(newInput);
-      setMentionOpen(false);
-      setMentionFilter("");
-      setMentionStart(-1);
-      setMentionIndex(0);
-      // Focus and move cursor after inserted mention
-      requestAnimationFrame(() => {
-        const el = inputRef.current;
-        if (el) {
-          const pos = before.length + agent.name.length + 2; // @Name + space
-          el.focus();
-          el.setSelectionRange(pos, pos);
-          autoResize(el);
-        }
-      });
-    },
-    [input, mentionStart, mentionFilter]
-  );
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value;
-    const cursorPos = e.target.selectionStart || val.length;
-    setInput(val);
-    autoResize(e.target);
-
-    // Detect @ mention trigger
-    const textBeforeCursor = val.slice(0, cursorPos);
-    const atIndex = textBeforeCursor.lastIndexOf("@");
-    if (atIndex >= 0 && (atIndex === 0 || textBeforeCursor[atIndex - 1] === " " || textBeforeCursor[atIndex - 1] === "\n")) {
-      const query = textBeforeCursor.slice(atIndex + 1);
-      if (!query.includes("\n") && query.length <= 30) {
-        setMentionOpen(true);
-        setMentionFilter(query);
-        setMentionStart(atIndex);
-        setMentionIndex(0);
-        return;
-      }
-    }
-    setMentionOpen(false);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (mentionOpen && filteredMentionAgents.length > 0) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setMentionIndex((i) =>
-          i < filteredMentionAgents.length - 1 ? i + 1 : 0
-        );
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setMentionIndex((i) =>
-          i > 0 ? i - 1 : filteredMentionAgents.length - 1
-        );
-        return;
-      }
-      if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault();
-        insertMention(filteredMentionAgents[mentionIndex]);
-        return;
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setMentionOpen(false);
-        return;
-      }
-    }
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      send();
-    }
-  };
-
-  const canSend = input.trim() && !streaming;
-
-  const renderMessage = (msg: ChatMessage, idx: number) => {
-    if (msg.role === "user") {
-      return (
-        <UserMessage
-          key={msg.id || idx}
-          text={msg.content}
-          time={formatTime(msg.created_at)}
-        />
-      );
-    }
-
-    const parsed = parseGroupResponse(msg.content, agents);
-    if (parsed.length > 0) {
-      return parsed.map((p, j) => (
-        <AgentMessage
-          key={`${msg.id || idx}-${j}`}
-          agent={p.agent}
-          text={p.text}
-          time={formatTime(msg.created_at)}
-        />
-      ));
-    }
-
-    return (
-      <div
-        key={msg.id || idx}
-        className="px-4 py-2 md:px-6"
-      >
-        <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap max-w-[720px]">
-          {msg.content}
-        </div>
-      </div>
-    );
-  };
-
-  const renderStreamingBubbles = () => {
-    if (!streamText) {
-      return (
-        <div className="px-4 py-2 md:px-6">
-          <div className="flex items-center gap-1 pt-2.5">
-            {[0, 1, 2].map((d) => (
-              <div
-                key={d}
-                className="w-[6px] h-[6px] rounded-full bg-[var(--color-text-tertiary)]"
-                style={{
-                  animation: `typing-dot 1.2s ease-in-out ${d * 0.15}s infinite`,
-                }}
-              />
-            ))}
-          </div>
-        </div>
-      );
-    }
-
-    const parsed = parseGroupResponse(streamText, agents);
-    if (parsed.length > 0) {
-      return parsed.map((p, j) => (
-        <AgentMessage
-          key={`stream-${j}`}
-          agent={p.agent}
-          text={p.text}
-          time={formatTime(new Date().toISOString())}
-        />
-      ));
-    }
-
-    return (
-      <div className="px-4 py-2 md:px-6">
-        <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap max-w-[720px]">
-          {streamText}
-          <span className="inline-block w-0.5 h-4 bg-[var(--color-text-tertiary)] ml-0.5 align-middle animate-[typing-dot_1s_steps(2)_infinite]" />
-        </div>
-      </div>
-    );
-  };
+  const handleSend = useCallback((text: string, mentions: string[]) => {
+    sendGroup(CHAT_ID, text, conversationIdRef.current, mentions);
+  }, []);
 
   return (
     <div className="flex-1 flex flex-col bg-[var(--color-surface)] overflow-hidden">
@@ -545,90 +659,26 @@ export function GroupChatView({
         ref={scrollRef}
         className="flex-1 overflow-y-auto pt-[52px] pb-[72px] md:pt-4 md:pb-2 min-h-0"
       >
-        {/* Sentinel for loading older messages */}
         <div ref={sentinelRef} className="h-1" />
 
-        {loadingMore && (
-          <div className="flex items-center justify-center py-3">
-            <span className="text-[13px] text-[var(--color-text-tertiary)]">
-              Loading older messages...
-            </span>
-          </div>
-        )}
-
-        {loading && (
-          <div className="flex items-center justify-center py-8">
-            <span className="text-[15px] text-[var(--color-text-tertiary)]">
-              Loading...
-            </span>
-          </div>
-        )}
-
-        {!loading && messages.length === 0 && (
-          <div className="flex items-center justify-center py-16">
-            <div className="text-center">
-              <div className="text-[15px] font-medium text-[var(--color-accent)] mb-1">
-                # All
-              </div>
-              <div className="text-[14px] text-[var(--color-text-tertiary)]">
-                Message your team — the right agents will respond
-              </div>
-            </div>
-          </div>
-        )}
-
-        {messages.map((m, i) => renderMessage(m, i))}
-
-        {streaming && renderStreamingBubbles()}
+        <GroupMessageList
+          messages={messages}
+          agents={agents}
+          loading={loading}
+          loadingMore={loadingMore}
+          streaming={streaming}
+          streamText={streamText}
+        />
 
         <div ref={endRef} />
       </div>
 
-      {/* Input — fixed on mobile, in-flow on desktop */}
-      <div
-        className="fixed bottom-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 bg-[var(--color-surface)] px-3 pt-2 pb-[max(16px,env(safe-area-inset-bottom))] md:px-5 md:pb-5"
-      >
-        <div className="relative">
-          {/* @mention dropdown */}
-          {mentionOpen && filteredMentionAgents.length > 0 && (
-            <MentionDropdown
-              agents={agents}
-              filter={mentionFilter}
-              onSelect={insertMention}
-              selectedIndex={mentionIndex}
-            />
-          )}
-
-          <div className="flex gap-2 items-end bg-[var(--color-input-bg)] rounded-xl pl-4 pr-1.5 py-1.5 border border-[var(--color-border)]">
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              onBlur={() => {
-                // Delay so dropdown click registers first
-                setTimeout(() => setMentionOpen(false), 150);
-              }}
-              placeholder="Message #All... (@ to mention)"
-              rows={1}
-              className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[15px] outline-none py-2 resize-none leading-relaxed"
-              style={{ maxHeight: 120 }}
-            />
-            <button
-              onClick={send}
-              disabled={!canSend}
-              className="w-9 h-9 rounded-lg border-none shrink-0 flex items-center justify-center transition-all duration-150 mb-0.5"
-              style={{
-                background: canSend ? "var(--color-accent)" : "transparent",
-                color: canSend ? "#fff" : "var(--color-text-tertiary)",
-                cursor: canSend ? "pointer" : "default",
-              }}
-            >
-              <SendIcon />
-            </button>
-          </div>
-        </div>
-      </div>
+      {/* Input — isolated component with own state */}
+      <GroupChatInput
+        agents={agents}
+        streaming={streaming}
+        onSend={handleSend}
+      />
     </div>
   );
 }
