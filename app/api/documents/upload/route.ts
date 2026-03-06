@@ -1,4 +1,5 @@
 import { createServerSupabase } from "@/lib/supabase-server";
+import { processDocument } from "@/lib/rag";
 import { NextResponse } from "next/server";
 
 const ALLOWED_TYPES = [
@@ -99,21 +100,25 @@ export async function POST(request: Request) {
     );
   }
 
-  // Trigger processing (fire-and-forget via internal API call)
-  const origin = request.headers.get("origin") || request.headers.get("host");
-  const protocol = origin?.startsWith("localhost") ? "http" : "https";
-  const baseUrl = origin?.startsWith("http") ? origin : `${protocol}://${origin}`;
-
-  fetch(`${baseUrl}/api/documents/process`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Cookie: request.headers.get("cookie") || "",
-    },
-    body: JSON.stringify({ document_id: doc.id }),
-  }).catch((err) => {
-    console.error("Failed to trigger processing:", err);
-  });
-
-  return NextResponse.json(doc, { status: 201 });
+  // Process document inline (extract text, chunk, embed, store)
+  try {
+    await processDocument(supabase, doc.id, storagePath);
+    // Refresh the doc to return updated status
+    const { data: updatedDoc } = await supabase
+      .from("documents")
+      .select()
+      .eq("id", doc.id)
+      .single();
+    return NextResponse.json(updatedDoc || doc, { status: 201 });
+  } catch (err) {
+    console.error("Document processing failed:", err);
+    // Document record exists with status 'error' (set by processDocument)
+    // Return it so UI shows the error state
+    const { data: errorDoc } = await supabase
+      .from("documents")
+      .select()
+      .eq("id", doc.id)
+      .single();
+    return NextResponse.json(errorDoc || doc, { status: 201 });
+  }
 }

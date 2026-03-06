@@ -114,10 +114,16 @@ export async function POST(request: Request) {
     .eq("agent_id", agent_id)
     .eq("status", "ready");
 
+  console.log(`[Chat RAG] Agent ${agent_id}: found ${agentDocs?.length || 0} ready docs`);
+
   if (agentDocs && agentDocs.length > 0) {
     documentNames = agentDocs.map((d) => d.file_name);
     try {
       ragContext = await retrieveContext(supabase, agent_id, message.trim());
+      console.log(`[Chat RAG] Retrieved ${ragContext.length} context chunks`);
+      if (ragContext.length > 0) {
+        console.log(`[Chat RAG] First chunk preview: ${ragContext[0].content.slice(0, 100)}`);
+      }
     } catch (err) {
       console.error("RAG retrieval failed:", err);
       // Continue without context — don't block the chat
@@ -127,6 +133,7 @@ export async function POST(request: Request) {
   // Stream response from Claude
   const anthropic = getAnthropicClient();
   const systemPrompt = buildSystemPrompt(agent, ragContext.length > 0 ? ragContext : undefined, documentNames.length > 0 ? documentNames : undefined);
+  console.log(`[Chat RAG] System prompt length: ${systemPrompt.length}`);
 
   const stream = anthropic.messages.stream({
     model: "claude-sonnet-4-5-20250929",
