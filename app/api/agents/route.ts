@@ -70,20 +70,23 @@ export async function PUT(request: Request) {
   }
 
   const body = await request.json();
-  const { id, name, purpose, color } = body;
+  const { id, name, purpose, color, web_search_enabled } = body;
 
   if (!id) {
     return NextResponse.json({ error: "Agent ID required" }, { status: 400 });
   }
 
+  const updates: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+  if (name !== undefined) updates.name = name.trim();
+  if (purpose !== undefined) updates.purpose = purpose.trim();
+  if (color !== undefined) updates.color = color;
+  if (web_search_enabled !== undefined) updates.web_search_enabled = web_search_enabled;
+
   const { data, error } = await supabase
     .from("agents")
-    .update({
-      name: name?.trim(),
-      purpose: purpose?.trim(),
-      color,
-      updated_at: new Date().toISOString(),
-    })
+    .update(updates)
     .eq("id", id)
     .eq("user_id", user.id)
     .select()

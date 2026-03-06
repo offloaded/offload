@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { HashIcon, GearIcon, XIcon, ClockIcon } from "./Icons";
+import { HashIcon, GearIcon, XIcon, ClockIcon, PlusIcon } from "./Icons";
 import { createClient } from "@/lib/supabase";
 import type { Agent } from "@/lib/types";
 
@@ -104,7 +104,16 @@ export function SidebarContent({
 
         <div className="flex-1" />
 
-        <div className="py-1 border-t border-[var(--color-border-light)] mt-2 pt-3">
+        <div className="py-1 border-t border-[var(--color-border-light)] mt-2 pt-3 flex flex-col gap-0.5">
+          <Link
+            href="/settings/new"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-lg w-full text-[14px] no-underline transition-colors font-medium border border-dashed border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)]"
+          >
+            <span className="opacity-70">
+              <PlusIcon />
+            </span>
+            <span>Create agent</span>
+          </Link>
           <NavItem
             href="/settings"
             isActive={pathname.startsWith("/settings")}

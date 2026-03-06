@@ -4,6 +4,7 @@ export interface Agent {
   name: string;
   purpose: string;
   color: string;
+  web_search_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -34,4 +35,18 @@ export interface Message {
   content: string;
   routed_to: string | null;
   created_at: string;
+}
+
+export interface ScheduledTask {
+  id: string;
+  user_id: string;
+  agent_id: string;
+  instruction: string;
+  cron: string;
+  timezone: string;
+  enabled: boolean;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  created_at: string;
+  updated_at: string;
 }

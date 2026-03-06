@@ -6,10 +6,17 @@ import {
 
 // ─── In-flight streaming state ───
 
+export interface ScheduleRequest {
+  instruction: string;
+  cron: string;
+  timezone: string;
+}
+
 interface InflightState {
   streaming: boolean;
   streamText: string;
   conversationId: string | null;
+  scheduleRequest: ScheduleRequest | null;
 }
 
 type Listener = (state: InflightState) => void;
@@ -25,7 +32,7 @@ function getOrCreate(chatId: string): InflightEntry {
   let entry = inflights.get(chatId);
   if (!entry) {
     entry = {
-      state: { streaming: false, streamText: "", conversationId: null },
+      state: { streaming: false, streamText: "", conversationId: null, scheduleRequest: null },
       listeners: new Set(),
     };
     inflights.set(chatId, entry);
@@ -55,13 +62,13 @@ export function getInflightState(chatId: string): InflightState {
   const entry = inflights.get(chatId);
   return entry
     ? { ...entry.state }
-    : { streaming: false, streamText: "", conversationId: null };
+    : { streaming: false, streamText: "", conversationId: null, scheduleRequest: null };
 }
 
 export function resetInflight(chatId: string) {
   const entry = inflights.get(chatId);
   if (entry) {
-    entry.state = { streaming: false, streamText: "", conversationId: null };
+    entry.state = { streaming: false, streamText: "", conversationId: null, scheduleRequest: null };
     notify(chatId);
   }
 }
@@ -75,7 +82,7 @@ export function sendDM(
   conversationId: string | null
 ) {
   const entry = getOrCreate(chatId);
-  entry.state = { streaming: true, streamText: "", conversationId };
+  entry.state = { streaming: true, streamText: "", conversationId, scheduleRequest: null };
 
   // Add user message to cache BEFORE notifying so subscribers see it
   const userMsg: ChatMessage = {
@@ -142,6 +149,13 @@ async function _streamDM(
             fullText += event.text;
             entry.state.streamText = fullText;
             notify(chatId);
+          } else if (event.type === "schedule_request") {
+            entry.state.scheduleRequest = {
+              instruction: event.instruction,
+              cron: event.cron,
+              timezone: event.timezone,
+            };
+            notify(chatId);
           } else if (event.type === "error") {
             throw new Error(event.error);
           }
@@ -185,7 +199,7 @@ export function sendGroup(
   mentions: string[]
 ) {
   const entry = getOrCreate(chatId);
-  entry.state = { streaming: true, streamText: "", conversationId };
+  entry.state = { streaming: true, streamText: "", conversationId, scheduleRequest: null };
 
   // Add user message to cache BEFORE notifying so subscribers see it
   const userMsg: ChatMessage = {

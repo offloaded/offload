@@ -1,6 +1,7 @@
 import { createServerSupabase } from "@/lib/supabase-server";
 import { getAnthropicClient, buildSystemPrompt } from "@/lib/anthropic";
 import { retrieveContext, type RetrievedChunk } from "@/lib/rag";
+import { webSearch, formatSearchResults } from "@/lib/web-search";
 
 export async function POST(request: Request) {
   const supabase = await createServerSupabase();
@@ -116,9 +117,30 @@ export async function POST(request: Request) {
     }
   }
 
+  // Web search if enabled
+  let webSearchResults: string | undefined;
+  if (agent.web_search_enabled) {
+    try {
+      const results = await webSearch(message.trim(), 5);
+      if (results.length > 0) {
+        webSearchResults = formatSearchResults(results);
+      }
+    } catch (err) {
+      console.error("[Chat] Web search failed:", err);
+    }
+  }
+
   // Stream response from Claude
   const anthropic = getAnthropicClient();
-  const systemPrompt = buildSystemPrompt(agent, ragContext.length > 0 ? ragContext : undefined, documentNames.length > 0 ? documentNames : undefined);
+  const systemPrompt = buildSystemPrompt(
+    agent,
+    ragContext.length > 0 ? ragContext : undefined,
+    documentNames.length > 0 ? documentNames : undefined,
+    {
+      enableScheduleDetection: true,
+      webSearchResults,
+    }
+  );
   console.log(`[Chat RAG] System prompt length: ${systemPrompt.length}`);
 
   const stream = anthropic.messages.stream({
@@ -163,6 +185,23 @@ export async function POST(request: Request) {
           role: "assistant",
           content: fullResponse,
         });
+
+        // Detect schedule_request in response
+        const scheduleMatch = fullResponse.match(
+          /```schedule_request\s*\n([\s\S]*?)\n```/
+        );
+        if (scheduleMatch) {
+          try {
+            const schedule = JSON.parse(scheduleMatch[1]);
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: "schedule_request", ...schedule })}\n\n`
+              )
+            );
+          } catch {
+            // Invalid JSON in schedule block — ignore
+          }
+        }
 
         controller.enqueue(
           encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`)
