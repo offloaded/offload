@@ -47,7 +47,7 @@ const MessageRow = memo(function MessageRow({
                 {time}
               </span>
             </div>
-            <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap">
+            <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words">
               {text}
             </div>
           </div>
@@ -71,7 +71,7 @@ const MessageRow = memo(function MessageRow({
               {time}
             </span>
           </div>
-          <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap">
+          <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words">
             {text}
           </div>
         </div>
@@ -103,7 +103,7 @@ function TypingRow({
                   {agent.name}
                 </span>
               </div>
-              <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap">
+              <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words">
                 {streamText}
                 <span className="inline-block w-0.5 h-4 bg-[var(--color-text-tertiary)] ml-0.5 align-middle animate-[typing-dot_1s_steps(2)_infinite]" />
               </div>
@@ -448,7 +448,7 @@ export function ChatView({
       {/* Messages — padded for fixed header/input on mobile */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto pt-[52px] pb-[72px] md:pt-4 md:pb-2 min-h-0"
+        className="flex-1 overflow-y-auto overflow-x-hidden pt-[52px] pb-[72px] md:pt-4 md:pb-2 min-h-0"
       >
         <div ref={sentinelRef} className="h-1" />
 

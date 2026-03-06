@@ -39,7 +39,7 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--color-bg)] flex items-center justify-center px-4">
+    <div className="min-h-screen bg-[var(--color-bg)] flex items-center justify-center px-4 overflow-x-hidden">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <h1 className="text-xl font-bold text-[var(--color-text)] tracking-tight mb-1">

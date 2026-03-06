@@ -255,8 +255,8 @@ export default function AgentEditorPage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[600px] p-4 md:px-10 md:pt-5 md:pb-8">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden">
+        <div className="max-w-[600px] w-full p-4 md:px-10 md:pt-5 md:pb-8">
           {error && (
             <div className="mb-5 text-[14px] text-[var(--color-red)] bg-[var(--color-red-soft)] px-3.5 py-2.5 rounded-lg">
               {error}
