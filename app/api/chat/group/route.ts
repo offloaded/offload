@@ -42,35 +42,22 @@ export async function POST(request: Request) {
     );
   }
 
-  // Get or create group conversation (agent_id = null for group)
+  // Use existing conversation or create a new one
   let convId = conversation_id;
   if (!convId) {
-    const { data: existing } = await supabase
+    const { data: newConv, error: convError } = await supabase
       .from("conversations")
+      .insert({ user_id: user.id, agent_id: null })
       .select("id")
-      .eq("user_id", user.id)
-      .is("agent_id", null)
-      .order("created_at", { ascending: false })
-      .limit(1)
       .single();
 
-    if (existing) {
-      convId = existing.id;
-    } else {
-      const { data: newConv, error: convError } = await supabase
-        .from("conversations")
-        .insert({ user_id: user.id, agent_id: null })
-        .select("id")
-        .single();
-
-      if (convError || !newConv) {
-        return new Response(
-          JSON.stringify({ error: "Failed to create conversation" }),
-          { status: 500 }
-        );
-      }
-      convId = newConv.id;
+    if (convError || !newConv) {
+      return new Response(
+        JSON.stringify({ error: "Failed to create conversation" }),
+        { status: 500 }
+      );
     }
+    convId = newConv.id;
   }
 
   // Save the user message

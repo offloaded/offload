@@ -50,6 +50,14 @@ export function prependMessages(
   }
 }
 
+export function clearCache(chatId: string) {
+  cache.delete(chatId);
+}
+
+export function clearAllCaches() {
+  cache.clear();
+}
+
 // Preload a single chat by agent_id (use "group" for group chat)
 async function preloadChat(agentId: string): Promise<void> {
   const chatId = agentId === "group" ? "group" : `agent:${agentId}`;

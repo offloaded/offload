@@ -58,6 +58,14 @@ export function getInflightState(chatId: string): InflightState {
     : { streaming: false, streamText: "", conversationId: null };
 }
 
+export function resetInflight(chatId: string) {
+  const entry = inflights.get(chatId);
+  if (entry) {
+    entry.state = { streaming: false, streamText: "", conversationId: null };
+    notify(chatId);
+  }
+}
+
 // ─── Send DM (agent chat) ───
 
 export function sendDM(
@@ -68,15 +76,15 @@ export function sendDM(
 ) {
   const entry = getOrCreate(chatId);
   entry.state = { streaming: true, streamText: "", conversationId };
-  notify(chatId);
 
-  // Add user message to cache immediately
+  // Add user message to cache BEFORE notifying so subscribers see it
   const userMsg: ChatMessage = {
     role: "user",
     content: message,
     created_at: new Date().toISOString(),
   };
   updateMessages(chatId, (prev) => [...prev, userMsg]);
+  notify(chatId);
 
   // Fire and forget — runs in background
   _streamDM(chatId, agentId, message, conversationId).catch(() => {});
@@ -178,14 +186,15 @@ export function sendGroup(
 ) {
   const entry = getOrCreate(chatId);
   entry.state = { streaming: true, streamText: "", conversationId };
-  notify(chatId);
 
+  // Add user message to cache BEFORE notifying so subscribers see it
   const userMsg: ChatMessage = {
     role: "user",
     content: message,
     created_at: new Date().toISOString(),
   };
   updateMessages(chatId, (prev) => [...prev, userMsg]);
+  notify(chatId);
 
   _streamGroup(chatId, message, conversationId, mentions).catch(() => {});
 }

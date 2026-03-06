@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { HashIcon, GearIcon, XIcon } from "./Icons";
+import { HashIcon, GearIcon, XIcon, ClockIcon } from "./Icons";
 import { createClient } from "@/lib/supabase";
 import type { Agent } from "@/lib/types";
 
@@ -63,11 +63,17 @@ export function SidebarContent({
             Channels
           </span>
         </div>
-        <NavItem href="/chat" isActive={pathname === "/chat"}>
+        <NavItem href="/chat" isActive={pathname === "/chat" || pathname.startsWith("/chat?")}>
           <span className="opacity-60">
             <HashIcon />
           </span>
           <span># All</span>
+        </NavItem>
+        <NavItem href="/history" isActive={pathname === "/history"}>
+          <span className="opacity-60">
+            <ClockIcon />
+          </span>
+          <span>History</span>
         </NavItem>
 
         {agents.length > 0 && (

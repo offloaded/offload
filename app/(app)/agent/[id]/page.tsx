@@ -1,13 +1,15 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useApp } from "../../layout";
 import { ChatView } from "@/components/ChatView";
 
 export default function AgentChatPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const { agents, openDrawer } = useApp();
   const agent = agents.find((a) => a.id === params.id);
+  const conversationId = searchParams.get("c") || undefined;
 
   if (!agent && agents.length > 0) {
     return (
@@ -20,6 +22,10 @@ export default function AgentChatPage() {
   if (!agent) return null;
 
   return (
-    <ChatView agent={agent} openDrawer={openDrawer} />
+    <ChatView
+      agent={agent}
+      openDrawer={openDrawer}
+      initialConversationId={conversationId}
+    />
   );
 }

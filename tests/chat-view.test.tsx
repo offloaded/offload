@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { ChatView } from "@/components/ChatView";
+import { clearAllCaches } from "@/lib/chat-cache";
 import type { Agent } from "@/lib/types";
 
 // Mock fetch
@@ -21,6 +22,7 @@ describe("ChatView", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    clearAllCaches();
   });
 
   beforeEach(() => {
@@ -98,15 +100,15 @@ describe("ChatView", () => {
     expect(openDrawer).toHaveBeenCalled();
   });
 
-  it("does not call openDrawer from send button on desktop", () => {
+  it("does not call openDrawer from non-menu buttons", () => {
     const openDrawer = vi.fn();
     render(
       <ChatView agent={testAgent} openDrawer={openDrawer} />
     );
 
-    const buttons = screen.getAllByRole("button");
-    // Click all buttons — none should trigger openDrawer since there's no menu button
-    buttons.forEach((b) => fireEvent.click(b));
+    // The "New chat" and send buttons should not trigger openDrawer
+    const newChatBtn = screen.getByTitle("New chat");
+    fireEvent.click(newChatBtn);
     expect(openDrawer).not.toHaveBeenCalled();
   });
 

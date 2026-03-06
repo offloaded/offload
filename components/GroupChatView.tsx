@@ -2,15 +2,16 @@
 
 import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { Avatar } from "./Avatar";
-import { SendIcon, MenuIcon, HashIcon } from "./Icons";
+import { SendIcon, MenuIcon, HashIcon, NewChatIcon } from "./Icons";
 import type { Agent, Message } from "@/lib/types";
 import {
   getCached,
   setCache,
   prependMessages,
+  clearCache,
   type ChatMessage,
 } from "@/lib/chat-cache";
-import { sendGroup, subscribe, getInflightState } from "@/lib/inflight";
+import { sendGroup, subscribe, getInflightState, resetInflight } from "@/lib/inflight";
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -482,15 +483,18 @@ function GroupChatInput({
   );
 }
 
-const CHAT_ID = "group";
-
 export function GroupChatView({
   agents,
   openDrawer,
+  initialConversationId,
 }: {
   agents: Agent[];
   openDrawer: () => void;
+  initialConversationId?: string | null;
 }) {
+  const CHAT_ID = initialConversationId
+    ? `conv:${initialConversationId}`
+    : "group";
   const cached = getCached(CHAT_ID);
   const inflight = getInflightState(CHAT_ID);
 
@@ -498,7 +502,7 @@ export function GroupChatView({
   const [streaming, setStreaming] = useState(inflight.streaming);
   const [streamText, setStreamText] = useState(inflight.streamText);
   const [conversationId, setConversationId] = useState<string | null>(
-    inflight.conversationId || (cached?.conversationId ?? null)
+    inflight.conversationId || (cached?.conversationId ?? initialConversationId ?? null)
   );
   const [loading, setLoading] = useState(!cached);
   const [hasMore, setHasMore] = useState(cached?.hasMore ?? false);
@@ -539,9 +543,12 @@ export function GroupChatView({
 
     setLoading(true);
     setMessages([]);
-    setConversationId(null);
+    setConversationId(initialConversationId ?? null);
 
-    fetch("/api/conversations?agent_id=group")
+    const url = initialConversationId
+      ? `/api/conversations?conversation_id=${initialConversationId}`
+      : "/api/conversations?agent_id=group";
+    fetch(url)
       .then((r) => (r.ok ? r.json() : { messages: [] }))
       .then((data) => {
         const convId = data.conversation_id || null;
@@ -559,7 +566,7 @@ export function GroupChatView({
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [CHAT_ID, initialConversationId]);
 
   // Scroll to bottom — instant on first render, smooth on subsequent updates
   useEffect(() => {
@@ -599,7 +606,7 @@ export function GroupChatView({
 
     try {
       const res = await fetch(
-        `/api/conversations?agent_id=group&before=${encodeURIComponent(oldest)}`
+        `/api/conversations?conversation_id=${conversationId}&before=${encodeURIComponent(oldest)}`
       );
       if (!res.ok) return;
       const data = await res.json();
@@ -629,7 +636,16 @@ export function GroupChatView({
 
   const handleSend = useCallback((text: string, mentions: string[]) => {
     sendGroup(CHAT_ID, text, conversationIdRef.current, mentions);
-  }, []);
+  }, [CHAT_ID]);
+
+  const handleNewChat = useCallback(() => {
+    clearCache(CHAT_ID);
+    resetInflight(CHAT_ID);
+    if (initialConversationId) {
+      clearCache("group");
+    }
+    window.location.href = "/chat";
+  }, [CHAT_ID, initialConversationId]);
 
   return (
     <div className="flex-1 flex flex-col bg-[var(--color-surface)] overflow-hidden">
@@ -649,9 +665,17 @@ export function GroupChatView({
         <span className="text-[16px] font-semibold text-[var(--color-text)]">
           All
         </span>
-        <span className="text-[13px] text-[var(--color-text-tertiary)]">
+        <span className="text-[13px] text-[var(--color-text-tertiary)] flex-1">
           {agents.length} agent{agents.length !== 1 ? "s" : ""}
         </span>
+        <button
+          onClick={handleNewChat}
+          className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-1 flex items-center gap-1.5 hover:text-[var(--color-text-secondary)] transition-colors"
+          title="New chat"
+        >
+          <NewChatIcon />
+          <span className="text-[13px] font-medium hidden md:inline">New chat</span>
+        </button>
       </div>
 
       {/* Messages — padded for fixed header/input on mobile */}
