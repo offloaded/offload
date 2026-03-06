@@ -34,7 +34,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden">
         <div className="max-w-[520px] p-4 pt-3 md:px-10 md:pt-5 md:pb-8">
           {agents.length === 0 && (
             <div className="py-10 px-5 text-center">

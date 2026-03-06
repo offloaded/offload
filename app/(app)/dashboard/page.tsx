@@ -8,7 +8,7 @@ export default function DashboardPage() {
   const { agents } = useApp();
 
   return (
-    <div className="flex-1 overflow-auto bg-[var(--color-surface)]">
+    <div className="flex-1 overflow-x-hidden overflow-y-auto bg-[var(--color-surface)]">
       <div className="py-8 px-10 max-w-[720px] max-md:p-4">
         <h1 className="text-[18px] font-semibold text-[var(--color-text)] mb-6">
           Dashboard

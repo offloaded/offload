@@ -77,7 +77,7 @@ const AgentMessage = memo(function AgentMessage({
               {time}
             </span>
           </div>
-          <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap">
+          <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words">
             {text}
           </div>
         </div>
@@ -108,7 +108,7 @@ const UserMessage = memo(function UserMessage({
               {time}
             </span>
           </div>
-          <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap">
+          <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words">
             {text}
           </div>
         </div>
@@ -148,7 +148,7 @@ function MentionDropdown({
   if (filtered.length === 0) return null;
 
   return (
-    <div className="absolute bottom-full left-0 right-0 mb-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-lg overflow-hidden z-50 max-h-[200px] overflow-y-auto">
+    <div className="absolute bottom-full left-0 right-0 mb-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-lg overflow-hidden z-50 max-h-[200px] overflow-y-auto max-w-full">
       {filtered.map((a, i) => (
         <button
           key={a.id}
@@ -156,7 +156,7 @@ function MentionDropdown({
             e.preventDefault();
             onSelect(a);
           }}
-          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left border-none cursor-pointer transition-colors"
+          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left border-none cursor-pointer transition-colors min-w-0"
           style={{
             background:
               i === selectedIndex
@@ -229,7 +229,7 @@ const GroupMessageList = memo(function GroupMessageList({
         key={msg.id || idx}
         className="px-4 py-2 md:px-6"
       >
-        <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap max-w-[720px]">
+        <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words max-w-[720px]">
           {msg.content}
         </div>
       </div>
@@ -269,7 +269,7 @@ const GroupMessageList = memo(function GroupMessageList({
 
     return (
       <div className="px-4 py-2 md:px-6">
-        <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap max-w-[720px]">
+        <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words max-w-[720px]">
           {streamText}
           <span className="inline-block w-0.5 h-4 bg-[var(--color-text-tertiary)] ml-0.5 align-middle animate-[typing-dot_1s_steps(2)_infinite]" />
         </div>
@@ -657,7 +657,7 @@ export function GroupChatView({
       {/* Messages — padded for fixed header/input on mobile */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto pt-[52px] pb-[72px] md:pt-4 md:pb-2 min-h-0"
+        className="flex-1 overflow-y-auto overflow-x-hidden pt-[52px] pb-[72px] md:pt-4 md:pb-2 min-h-0"
       >
         <div ref={sentinelRef} className="h-1" />
 
