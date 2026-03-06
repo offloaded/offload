@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { HashIcon, GearIcon, XIcon } from "./Icons";
+import { createClient } from "@/lib/supabase";
 import type { Agent } from "@/lib/types";
 
 function NavItem({
@@ -119,8 +120,28 @@ export function SidebarContent({
             Nick&apos;s Business
           </div>
         </div>
+        <LogOutButton />
       </div>
     </>
+  );
+}
+
+function LogOutButton() {
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/auth");
+  };
+
+  return (
+    <button
+      onClick={handleLogout}
+      className="w-full mt-2 px-2.5 py-2 bg-transparent border-none text-[13px] text-[var(--color-text-tertiary)] cursor-pointer text-left hover:text-[var(--color-text-secondary)] transition-colors"
+    >
+      Log out
+    </button>
   );
 }
 

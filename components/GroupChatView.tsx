@@ -7,11 +7,10 @@ import type { Agent, Message } from "@/lib/types";
 import {
   getCached,
   setCache,
-  updateMessages,
-  setConversationId as setCachedConvId,
   prependMessages,
   type ChatMessage,
 } from "@/lib/chat-cache";
+import { sendGroup, subscribe, getInflightState } from "@/lib/inflight";
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -181,6 +180,11 @@ function MentionDropdown({
   );
 }
 
+function autoResize(el: HTMLTextAreaElement) {
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, 120) + "px";
+}
+
 const CHAT_ID = "group";
 
 export function GroupChatView({
@@ -191,12 +195,15 @@ export function GroupChatView({
   openDrawer: () => void;
 }) {
   const cached = getCached(CHAT_ID);
+  const inflight = getInflightState(CHAT_ID);
 
   const [messages, setMessages] = useState<ChatMessage[]>(cached?.messages || []);
   const [input, setInput] = useState("");
-  const [streaming, setStreaming] = useState(false);
-  const [streamText, setStreamText] = useState("");
-  const [conversationId, setConversationId] = useState<string | null>(cached?.conversationId ?? null);
+  const [streaming, setStreaming] = useState(inflight.streaming);
+  const [streamText, setStreamText] = useState(inflight.streamText);
+  const [conversationId, setConversationId] = useState<string | null>(
+    inflight.conversationId || (cached?.conversationId ?? null)
+  );
   const [loading, setLoading] = useState(!cached);
   const [hasMore, setHasMore] = useState(cached?.hasMore ?? false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -207,8 +214,23 @@ export function GroupChatView({
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const initialScrollDone = useRef(false);
+
+  // Subscribe to inflight state changes (background streaming)
+  useEffect(() => {
+    return subscribe(CHAT_ID, (state) => {
+      setStreaming(state.streaming);
+      setStreamText(state.streamText);
+      if (state.conversationId) {
+        setConversationId(state.conversationId);
+      }
+      const c = getCached(CHAT_ID);
+      if (c) {
+        setMessages(c.messages);
+      }
+    });
+  }, []);
 
   // Fetch initial messages (skip if cached)
   useEffect(() => {
@@ -216,7 +238,7 @@ export function GroupChatView({
 
     if (cached) {
       setMessages(cached.messages);
-      setConversationId(cached.conversationId);
+      setConversationId(inflight.conversationId || cached.conversationId);
       setHasMore(cached.hasMore);
       setLoading(false);
       return;
@@ -226,8 +248,6 @@ export function GroupChatView({
     setMessages([]);
     setConversationId(null);
     setInput("");
-    setStreaming(false);
-    setStreamText("");
 
     fetch("/api/conversations?agent_id=group")
       .then((r) => (r.ok ? r.json() : { messages: [] }))
@@ -315,109 +335,20 @@ export function GroupChatView({
     }
   }, [loadingMore, conversationId, messages]);
 
-  const send = useCallback(async () => {
+  const send = useCallback(() => {
     const text = input.trim();
     if (!text || streaming) return;
 
     const mentions = extractMentions(text, agents);
 
-    const userMsg: ChatMessage = {
-      role: "user",
-      content: text,
-      created_at: new Date().toISOString(),
-    };
-    setMessages((prev) => {
-      const next = [...prev, userMsg];
-      updateMessages(CHAT_ID, () => next);
-      return next;
-    });
     setInput("");
     setMentionOpen(false);
-    setStreaming(true);
-    setStreamText("");
-
-    try {
-      const res = await fetch("/api/chat/group", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          conversation_id: conversationId,
-          ...(mentions.length > 0 ? { mentions } : {}),
-        }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || `Chat failed (${res.status})`);
-      }
-
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error("No response stream");
-
-      const decoder = new TextDecoder();
-      let fullText = "";
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const jsonStr = line.slice(6);
-          try {
-            const event = JSON.parse(jsonStr);
-            if (event.type === "conversation_id") {
-              setConversationId(event.conversation_id);
-              setCachedConvId(CHAT_ID, event.conversation_id);
-            } else if (event.type === "text") {
-              fullText += event.text;
-              setStreamText(fullText);
-            } else if (event.type === "error") {
-              throw new Error(event.error);
-            }
-          } catch (e) {
-            if (e instanceof SyntaxError) continue;
-            throw e;
-          }
-        }
-      }
-
-      if (fullText) {
-        const assistantMsg: ChatMessage = {
-          role: "assistant",
-          content: fullText,
-          created_at: new Date().toISOString(),
-        };
-        setMessages((prev) => {
-          const next = [...prev, assistantMsg];
-          updateMessages(CHAT_ID, () => next);
-          return next;
-        });
-      }
-    } catch (err) {
-      const errorMsg =
-        err instanceof Error ? err.message : "Something went wrong";
-      const errChatMsg: ChatMessage = {
-        role: "assistant",
-        content: `Error: ${errorMsg}`,
-        created_at: new Date().toISOString(),
-      };
-      setMessages((prev) => {
-        const next = [...prev, errChatMsg];
-        updateMessages(CHAT_ID, () => next);
-        return next;
-      });
-    } finally {
-      setStreaming(false);
-      setStreamText("");
-      inputRef.current?.focus();
+    if (inputRef.current) {
+      inputRef.current.style.height = "auto";
     }
+
+    // Delegate to inflight module — runs in background, survives navigation
+    sendGroup(CHAT_ID, text, conversationId, mentions);
   }, [input, streaming, conversationId, agents]);
 
   const filteredMentionAgents = mentionOpen
@@ -446,23 +377,24 @@ export function GroupChatView({
           const pos = before.length + agent.name.length + 2; // @Name + space
           el.focus();
           el.setSelectionRange(pos, pos);
+          autoResize(el);
         }
       });
     },
     [input, mentionStart, mentionFilter]
   );
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     const cursorPos = e.target.selectionStart || val.length;
     setInput(val);
+    autoResize(e.target);
 
     // Detect @ mention trigger
     const textBeforeCursor = val.slice(0, cursorPos);
     const atIndex = textBeforeCursor.lastIndexOf("@");
-    if (atIndex >= 0 && (atIndex === 0 || textBeforeCursor[atIndex - 1] === " ")) {
+    if (atIndex >= 0 && (atIndex === 0 || textBeforeCursor[atIndex - 1] === " " || textBeforeCursor[atIndex - 1] === "\n")) {
       const query = textBeforeCursor.slice(atIndex + 1);
-      // Only show dropdown if query has no spaces beyond agent names or is short
       if (!query.includes("\n") && query.length <= 30) {
         setMentionOpen(true);
         setMentionFilter(query);
@@ -667,8 +599,8 @@ export function GroupChatView({
             />
           )}
 
-          <div className="flex gap-2 items-center bg-[var(--color-input-bg)] rounded-xl pl-4 pr-1.5 py-1.5 border border-[var(--color-border)]">
-            <input
+          <div className="flex gap-2 items-end bg-[var(--color-input-bg)] rounded-xl pl-4 pr-1.5 py-1.5 border border-[var(--color-border)]">
+            <textarea
               ref={inputRef}
               value={input}
               onChange={handleInputChange}
@@ -678,12 +610,14 @@ export function GroupChatView({
                 setTimeout(() => setMentionOpen(false), 150);
               }}
               placeholder="Message #All... (@ to mention)"
-              className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[15px] outline-none py-2"
+              rows={1}
+              className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[15px] outline-none py-2 resize-none leading-relaxed"
+              style={{ maxHeight: 120 }}
             />
             <button
               onClick={send}
               disabled={!canSend}
-              className="w-9 h-9 rounded-lg border-none shrink-0 flex items-center justify-center transition-all duration-150"
+              className="w-9 h-9 rounded-lg border-none shrink-0 flex items-center justify-center transition-all duration-150 mb-0.5"
               style={{
                 background: canSend ? "var(--color-accent)" : "transparent",
                 color: canSend ? "#fff" : "var(--color-text-tertiary)",

@@ -7,11 +7,10 @@ import type { Agent, Message } from "@/lib/types";
 import {
   getCached,
   setCache,
-  updateMessages,
-  setConversationId as setCachedConvId,
   prependMessages,
   type ChatMessage,
 } from "@/lib/chat-cache";
+import { sendDM, subscribe, getInflightState } from "@/lib/inflight";
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -131,6 +130,11 @@ function TypingRow({
 export { MessageRow, TypingRow };
 export type { ChatMessage };
 
+function autoResize(el: HTMLTextAreaElement) {
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, 120) + "px";
+}
+
 export function ChatView({
   agent,
   openDrawer,
@@ -140,20 +144,39 @@ export function ChatView({
 }) {
   const chatId = `agent:${agent.id}`;
   const cached = getCached(chatId);
+  const inflight = getInflightState(chatId);
 
   const [messages, setMessages] = useState<ChatMessage[]>(cached?.messages || []);
   const [input, setInput] = useState("");
-  const [streaming, setStreaming] = useState(false);
-  const [streamText, setStreamText] = useState("");
-  const [conversationId, setConversationId] = useState<string | null>(cached?.conversationId ?? null);
+  const [streaming, setStreaming] = useState(inflight.streaming);
+  const [streamText, setStreamText] = useState(inflight.streamText);
+  const [conversationId, setConversationId] = useState<string | null>(
+    inflight.conversationId || (cached?.conversationId ?? null)
+  );
   const [loading, setLoading] = useState(!cached);
   const [hasMore, setHasMore] = useState(cached?.hasMore ?? false);
   const [loadingMore, setLoadingMore] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const initialScrollDone = useRef(false);
+
+  // Subscribe to inflight state changes (background streaming)
+  useEffect(() => {
+    return subscribe(chatId, (state) => {
+      setStreaming(state.streaming);
+      setStreamText(state.streamText);
+      if (state.conversationId) {
+        setConversationId(state.conversationId);
+      }
+      // Sync messages from cache when streaming state changes
+      const c = getCached(chatId);
+      if (c) {
+        setMessages(c.messages);
+      }
+    });
+  }, [chatId]);
 
   // Fetch initial messages (skip if cached)
   useEffect(() => {
@@ -161,7 +184,7 @@ export function ChatView({
 
     if (cached) {
       setMessages(cached.messages);
-      setConversationId(cached.conversationId);
+      setConversationId(inflight.conversationId || cached.conversationId);
       setHasMore(cached.hasMore);
       setLoading(false);
       return;
@@ -171,8 +194,6 @@ export function ChatView({
     setMessages([]);
     setConversationId(null);
     setInput("");
-    setStreaming(false);
-    setStreamText("");
 
     fetch(`/api/conversations?agent_id=${agent.id}`)
       .then((r) => (r.ok ? r.json() : { messages: [] }))
@@ -260,106 +281,17 @@ export function ChatView({
     }
   }, [loadingMore, conversationId, messages, agent.id, chatId]);
 
-  const send = useCallback(async () => {
+  const send = useCallback(() => {
     const text = input.trim();
     if (!text || streaming) return;
 
-    const userMsg: ChatMessage = {
-      role: "user",
-      content: text,
-      created_at: new Date().toISOString(),
-    };
-    setMessages((prev) => {
-      const next = [...prev, userMsg];
-      updateMessages(chatId, () => next);
-      return next;
-    });
     setInput("");
-    setStreaming(true);
-    setStreamText("");
-
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          agent_id: agent.id,
-          message: text,
-          conversation_id: conversationId,
-        }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || `Chat failed (${res.status})`);
-      }
-
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error("No response stream");
-
-      const decoder = new TextDecoder();
-      let fullText = "";
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const jsonStr = line.slice(6);
-          try {
-            const event = JSON.parse(jsonStr);
-            if (event.type === "conversation_id") {
-              setConversationId(event.conversation_id);
-              setCachedConvId(chatId, event.conversation_id);
-            } else if (event.type === "text") {
-              fullText += event.text;
-              setStreamText(fullText);
-            } else if (event.type === "error") {
-              throw new Error(event.error);
-            }
-          } catch (e) {
-            if (e instanceof SyntaxError) continue;
-            throw e;
-          }
-        }
-      }
-
-      if (fullText) {
-        const assistantMsg: ChatMessage = {
-          role: "assistant",
-          content: fullText,
-          created_at: new Date().toISOString(),
-        };
-        setMessages((prev) => {
-          const next = [...prev, assistantMsg];
-          updateMessages(chatId, () => next);
-          return next;
-        });
-      }
-    } catch (err) {
-      const errorMsg =
-        err instanceof Error ? err.message : "Something went wrong";
-      const errChatMsg: ChatMessage = {
-        role: "assistant",
-        content: `Error: ${errorMsg}`,
-        created_at: new Date().toISOString(),
-      };
-      setMessages((prev) => {
-        const next = [...prev, errChatMsg];
-        updateMessages(chatId, () => next);
-        return next;
-      });
-    } finally {
-      setStreaming(false);
-      setStreamText("");
-      inputRef.current?.focus();
+    if (inputRef.current) {
+      inputRef.current.style.height = "auto";
     }
+
+    // Delegate to inflight module — runs in background, survives navigation
+    sendDM(chatId, agent.id, text, conversationId);
   }, [input, streaming, agent.id, conversationId, chatId]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -367,6 +299,11 @@ export function ChatView({
       e.preventDefault();
       send();
     }
+  };
+
+  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    autoResize(e.target);
   };
 
   const canSend = input.trim() && !streaming;
@@ -453,19 +390,21 @@ export function ChatView({
       <div
         className="fixed bottom-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 bg-[var(--color-surface)] px-3 pt-2 pb-[max(16px,env(safe-area-inset-bottom))] md:px-5 md:pb-5"
       >
-        <div className="flex gap-2 items-center bg-[var(--color-input-bg)] rounded-xl pl-4 pr-1.5 py-1.5 border border-[var(--color-border)]">
-          <input
+        <div className="flex gap-2 items-end bg-[var(--color-input-bg)] rounded-xl pl-4 pr-1.5 py-1.5 border border-[var(--color-border)]">
+          <textarea
             ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={handleInput}
             onKeyDown={handleKeyDown}
             placeholder={`Message ${agent.name}...`}
-            className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[15px] outline-none py-2"
+            rows={1}
+            className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[15px] outline-none py-2 resize-none leading-relaxed"
+            style={{ maxHeight: 120 }}
           />
           <button
             onClick={send}
             disabled={!canSend}
-            className="w-9 h-9 rounded-lg border-none shrink-0 flex items-center justify-center transition-all duration-150"
+            className="w-9 h-9 rounded-lg border-none shrink-0 flex items-center justify-center transition-all duration-150 mb-0.5"
             style={{
               background: canSend ? "var(--color-accent)" : "transparent",
               color: canSend ? "#fff" : "var(--color-text-tertiary)",

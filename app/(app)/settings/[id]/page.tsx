@@ -256,7 +256,7 @@ export default function AgentEditorPage() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[520px] p-4 md:px-10 md:pt-5 md:pb-8">
+        <div className="max-w-[600px] p-4 md:px-10 md:pt-5 md:pb-8">
           {error && (
             <div className="mb-5 text-[14px] text-[var(--color-red)] bg-[var(--color-red-soft)] px-3.5 py-2.5 rounded-lg">
               {error}
@@ -316,132 +316,120 @@ export default function AgentEditorPage() {
             <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-2.5">
               Documents
             </label>
-            <div className="border border-[var(--color-border)] rounded-xl overflow-hidden">
-              {/* Active uploads */}
-              {uploads.map((u) => (
-                <div
-                  key={u.id}
-                  className="py-3 px-4 flex items-center gap-2.5 border-b border-[var(--color-border-light)]"
-                >
-                  <div className="text-[var(--color-text-tertiary)]">
-                    {u.status === "uploading" ? (
-                      <SpinnerIcon />
-                    ) : (
-                      <FileIcon />
+
+            {/* Grid of document tiles */}
+            {(uploads.length > 0 || docs.length > 0) && (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-2">
+                {/* Active uploads */}
+                {uploads.map((u) => (
+                  <div
+                    key={u.id}
+                    className="relative border border-[var(--color-border)] rounded-lg p-3 flex flex-col gap-1.5"
+                  >
+                    {(u.status === "ready" || u.status === "error") && (
+                      <button
+                        onClick={() => dismissUpload(u.id)}
+                        className="absolute top-1.5 right-1.5 bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0.5 flex hover:text-[var(--color-text)]"
+                      >
+                        <XIcon />
+                      </button>
                     )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[14px] text-[var(--color-text)]">
+                    <div className="text-[var(--color-text-tertiary)]">
+                      {u.status === "uploading" ? <SpinnerIcon /> : <FileIcon />}
+                    </div>
+                    <div className="text-[13px] text-[var(--color-text)] truncate pr-4" title={u.fileName}>
                       {u.fileName}
                     </div>
-                    <div className="text-[12px] text-[var(--color-text-tertiary)]">
+                    <div className="text-[11px] text-[var(--color-text-tertiary)]">
                       {formatSize(u.fileSize)}
+                    </div>
+                    <div className="text-[11px]">
                       {u.status === "uploading" && (
-                        <span className="ml-2 text-[var(--color-accent)]">
-                          Uploading...
-                        </span>
+                        <span className="text-[var(--color-accent)]">Uploading...</span>
                       )}
                       {u.status === "processing" && (
-                        <span className="ml-2 text-[var(--color-accent)]">
-                          Processing...
-                        </span>
+                        <span className="text-[var(--color-accent)]">Processing...</span>
                       )}
                       {u.status === "ready" && (
-                        <span className="ml-2 text-[var(--color-green)]">
-                          Ready
-                        </span>
+                        <span className="text-[var(--color-green)]">Ready</span>
                       )}
                       {u.status === "error" && (
-                        <span className="ml-2 text-[var(--color-red)]">
-                          {u.errorMessage || "Error"}
-                        </span>
+                        <span className="text-[var(--color-red)]">{u.errorMessage || "Error"}</span>
                       )}
                     </div>
                   </div>
-                  {(u.status === "ready" || u.status === "error") && (
+                ))}
+
+                {/* Existing documents */}
+                {docs.map((d) => (
+                  <div
+                    key={d.id}
+                    className="relative border border-[var(--color-border)] rounded-lg p-3 flex flex-col gap-1.5"
+                  >
                     <button
-                      onClick={() => dismissUpload(u.id)}
-                      className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0.5 flex hover:text-[var(--color-text)]"
+                      onClick={() => deleteDoc(d.id)}
+                      className="absolute top-1.5 right-1.5 bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0.5 flex hover:text-[var(--color-red)]"
                     >
                       <XIcon />
                     </button>
-                  )}
-                </div>
-              ))}
-
-              {/* Existing documents */}
-              {docs.map((d) => (
-                <div
-                  key={d.id}
-                  className="py-3 px-4 flex items-center gap-2.5 border-b border-[var(--color-border-light)]"
-                >
-                  <div className="text-[var(--color-text-tertiary)]">
-                    <FileIcon />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[14px] text-[var(--color-text)]">
+                    <div className="text-[var(--color-text-tertiary)]">
+                      <FileIcon />
+                    </div>
+                    <div className="text-[13px] text-[var(--color-text)] truncate pr-4" title={d.file_name}>
                       {d.file_name}
                     </div>
-                    <div className="text-[12px] text-[var(--color-text-tertiary)]">
+                    <div className="text-[11px] text-[var(--color-text-tertiary)]">
                       {formatSize(d.file_size)}
+                    </div>
+                    <div className="text-[11px]">
                       {d.status === "processing" && (
-                        <span className="ml-2 text-[var(--color-accent)]">
-                          Processing...
-                        </span>
+                        <span className="text-[var(--color-accent)]">Processing...</span>
                       )}
                       {d.status === "error" && (
-                        <span className="ml-2 text-[var(--color-red)]">
-                          Error
-                        </span>
+                        <span className="text-[var(--color-red)]">Error</span>
                       )}
                       {d.status === "ready" && (
-                        <span className="ml-2 text-[var(--color-green)]">
-                          Ready
-                        </span>
+                        <span className="text-[var(--color-green)]">Ready</span>
                       )}
                     </div>
                   </div>
-                  <button
-                    onClick={() => deleteDoc(d.id)}
-                    className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0.5 flex hover:text-[var(--color-red)]"
-                  >
-                    <XIcon />
-                  </button>
-                </div>
-              ))}
-              {docs.length === 0 && uploads.length === 0 && !isNew && (
-                <div className="py-3.5 px-4 text-[14px] text-[var(--color-text-tertiary)]">
-                  No documents uploaded yet
-                </div>
-              )}
-              {!isNew && (
-                <>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".pdf,.docx,.xlsx,.xls,.txt,.md,.csv"
-                    multiple
-                    onChange={handleFileChange}
-                    className="hidden"
-                  />
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={hasActiveUploads}
-                    className="w-full py-3 px-4 flex items-center gap-2 border-none bg-transparent cursor-pointer text-[var(--color-accent)] text-[14px] font-medium disabled:opacity-50"
-                  >
-                    <PlusIcon />{" "}
-                    {hasActiveUploads
-                      ? `Uploading ${uploads.filter((u) => u.status === "uploading" || u.status === "processing").length} file(s)...`
-                      : "Upload documents"}
-                  </button>
-                </>
-              )}
-              {isNew && (
-                <div className="py-3.5 px-4 text-[14px] text-[var(--color-text-tertiary)]">
-                  Save the agent first, then upload documents
-                </div>
-              )}
-            </div>
+                ))}
+              </div>
+            )}
+
+            {docs.length === 0 && uploads.length === 0 && !isNew && (
+              <div className="py-3.5 px-4 text-[14px] text-[var(--color-text-tertiary)] border border-[var(--color-border)] rounded-lg mb-2">
+                No documents uploaded yet
+              </div>
+            )}
+
+            {!isNew && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.xlsx,.xls,.txt,.md,.csv"
+                  multiple
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={hasActiveUploads}
+                  className="w-full py-2.5 px-4 flex items-center justify-center gap-2 border border-dashed border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[var(--color-accent)] text-[14px] font-medium disabled:opacity-50 hover:bg-[var(--color-hover)] transition-colors"
+                >
+                  <PlusIcon />{" "}
+                  {hasActiveUploads
+                    ? `Uploading ${uploads.filter((u) => u.status === "uploading" || u.status === "processing").length} file(s)...`
+                    : "Upload documents"}
+                </button>
+              </>
+            )}
+            {isNew && (
+              <div className="py-3.5 px-4 text-[14px] text-[var(--color-text-tertiary)] border border-[var(--color-border)] rounded-lg">
+                Save the agent first, then upload documents
+              </div>
+            )}
           </div>
 
           {/* Actions */}
