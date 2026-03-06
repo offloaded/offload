@@ -2,15 +2,16 @@
 
 import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { Avatar } from "./Avatar";
-import { SendIcon, MenuIcon } from "./Icons";
+import { SendIcon, MenuIcon, NewChatIcon } from "./Icons";
 import type { Agent, Message } from "@/lib/types";
 import {
   getCached,
   setCache,
   prependMessages,
+  clearCache,
   type ChatMessage,
 } from "@/lib/chat-cache";
-import { sendDM, subscribe, getInflightState } from "@/lib/inflight";
+import { sendDM, subscribe, getInflightState, resetInflight } from "@/lib/inflight";
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -281,11 +282,15 @@ function ChatInput({
 export function ChatView({
   agent,
   openDrawer,
+  initialConversationId,
 }: {
   agent: Agent;
   openDrawer: () => void;
+  initialConversationId?: string | null;
 }) {
-  const chatId = `agent:${agent.id}`;
+  const chatId = initialConversationId
+    ? `conv:${initialConversationId}`
+    : `agent:${agent.id}`;
   const cached = getCached(chatId);
   const inflight = getInflightState(chatId);
 
@@ -293,7 +298,7 @@ export function ChatView({
   const [streaming, setStreaming] = useState(inflight.streaming);
   const [streamText, setStreamText] = useState(inflight.streamText);
   const [conversationId, setConversationId] = useState<string | null>(
-    inflight.conversationId || (cached?.conversationId ?? null)
+    inflight.conversationId || (cached?.conversationId ?? initialConversationId ?? null)
   );
   const [loading, setLoading] = useState(!cached);
   const [hasMore, setHasMore] = useState(cached?.hasMore ?? false);
@@ -321,7 +326,7 @@ export function ChatView({
     });
   }, [chatId]);
 
-  // Fetch initial messages (skip if cached)
+  // Fetch initial messages
   useEffect(() => {
     initialScrollDone.current = false;
 
@@ -335,9 +340,14 @@ export function ChatView({
 
     setLoading(true);
     setMessages([]);
-    setConversationId(null);
+    setConversationId(initialConversationId ?? null);
 
-    fetch(`/api/conversations?agent_id=${agent.id}`)
+    // Load specific conversation or most recent for this agent
+    const url = initialConversationId
+      ? `/api/conversations?conversation_id=${initialConversationId}`
+      : `/api/conversations?agent_id=${agent.id}`;
+
+    fetch(url)
       .then((r) => (r.ok ? r.json() : { messages: [] }))
       .then((data) => {
         const convId = data.conversation_id || null;
@@ -355,7 +365,7 @@ export function ChatView({
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [agent.id, chatId]);
+  }, [agent.id, chatId, initialConversationId]);
 
   // Scroll to bottom — instant on first render, smooth on subsequent updates
   useEffect(() => {
@@ -395,7 +405,7 @@ export function ChatView({
 
     try {
       const res = await fetch(
-        `/api/conversations?agent_id=${agent.id}&before=${encodeURIComponent(oldest)}`
+        `/api/conversations?conversation_id=${conversationId}&before=${encodeURIComponent(oldest)}`
       );
       if (!res.ok) return;
       const data = await res.json();
@@ -421,11 +431,23 @@ export function ChatView({
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, conversationId, messages, agent.id, chatId]);
+  }, [loadingMore, conversationId, messages, chatId]);
 
   const handleSend = useCallback((text: string) => {
     sendDM(chatId, agent.id, text, conversationIdRef.current);
   }, [chatId, agent.id]);
+
+  const handleNewChat = useCallback(() => {
+    // Clear cache and inflight for current chat
+    clearCache(chatId);
+    resetInflight(chatId);
+    // Also clear the default agent cache so it doesn't show stale data
+    if (initialConversationId) {
+      clearCache(`agent:${agent.id}`);
+    }
+    // Navigate to agent page without conversation_id (fresh chat)
+    window.location.href = `/agent/${agent.id}`;
+  }, [chatId, agent.id, initialConversationId]);
 
   return (
     <div className="flex-1 flex flex-col bg-[var(--color-surface)] overflow-hidden">
@@ -440,9 +462,17 @@ export function ChatView({
           <MenuIcon />
         </button>
         <Avatar name={agent.name} color={agent.color} size={28} />
-        <span className="text-[16px] font-semibold text-[var(--color-text)]">
+        <span className="text-[16px] font-semibold text-[var(--color-text)] flex-1">
           {agent.name}
         </span>
+        <button
+          onClick={handleNewChat}
+          className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-1 flex items-center gap-1.5 hover:text-[var(--color-text-secondary)] transition-colors"
+          title="New chat"
+        >
+          <NewChatIcon />
+          <span className="text-[13px] font-medium hidden md:inline">New chat</span>
+        </button>
       </div>
 
       {/* Messages — padded for fixed header/input on mobile */}
