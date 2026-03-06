@@ -11,7 +11,14 @@ import {
   clearCache,
   type ChatMessage,
 } from "@/lib/chat-cache";
-import { sendDM, subscribe, getInflightState, resetInflight } from "@/lib/inflight";
+import {
+  sendDM,
+  subscribe,
+  getInflightState,
+  resetInflight,
+  type ScheduleRequest,
+} from "@/lib/inflight";
+import { CalendarIcon } from "./Icons";
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -303,6 +310,8 @@ export function ChatView({
   const [loading, setLoading] = useState(!cached);
   const [hasMore, setHasMore] = useState(cached?.hasMore ?? false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [scheduleRequest, setScheduleRequest] = useState<ScheduleRequest | null>(null);
+  const [confirmingSchedule, setConfirmingSchedule] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -317,6 +326,9 @@ export function ChatView({
       setStreamText(state.streamText);
       if (state.conversationId) {
         setConversationId(state.conversationId);
+      }
+      if (state.scheduleRequest) {
+        setScheduleRequest(state.scheduleRequest);
       }
       // Sync messages from cache when streaming state changes
       const c = getCached(chatId);
@@ -437,6 +449,30 @@ export function ChatView({
     sendDM(chatId, agent.id, text, conversationIdRef.current);
   }, [chatId, agent.id]);
 
+  const confirmSchedule = useCallback(async () => {
+    if (!scheduleRequest || confirmingSchedule) return;
+    setConfirmingSchedule(true);
+    try {
+      const res = await fetch("/api/scheduled-tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_id: agent.id,
+          instruction: scheduleRequest.instruction,
+          cron: scheduleRequest.cron,
+          timezone: scheduleRequest.timezone,
+        }),
+      });
+      if (res.ok) {
+        setScheduleRequest(null);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setConfirmingSchedule(false);
+    }
+  }, [scheduleRequest, confirmingSchedule, agent.id]);
+
   const handleNewChat = useCallback(() => {
     // Clear cache and inflight for current chat
     clearCache(chatId);
@@ -493,6 +529,41 @@ export function ChatView({
 
         <div ref={endRef} />
       </div>
+
+      {/* Schedule request banner */}
+      {scheduleRequest && (
+        <div className="shrink-0 mx-3 mb-2 md:mx-5 p-3 rounded-lg border border-[var(--color-accent)] bg-[var(--color-accent-soft)] flex items-start gap-3">
+          <span className="text-[var(--color-accent)] mt-0.5">
+            <CalendarIcon />
+          </span>
+          <div className="flex-1 min-w-0">
+            <div className="text-[13px] font-semibold text-[var(--color-text)] mb-0.5">
+              Schedule task?
+            </div>
+            <div className="text-[13px] text-[var(--color-text-secondary)]">
+              {scheduleRequest.instruction}
+            </div>
+            <div className="text-[11px] text-[var(--color-text-tertiary)] mt-0.5">
+              {scheduleRequest.cron} &middot; {scheduleRequest.timezone}
+            </div>
+            <div className="flex gap-2 mt-2">
+              <button
+                onClick={confirmSchedule}
+                disabled={confirmingSchedule}
+                className="py-1.5 px-3 rounded-md border-none text-[12px] font-semibold cursor-pointer bg-[var(--color-accent)] text-white disabled:opacity-50"
+              >
+                {confirmingSchedule ? "..." : "Confirm"}
+              </button>
+              <button
+                onClick={() => setScheduleRequest(null)}
+                className="py-1.5 px-3 rounded-md bg-transparent border border-[var(--color-border)] text-[12px] text-[var(--color-text-secondary)] cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Input — isolated component with own state */}
       <ChatInput
