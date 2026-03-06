@@ -114,12 +114,14 @@ export async function POST(request: Request) {
   }
 
   // Retrieve context for all agents with documents in parallel
-  const agentContextMap = new Map<string, { content: string; fileName: string }[]>();
+  const agentContextMap = new Map<string, { content: string; fileName: string; metadata?: { document_date?: string | null; section_heading?: string | null } }[]>();
   const retrievalPromises = agents
     .filter((a) => docsByAgent.has(a.id))
     .map(async (a) => {
+      const docCount = docsByAgent.get(a.id)?.length || 0;
+      const topK = docCount > 20 ? 25 : docCount > 5 ? 15 : 5;
       try {
-        const ctx = await retrieveContext(supabase, a.id, message.trim());
+        const ctx = await retrieveContext(supabase, a.id, message.trim(), topK);
         if (ctx.length > 0) {
           agentContextMap.set(a.id, ctx);
         }
@@ -141,7 +143,10 @@ export async function POST(request: Request) {
     if (ctx && ctx.length > 0) {
       desc += `\n  Relevant knowledge base excerpts for ${a.name}:`;
       ctx.forEach((c, i) => {
-        desc += `\n  [${i + 1}] From "${c.fileName}": ${c.content}`;
+        let header = `From "${c.fileName}"`;
+        if (c.metadata?.document_date) header += ` (${c.metadata.document_date})`;
+        if (c.metadata?.section_heading) header += ` — ${c.metadata.section_heading}`;
+        desc += `\n  [${i + 1}] ${header}: ${c.content}`;
       });
     }
     return desc;

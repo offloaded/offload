@@ -313,9 +313,16 @@ export default function AgentEditorPage() {
 
           {/* Documents */}
           <div className="mb-7">
-            <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-2.5">
-              Documents
-            </label>
+            <div className="flex items-baseline justify-between mb-2.5">
+              <label className="text-[13px] font-semibold text-[var(--color-text-secondary)]">
+                Documents
+              </label>
+              {docs.length > 0 && (
+                <span className="text-[12px] text-[var(--color-text-tertiary)]">
+                  {docs.filter((d) => d.status === "ready").length} of {docs.length} ready
+                </span>
+              )}
+            </div>
 
             {/* Grid of document tiles */}
             {(uploads.length > 0 || docs.length > 0) && (
@@ -380,13 +387,16 @@ export default function AgentEditorPage() {
                     </div>
                     <div className="text-[11px] text-[var(--color-text-tertiary)]">
                       {formatSize(d.file_size)}
+                      {d.status === "ready" && d.chunk_count != null && (
+                        <span> &middot; {d.chunk_count} chunks</span>
+                      )}
                     </div>
                     <div className="text-[11px]">
                       {d.status === "processing" && (
                         <span className="text-[var(--color-accent)]">Processing...</span>
                       )}
                       {d.status === "error" && (
-                        <span className="text-[var(--color-red)]">Error</span>
+                        <span className="text-[var(--color-red)]">Error &middot; 0 chunks</span>
                       )}
                       {d.status === "ready" && (
                         <span className="text-[var(--color-green)]">Ready</span>

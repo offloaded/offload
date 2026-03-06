@@ -16,6 +16,7 @@ export interface Document {
   storage_path: string;
   status: "processing" | "ready" | "error";
   created_at: string;
+  chunk_count?: number;
 }
 
 export interface Conversation {

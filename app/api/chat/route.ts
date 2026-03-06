@@ -1,6 +1,6 @@
 import { createServerSupabase } from "@/lib/supabase-server";
 import { getAnthropicClient, buildSystemPrompt } from "@/lib/anthropic";
-import { retrieveContext } from "@/lib/rag";
+import { retrieveContext, type RetrievedChunk } from "@/lib/rag";
 
 export async function POST(request: Request) {
   const supabase = await createServerSupabase();
@@ -104,7 +104,7 @@ export async function POST(request: Request) {
   }));
 
   // RAG: retrieve relevant document context
-  let ragContext: { content: string; fileName: string }[] = [];
+  let ragContext: RetrievedChunk[] = [];
   let documentNames: string[] = [];
 
   // Check if agent has any documents
@@ -114,16 +114,16 @@ export async function POST(request: Request) {
     .eq("agent_id", agent_id)
     .eq("status", "ready");
 
-  console.log(`[Chat RAG] Agent ${agent_id}: found ${agentDocs?.length || 0} ready docs`);
+  const docCount = agentDocs?.length || 0;
+  console.log(`[Chat RAG] Agent ${agent_id}: found ${docCount} ready docs`);
 
-  if (agentDocs && agentDocs.length > 0) {
+  if (agentDocs && docCount > 0) {
     documentNames = agentDocs.map((d) => d.file_name);
+    // Scale retrieval with document set size: 5 for small sets, up to 25 for large
+    const topK = docCount > 20 ? 25 : docCount > 5 ? 15 : 5;
     try {
-      ragContext = await retrieveContext(supabase, agent_id, message.trim());
-      console.log(`[Chat RAG] Retrieved ${ragContext.length} context chunks`);
-      if (ragContext.length > 0) {
-        console.log(`[Chat RAG] First chunk preview: ${ragContext[0].content.slice(0, 100)}`);
-      }
+      ragContext = await retrieveContext(supabase, agent_id, message.trim(), topK);
+      console.log(`[Chat RAG] Retrieved ${ragContext.length} context chunks (topK=${topK})`);
     } catch (err) {
       console.error("RAG retrieval failed:", err);
       // Continue without context — don't block the chat

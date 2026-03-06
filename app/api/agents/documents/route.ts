@@ -40,7 +40,25 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json(data);
+  // Attach chunk counts per document for status diagnostics
+  const docIds = (data || []).map((d: { id: string }) => d.id);
+  let chunkCounts: Record<string, number> = {};
+  if (docIds.length > 0) {
+    const { data: counts } = await supabase
+      .rpc("count_chunks_by_document", { doc_ids: docIds });
+    if (counts) {
+      for (const row of counts) {
+        chunkCounts[row.document_id] = row.chunk_count;
+      }
+    }
+  }
+
+  const enriched = (data || []).map((d: { id: string }) => ({
+    ...d,
+    chunk_count: chunkCounts[d.id] || 0,
+  }));
+
+  return NextResponse.json(enriched);
 }
 
 export async function DELETE(request: Request) {
