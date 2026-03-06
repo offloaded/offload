@@ -1,5 +1,5 @@
 import { createServerSupabase } from "@/lib/supabase-server";
-import { getAnthropicClient } from "@/lib/anthropic";
+import { getAnthropicClient, cleanResponse } from "@/lib/anthropic";
 import { retrieveContext } from "@/lib/rag";
 
 export async function POST(request: Request) {
@@ -160,7 +160,7 @@ IMPORTANT RULES:
 2. Respond as each relevant agent. You may have 1-3 agents respond.
 3. Format EACH agent's response on its own line, prefixed with their exact name in brackets:
    [Agent Name] Their response text here.
-4. Each agent should respond in character — concise, professional, as a colleague. Never use markdown formatting. Write in plain text as a human would in a chat message. No asterisks, no bullet points with dashes, no headers with hashes.
+4. Each agent should respond in character — concise, professional, as a colleague. CRITICAL: Never use markdown formatting. No **bold** or *italic* asterisks. No # headers. No - bullet lists. No \`code blocks\`. Write in plain conversational text like a human messaging in a chat app. Never output XML tags, tool calls, or search markup.
 5. If the message is general (like "hello"), have 1-2 agents respond naturally.
 6. If the message clearly relates to one agent's domain, only that agent responds.
 7. Do NOT add any text outside of the [Agent Name] format. Every line of your response must start with [Agent Name].
@@ -211,12 +211,24 @@ TEAM COLLABORATION:
           }
         }
 
-        // Save the complete assistant response
+        // Clean the response: strip any <search> blocks or tool markup
+        const cleaned = cleanResponse(fullResponse);
+
+        // Save the cleaned response
         await supabase.from("messages").insert({
           conversation_id: convId,
           role: "assistant",
-          content: fullResponse,
+          content: cleaned,
         });
+
+        // If cleaning changed the text, send a replace event
+        if (cleaned !== fullResponse) {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ type: "replace", text: cleaned })}\n\n`
+            )
+          );
+        }
 
         controller.enqueue(
           encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`)

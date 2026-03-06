@@ -1,5 +1,5 @@
 import { createServerSupabase } from "@/lib/supabase-server";
-import { getAnthropicClient, buildSystemPrompt } from "@/lib/anthropic";
+import { getAnthropicClient, buildSystemPrompt, cleanResponse } from "@/lib/anthropic";
 import { retrieveContext, type RetrievedChunk } from "@/lib/rag";
 import { webSearch, formatSearchResults } from "@/lib/web-search";
 
@@ -179,17 +179,30 @@ export async function POST(request: Request) {
           }
         }
 
-        // Save the complete assistant response
-        await supabase.from("messages").insert({
-          conversation_id: convId,
-          role: "assistant",
-          content: fullResponse,
-        });
-
-        // Detect schedule_request in response
+        // Detect schedule_request before cleaning
         const scheduleMatch = fullResponse.match(
           /```schedule_request\s*\n([\s\S]*?)\n```/
         );
+
+        // Clean the response: strip <search> blocks, schedule_request blocks, etc.
+        const cleaned = cleanResponse(fullResponse);
+
+        // Save the cleaned response
+        await supabase.from("messages").insert({
+          conversation_id: convId,
+          role: "assistant",
+          content: cleaned,
+        });
+
+        // If cleaning changed the text, send a replace event so the client shows clean text
+        if (cleaned !== fullResponse) {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ type: "replace", text: cleaned })}\n\n`
+            )
+          );
+        }
+
         if (scheduleMatch) {
           try {
             const schedule = JSON.parse(scheduleMatch[1]);

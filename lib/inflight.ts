@@ -3,6 +3,7 @@ import {
   setConversationId as setCachedConvId,
   type ChatMessage,
 } from "./chat-cache";
+import { cleanResponse } from "./anthropic";
 
 // ─── In-flight streaming state ───
 
@@ -147,6 +148,11 @@ async function _streamDM(
             notify(chatId);
           } else if (event.type === "text") {
             fullText += event.text;
+            entry.state.streamText = cleanResponse(fullText, true);
+            notify(chatId);
+          } else if (event.type === "replace") {
+            // Server sent the final cleaned version
+            fullText = event.text;
             entry.state.streamText = fullText;
             notify(chatId);
           } else if (event.type === "schedule_request") {
@@ -166,10 +172,11 @@ async function _streamDM(
       }
     }
 
-    if (fullText) {
+    const cleaned = cleanResponse(fullText);
+    if (cleaned) {
       const assistantMsg: ChatMessage = {
         role: "assistant",
-        content: fullText,
+        content: cleaned,
         created_at: new Date().toISOString(),
       };
       updateMessages(chatId, (prev) => [...prev, assistantMsg]);
@@ -263,6 +270,10 @@ async function _streamGroup(
             notify(chatId);
           } else if (event.type === "text") {
             fullText += event.text;
+            entry.state.streamText = cleanResponse(fullText, true);
+            notify(chatId);
+          } else if (event.type === "replace") {
+            fullText = event.text;
             entry.state.streamText = fullText;
             notify(chatId);
           } else if (event.type === "error") {
@@ -275,10 +286,11 @@ async function _streamGroup(
       }
     }
 
-    if (fullText) {
+    const cleaned = cleanResponse(fullText);
+    if (cleaned) {
       const assistantMsg: ChatMessage = {
         role: "assistant",
-        content: fullText,
+        content: cleaned,
         created_at: new Date().toISOString(),
       };
       updateMessages(chatId, (prev) => [...prev, assistantMsg]);

@@ -52,3 +52,12 @@ html, body {
     transform: translateY(-3px);
   }
 }
+
+/* PWA standalone mode: account for iOS status bar on notched iPhones.
+   Fixed-position headers need top offset, fixed-position inputs need bottom offset.
+   The pt-safe / pb-safe utilities handle this via env() safe area insets. */
+@supports (padding-top: env(safe-area-inset-top)) {
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}

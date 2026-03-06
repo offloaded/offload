@@ -1,5 +1,5 @@
 import { createServerSupabase } from "@/lib/supabase-server";
-import { getAnthropicClient, buildSystemPrompt } from "@/lib/anthropic";
+import { getAnthropicClient, buildSystemPrompt, cleanResponse } from "@/lib/anthropic";
 import { retrieveContext, type RetrievedChunk } from "@/lib/rag";
 import { webSearch, formatSearchResults } from "@/lib/web-search";
 import { getNextRun } from "@/lib/cron";
@@ -143,10 +143,11 @@ async function runTask(
     messages: [{ role: "user", content: task.instruction }],
   });
 
-  const responseText = response.content
+  const rawText = response.content
     .filter((b) => b.type === "text")
     .map((b) => b.text)
     .join("");
+  const responseText = cleanResponse(rawText);
 
   // 7. Save response as assistant message
   await supabase.from("messages").insert({

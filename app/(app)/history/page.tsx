@@ -156,7 +156,7 @@ export default function HistoryPage() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-[var(--color-surface)]">
       {/* Header */}
-      <div className="fixed top-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 md:px-6">
+      <div className="fixed top-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 md:px-6 pt-safe">
         <div className="flex items-center gap-3 mb-3">
           <button
             onClick={openDrawer}
