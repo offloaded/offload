@@ -2,21 +2,22 @@
 
 @theme {
   --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --color-bg: #FAFAFA;
+  --color-bg: #F0F0F2;
   --color-surface: #FFFFFF;
-  --color-hover: #F5F5F7;
-  --color-active: #EDEDF0;
-  --color-border: #E5E5EA;
-  --color-border-light: #F0F0F3;
-  --color-text: #1D1D1F;
-  --color-text-secondary: #6E6E73;
-  --color-text-tertiary: #AEAEB2;
+  --color-hover: #F3F3F5;
+  --color-active: #E8E8EC;
+  --color-border: #DCDCE0;
+  --color-border-light: #EAEAEE;
+  --color-text: #111111;
+  --color-text-secondary: #555555;
+  --color-text-tertiary: #888888;
   --color-accent: #2C5FF6;
-  --color-accent-soft: rgba(44, 95, 246, 0.08);
-  --color-input-bg: #F5F5F7;
+  --color-accent-soft: rgba(44, 95, 246, 0.10);
+  --color-input-bg: #F3F3F5;
   --color-red: #DC2626;
   --color-red-soft: rgba(220, 38, 38, 0.07);
   --color-green: #16A34A;
+  --color-page-bg: #F7F7F8;
 }
 
 body {

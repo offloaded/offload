@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase";
 import { SidebarContent, Drawer } from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import type { Agent } from "@/lib/types";
+import { preloadAllChats } from "@/lib/chat-cache";
 
 interface AppContextValue {
   agents: Agent[];
@@ -48,6 +49,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (res.ok) {
       const data = await res.json();
       setAgents(data);
+      preloadAllChats(data.map((a: Agent) => a.id));
     }
   }, []);
 
@@ -72,7 +74,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <AppContext value={{ agents, refreshAgents, mobile, openDrawer: () => setDrawerOpen(true) }}>
-      <div className="flex h-screen w-screen bg-[var(--color-surface)] overflow-hidden">
+      <div className="flex h-screen w-screen bg-[var(--color-page-bg)] overflow-hidden">
         {!mobile && (
           <div className="w-[220px] min-w-[220px] bg-[var(--color-bg)] border-r border-[var(--color-border)] flex flex-col">
             <SidebarContent agents={agents} />
