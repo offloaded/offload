@@ -449,16 +449,14 @@ export function GroupChatView({
     <div className="flex-1 flex flex-col bg-[var(--color-surface)] overflow-hidden">
       {/* Header */}
       <div
-        className={`sticky top-0 z-10 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-3 shrink-0 ${mobile ? "py-3 px-4" : "py-3.5 px-6"}`}
+        className="sticky top-0 z-10 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-3 shrink-0 py-3 px-4 md:py-3.5 md:px-6"
       >
-        {mobile && (
-          <button
-            onClick={openDrawer}
-            className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex"
-          >
-            <MenuIcon />
-          </button>
-        )}
+        <button
+          onClick={openDrawer}
+          className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex md:hidden"
+        >
+          <MenuIcon />
+        </button>
         <span className="text-[var(--color-text-tertiary)] text-base">
           <HashIcon />
         </span>
@@ -473,7 +471,7 @@ export function GroupChatView({
       {/* Messages */}
       <div
         ref={scrollRef}
-        className={`flex-1 overflow-y-auto ${mobile ? "pt-3" : "pt-4"} pb-2`}
+        className="flex-1 overflow-y-auto pt-3 md:pt-4 pb-2"
       >
         {/* Sentinel for loading older messages */}
         <div ref={sentinelRef} className="h-1" />
@@ -516,7 +514,7 @@ export function GroupChatView({
 
       {/* Input */}
       <div
-        className={`shrink-0 bg-[var(--color-surface)] ${mobile ? "px-3 pt-2 pb-[max(16px,env(safe-area-inset-bottom))]" : "px-5 pt-2 pb-5"}`}
+        className="shrink-0 bg-[var(--color-surface)] px-3 pt-2 pb-[max(16px,env(safe-area-inset-bottom))] md:px-5 md:pb-5"
       >
         <div className="flex gap-2 items-center bg-[var(--color-input-bg)] rounded-xl pl-4 pr-1.5 py-1.5 border border-[var(--color-border)]">
           <input

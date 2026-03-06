@@ -26,17 +26,13 @@ export function useApp() {
 }
 
 function useIsMobile() {
-  const [mobile, setMobile] = useState(() => {
-    if (typeof window !== "undefined") {
-      return window.innerWidth < 768;
-    }
-    return false;
-  });
+  const [mobile, setMobile] = useState(false);
   useEffect(() => {
-    const check = () => setMobile(window.innerWidth < 768);
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
+    const mql = window.matchMedia("(max-width: 767px)");
+    setMobile(mql.matches);
+    const handler = (e: MediaQueryListEvent) => setMobile(e.matches);
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
   }, []);
   return mobile;
 }
@@ -80,18 +76,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <AppContext value={{ agents, refreshAgents, mobile, openDrawer: () => setDrawerOpen(true) }}>
       <div className="flex h-screen w-screen bg-[var(--color-page-bg)] overflow-hidden">
-        {!mobile && (
-          <div className="w-[220px] min-w-[220px] bg-[var(--color-bg)] border-r border-[var(--color-border)] flex flex-col">
-            <SidebarContent agents={agents} />
-          </div>
-        )}
-        {mobile && (
-          <Drawer
-            agents={agents}
-            open={drawerOpen}
-            onClose={() => setDrawerOpen(false)}
-          />
-        )}
+        {/* Desktop sidebar — hidden below 768px via CSS */}
+        <div className="hidden md:flex w-[220px] min-w-[220px] bg-[var(--color-bg)] border-r border-[var(--color-border)] flex-col">
+          <SidebarContent agents={agents} />
+        </div>
+
+        {/* Mobile drawer — always mounted, visibility controlled by open state */}
+        <Drawer
+          agents={agents}
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+        />
 
         <div className="flex-1 flex flex-col overflow-hidden">
           {children}
