@@ -28,7 +28,7 @@ const PALETTE = [
 export default function AgentEditorPage() {
   const params = useParams();
   const router = useRouter();
-  const { agents, refreshAgents } = useApp();
+  const { agents, refreshAgents, mobile } = useApp();
   const isNew = params.id === "new";
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -193,19 +193,25 @@ export default function AgentEditorPage() {
   }
 
   return (
-    <div className="flex-1 overflow-auto bg-[var(--color-surface)]">
-      <div className="py-8 px-10 max-w-[520px] max-md:p-4">
-        <div className="flex items-center gap-2.5 mb-6">
-          <button
-            onClick={() => router.push("/settings")}
-            className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex"
-          >
-            <BackIcon />
-          </button>
-          <span className="text-lg font-semibold text-[var(--color-text)]">
-            {isNew ? "New Agent" : "Edit Agent"}
-          </span>
-        </div>
+    <div className="flex-1 flex flex-col overflow-hidden bg-[var(--color-surface)]">
+      {/* Header — sticky */}
+      <div
+        className={`sticky top-0 z-10 bg-[var(--color-surface)] shrink-0 flex items-center gap-2.5 ${mobile ? "px-4 py-2.5 border-b border-[var(--color-border)]" : "px-10 pt-8 pb-0"}`}
+      >
+        <button
+          onClick={() => router.push("/settings")}
+          className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex"
+        >
+          <BackIcon />
+        </button>
+        <span className="text-lg font-semibold text-[var(--color-text)]">
+          {isNew ? "New Agent" : "Edit Agent"}
+        </span>
+      </div>
+
+      {/* Content — scrollable */}
+      <div className="flex-1 overflow-y-auto">
+      <div className={`max-w-[520px] ${mobile ? "p-4" : "px-10 pt-5 pb-8"}`}>
 
         {error && (
           <div className="mb-5 text-sm text-[var(--color-red)] bg-[var(--color-red-soft)] px-3 py-2 rounded-lg">
@@ -363,6 +369,7 @@ export default function AgentEditorPage() {
             </button>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

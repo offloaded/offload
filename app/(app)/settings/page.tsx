@@ -9,9 +9,12 @@ export default function SettingsPage() {
   const { agents, mobile, openDrawer } = useApp();
 
   return (
-    <div className="flex-1 overflow-auto bg-[var(--color-surface)]">
-      <div className="py-8 px-10 max-w-[520px] max-md:p-4">
-        <div className="flex items-center gap-2.5 mb-5">
+    <div className="flex-1 flex flex-col overflow-hidden bg-[var(--color-surface)]">
+      {/* Header — sticky on mobile */}
+      <div
+        className={`sticky top-0 z-10 bg-[var(--color-surface)] shrink-0 ${mobile ? "px-4 pt-3 pb-2 border-b border-[var(--color-border)]" : "px-10 pt-8 pb-0"}`}
+      >
+        <div className="flex items-center gap-2.5 mb-0 max-w-[520px]">
           {mobile && (
             <button
               onClick={openDrawer}
@@ -30,39 +33,44 @@ export default function SettingsPage() {
             <PlusIcon /> New
           </Link>
         </div>
+      </div>
 
-        {agents.length === 0 && (
-          <div className="py-10 px-5 text-center">
-            <div className="text-sm text-[var(--color-text-secondary)] mb-1">
-              No agents yet
+      {/* Content — scrollable */}
+      <div className="flex-1 overflow-y-auto">
+        <div className={`max-w-[520px] ${mobile ? "p-4 pt-3" : "px-10 pt-5 pb-8"}`}>
+          {agents.length === 0 && (
+            <div className="py-10 px-5 text-center">
+              <div className="text-sm text-[var(--color-text-secondary)] mb-1">
+                No agents yet
+              </div>
+              <div className="text-[13px] text-[var(--color-text-tertiary)]">
+                Create your first team member to get started
+              </div>
             </div>
-            <div className="text-[13px] text-[var(--color-text-tertiary)]">
-              Create your first team member to get started
-            </div>
+          )}
+
+          <div className="flex flex-col gap-1.5">
+            {agents.map((a) => (
+              <Link
+                key={a.id}
+                href={`/settings/${a.id}`}
+                className="flex items-center gap-3 p-3 px-3.5 border border-[var(--color-border)] rounded-[10px] cursor-pointer bg-[var(--color-surface)] hover:bg-[var(--color-hover)] no-underline transition-colors"
+              >
+                <Avatar name={a.name} color={a.color} size={34} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-[var(--color-text)]">
+                    {a.name}
+                  </div>
+                  <div className="text-xs text-[var(--color-text-secondary)] overflow-hidden text-ellipsis whitespace-nowrap">
+                    {a.purpose}
+                  </div>
+                </div>
+                <div className="text-[var(--color-text-tertiary)]">
+                  <ArrowIcon />
+                </div>
+              </Link>
+            ))}
           </div>
-        )}
-
-        <div className="flex flex-col gap-1.5">
-          {agents.map((a) => (
-            <Link
-              key={a.id}
-              href={`/settings/${a.id}`}
-              className="flex items-center gap-3 p-3 px-3.5 border border-[var(--color-border)] rounded-[10px] cursor-pointer bg-[var(--color-surface)] hover:bg-[var(--color-hover)] no-underline transition-colors"
-            >
-              <Avatar name={a.name} color={a.color} size={34} />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold text-[var(--color-text)]">
-                  {a.name}
-                </div>
-                <div className="text-xs text-[var(--color-text-secondary)] overflow-hidden text-ellipsis whitespace-nowrap">
-                  {a.purpose}
-                </div>
-              </div>
-              <div className="text-[var(--color-text-tertiary)]">
-                <ArrowIcon />
-              </div>
-            </Link>
-          ))}
         </div>
       </div>
     </div>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Avatar } from "./Avatar";
-import { SendIcon, MenuIcon } from "./Icons";
+import { SendIcon, MenuIcon, HashIcon } from "./Icons";
 import type { Agent, Message } from "@/lib/types";
 
 function formatTime(dateStr: string): string {
@@ -12,60 +12,68 @@ function formatTime(dateStr: string): string {
   return `${h > 12 ? h - 12 : h || 12}:${m < 10 ? "0" : ""}${m} ${h >= 12 ? "pm" : "am"}`;
 }
 
-// Slack-style message row — matches prototype MessageRow
-function MessageRow({
+// Parse "[Agent Name] message" format from group responses
+function parseGroupResponse(
+  text: string,
+  agents: Agent[]
+): { agent: Agent; text: string }[] {
+  const results: { agent: Agent; text: string }[] = [];
+  const lines = text.split("\n");
+  let currentAgent: Agent | null = null;
+  let currentText = "";
+
+  for (const line of lines) {
+    const match = line.match(/^\[([^\]]+)\]\s*(.*)/);
+    if (match) {
+      // Save previous agent's text
+      if (currentAgent && currentText.trim()) {
+        results.push({ agent: currentAgent, text: currentText.trim() });
+      }
+      // Find the matching agent
+      const agentName = match[1];
+      currentAgent =
+        agents.find(
+          (a) => a.name.toLowerCase() === agentName.toLowerCase()
+        ) || null;
+      currentText = match[2] || "";
+    } else if (currentAgent) {
+      // Continuation of current agent's response
+      currentText += "\n" + line;
+    }
+  }
+
+  // Don't forget the last one
+  if (currentAgent && currentText.trim()) {
+    results.push({ agent: currentAgent, text: currentText.trim() });
+  }
+
+  return results;
+}
+
+// A single agent's message bubble
+function AgentMessage({
   agent,
   text,
   time,
-  isUser,
   mobile,
 }: {
-  agent?: Agent;
+  agent: Agent;
   text: string;
   time: string;
-  isUser: boolean;
   mobile: boolean;
 }) {
-  if (isUser) {
-    return (
-      <div className={mobile ? "px-4 py-1.5" : "px-6 py-1.5"}>
-        <div
-          className={`flex max-w-[720px] ${mobile ? "gap-2" : "gap-2.5"}`}
-        >
-          <div className="w-8 h-8 rounded-lg shrink-0 bg-[var(--color-active)] text-[var(--color-text-secondary)] flex items-center justify-center text-xs font-bold">
-            Y
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-baseline gap-2 mb-0.5">
-              <span className="text-sm font-semibold text-[var(--color-text)]">
-                You
-              </span>
-              <span className="text-[11px] text-[var(--color-text-tertiary)]">
-                {time}
-              </span>
-            </div>
-            <div className="text-sm leading-relaxed text-[var(--color-text)] whitespace-pre-wrap">
-              {text}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!agent) return null;
-
   return (
     <div
       className={`${mobile ? "px-4 py-1.5" : "px-6 py-1.5"} hover:bg-[var(--color-hover)] transition-colors`}
     >
-      <div
-        className={`flex max-w-[720px] ${mobile ? "gap-2" : "gap-2.5"}`}
-      >
+      <div className={`flex max-w-[720px] ${mobile ? "gap-2" : "gap-2.5"}`}>
         <Avatar name={agent.name} color={agent.color} size={32} />
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2 mb-0.5">
-            <span className="text-sm font-semibold" style={{ color: agent.color }}>
+            <span
+              className="text-sm font-semibold"
+              style={{ color: agent.color }}
+            >
               {agent.name}
             </span>
             <span className="text-[11px] text-[var(--color-text-tertiary)]">
@@ -81,49 +89,33 @@ function MessageRow({
   );
 }
 
-// Typing indicator — matches prototype TypingRow
-function TypingRow({
-  agent,
+function UserMessage({
+  text,
+  time,
   mobile,
-  streamText,
 }: {
-  agent: Agent;
+  text: string;
+  time: string;
   mobile: boolean;
-  streamText?: string;
 }) {
   return (
     <div className={mobile ? "px-4 py-1.5" : "px-6 py-1.5"}>
-      <div className={`flex ${mobile ? "gap-2" : "gap-2.5"}`}>
-        <Avatar name={agent.name} color={agent.color} size={32} />
+      <div className={`flex max-w-[720px] ${mobile ? "gap-2" : "gap-2.5"}`}>
+        <div className="w-8 h-8 rounded-lg shrink-0 bg-[var(--color-active)] text-[var(--color-text-secondary)] flex items-center justify-center text-xs font-bold">
+          Y
+        </div>
         <div className="flex-1 min-w-0">
-          {streamText ? (
-            <>
-              <div className="flex items-baseline gap-2 mb-0.5">
-                <span
-                  className="text-sm font-semibold"
-                  style={{ color: agent.color }}
-                >
-                  {agent.name}
-                </span>
-              </div>
-              <div className="text-sm leading-relaxed text-[var(--color-text)] whitespace-pre-wrap">
-                {streamText}
-                <span className="inline-block w-0.5 h-4 bg-[var(--color-text-tertiary)] ml-0.5 align-middle animate-[typing-dot_1s_steps(2)_infinite]" />
-              </div>
-            </>
-          ) : (
-            <div className="flex items-center gap-1 pt-2">
-              {[0, 1, 2].map((d) => (
-                <div
-                  key={d}
-                  className="w-[5px] h-[5px] rounded-full bg-[var(--color-text-tertiary)]"
-                  style={{
-                    animation: `typing-dot 1.2s ease-in-out ${d * 0.15}s infinite`,
-                  }}
-                />
-              ))}
-            </div>
-          )}
+          <div className="flex items-baseline gap-2 mb-0.5">
+            <span className="text-sm font-semibold text-[var(--color-text)]">
+              You
+            </span>
+            <span className="text-[11px] text-[var(--color-text-tertiary)]">
+              {time}
+            </span>
+          </div>
+          <div className="text-sm leading-relaxed text-[var(--color-text)] whitespace-pre-wrap">
+            {text}
+          </div>
         </div>
       </div>
     </div>
@@ -137,15 +129,12 @@ interface ChatMessage {
   created_at: string;
 }
 
-export { MessageRow, TypingRow };
-export type { ChatMessage };
-
-export function ChatView({
-  agent,
+export function GroupChatView({
+  agents,
   mobile,
   openDrawer,
 }: {
-  agent: Agent;
+  agents: Agent[];
   mobile: boolean;
   openDrawer: () => void;
 }) {
@@ -167,7 +156,7 @@ export function ChatView({
     setStreaming(false);
     setStreamText("");
 
-    fetch(`/api/conversations?agent_id=${agent.id}`)
+    fetch("/api/conversations?agent_id=group")
       .then((r) => (r.ok ? r.json() : { messages: [] }))
       .then((data) => {
         if (data.conversation_id) {
@@ -184,7 +173,7 @@ export function ChatView({
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [agent.id]);
+  }, []);
 
   // Auto-scroll
   useEffect(() => {
@@ -206,11 +195,10 @@ export function ChatView({
     setStreamText("");
 
     try {
-      const res = await fetch("/api/chat", {
+      const res = await fetch("/api/chat/group", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          agent_id: agent.id,
           message: text,
           conversation_id: conversationId,
         }),
@@ -256,7 +244,6 @@ export function ChatView({
         }
       }
 
-      // Finalize — move streamed text into messages
       if (fullText) {
         setMessages((prev) => [
           ...prev,
@@ -283,7 +270,7 @@ export function ChatView({
       setStreamText("");
       inputRef.current?.focus();
     }
-  }, [input, streaming, agent.id, conversationId]);
+  }, [input, streaming, conversationId]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -293,6 +280,91 @@ export function ChatView({
   };
 
   const canSend = input.trim() && !streaming;
+
+  // Render a single message — for assistant messages, parse into per-agent bubbles
+  const renderMessage = (msg: ChatMessage, idx: number) => {
+    if (msg.role === "user") {
+      return (
+        <UserMessage
+          key={msg.id || idx}
+          text={msg.content}
+          time={formatTime(msg.created_at)}
+          mobile={mobile}
+        />
+      );
+    }
+
+    // Parse the assistant response into per-agent messages
+    const parsed = parseGroupResponse(msg.content, agents);
+    if (parsed.length > 0) {
+      return parsed.map((p, j) => (
+        <AgentMessage
+          key={`${msg.id || idx}-${j}`}
+          agent={p.agent}
+          text={p.text}
+          time={formatTime(msg.created_at)}
+          mobile={mobile}
+        />
+      ));
+    }
+
+    // Fallback: show raw text if parsing fails (e.g. error messages)
+    return (
+      <div
+        key={msg.id || idx}
+        className={`${mobile ? "px-4 py-1.5" : "px-6 py-1.5"}`}
+      >
+        <div className="text-sm leading-relaxed text-[var(--color-text)] whitespace-pre-wrap max-w-[720px]">
+          {msg.content}
+        </div>
+      </div>
+    );
+  };
+
+  // Render streaming text as it arrives — parse partially
+  const renderStreamingBubbles = () => {
+    if (!streamText) {
+      // Show generic typing indicator
+      return (
+        <div className={mobile ? "px-4 py-1.5" : "px-6 py-1.5"}>
+          <div className="flex items-center gap-1 pt-2">
+            {[0, 1, 2].map((d) => (
+              <div
+                key={d}
+                className="w-[5px] h-[5px] rounded-full bg-[var(--color-text-tertiary)]"
+                style={{
+                  animation: `typing-dot 1.2s ease-in-out ${d * 0.15}s infinite`,
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    const parsed = parseGroupResponse(streamText, agents);
+    if (parsed.length > 0) {
+      return parsed.map((p, j) => (
+        <AgentMessage
+          key={`stream-${j}`}
+          agent={p.agent}
+          text={p.text}
+          time={formatTime(new Date().toISOString())}
+          mobile={mobile}
+        />
+      ));
+    }
+
+    // Still buffering — show raw stream with cursor
+    return (
+      <div className={mobile ? "px-4 py-1.5" : "px-6 py-1.5"}>
+        <div className="text-sm leading-relaxed text-[var(--color-text)] whitespace-pre-wrap max-w-[720px]">
+          {streamText}
+          <span className="inline-block w-0.5 h-4 bg-[var(--color-text-tertiary)] ml-0.5 align-middle animate-[typing-dot_1s_steps(2)_infinite]" />
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="flex-1 flex flex-col bg-[var(--color-surface)] overflow-hidden">
@@ -308,9 +380,14 @@ export function ChatView({
             <MenuIcon />
           </button>
         )}
-        <Avatar name={agent.name} color={agent.color} size={26} />
+        <span className="text-[var(--color-text-tertiary)] text-base">
+          <HashIcon />
+        </span>
         <span className="text-[15px] font-semibold text-[var(--color-text)]">
-          {agent.name}
+          All
+        </span>
+        <span className="text-xs text-[var(--color-text-tertiary)]">
+          {agents.length} agent{agents.length !== 1 ? "s" : ""}
         </span>
       </div>
 
@@ -329,37 +406,19 @@ export function ChatView({
         {!loading && messages.length === 0 && (
           <div className="flex items-center justify-center py-16">
             <div className="text-center">
-              <div
-                className="text-sm font-medium mb-1"
-                style={{ color: agent.color }}
-              >
-                {agent.name}
+              <div className="text-sm font-medium text-[var(--color-accent)] mb-1">
+                # All
               </div>
               <div className="text-[13px] text-[var(--color-text-tertiary)]">
-                Start a conversation
+                Message your team — the right agents will respond
               </div>
             </div>
           </div>
         )}
 
-        {messages.map((m, i) => (
-          <MessageRow
-            key={m.id || i}
-            isUser={m.role === "user"}
-            agent={m.role === "assistant" ? agent : undefined}
-            text={m.content}
-            time={formatTime(m.created_at)}
-            mobile={mobile}
-          />
-        ))}
+        {messages.map((m, i) => renderMessage(m, i))}
 
-        {streaming && (
-          <TypingRow
-            agent={agent}
-            mobile={mobile}
-            streamText={streamText || undefined}
-          />
-        )}
+        {streaming && renderStreamingBubbles()}
 
         <div ref={endRef} />
       </div>
@@ -374,7 +433,7 @@ export function ChatView({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={`Message ${agent.name}...`}
+            placeholder="Message #All..."
             className="flex-1 border-none bg-transparent text-[var(--color-text)] text-sm outline-none py-2.5"
           />
           <button

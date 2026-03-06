@@ -21,15 +21,21 @@ export async function GET(request: Request) {
     );
   }
 
-  // Find the conversation for this agent
-  const { data: conversation } = await supabase
+  // Find the conversation — group chat uses agent_id IS NULL
+  let query = supabase
     .from("conversations")
     .select("id")
     .eq("user_id", user.id)
-    .eq("agent_id", agentId)
     .order("created_at", { ascending: false })
-    .limit(1)
-    .single();
+    .limit(1);
+
+  if (agentId === "group") {
+    query = query.is("agent_id", null);
+  } else {
+    query = query.eq("agent_id", agentId);
+  }
+
+  const { data: conversation } = await query.single();
 
   if (!conversation) {
     return NextResponse.json({ conversation_id: null, messages: [] });
