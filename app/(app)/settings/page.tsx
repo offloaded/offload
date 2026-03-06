@@ -12,17 +12,15 @@ export default function SettingsPage() {
     <div className="flex-1 flex flex-col overflow-hidden bg-[var(--color-surface)]">
       {/* Header */}
       <div
-        className={`sticky top-0 z-10 bg-[var(--color-surface)] shrink-0 ${mobile ? "px-4 py-3 border-b border-[var(--color-border)]" : "px-10 pt-8 pb-0"}`}
+        className="sticky top-0 z-10 bg-[var(--color-surface)] shrink-0 px-4 py-3 border-b border-[var(--color-border)] md:px-10 md:pt-8 md:pb-0 md:border-b-0"
       >
         <div className="flex items-center gap-3 mb-0 max-w-[520px]">
-          {mobile && (
-            <button
-              onClick={openDrawer}
-              className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex"
-            >
-              <MenuIcon />
-            </button>
-          )}
+          <button
+            onClick={openDrawer}
+            className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex md:hidden"
+          >
+            <MenuIcon />
+          </button>
           <span className="text-[18px] font-semibold text-[var(--color-text)] flex-1">
             Your Team
           </span>
@@ -37,7 +35,7 @@ export default function SettingsPage() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        <div className={`max-w-[520px] ${mobile ? "p-4 pt-3" : "px-10 pt-5 pb-8"}`}>
+        <div className="max-w-[520px] p-4 pt-3 md:px-10 md:pt-5 md:pb-8">
           {agents.length === 0 && (
             <div className="py-10 px-5 text-center">
               <div className="text-[15px] text-[var(--color-text-secondary)] mb-1">

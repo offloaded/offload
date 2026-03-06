@@ -186,7 +186,7 @@ export default function AgentEditorPage() {
     <div className="flex-1 flex flex-col overflow-hidden bg-[var(--color-surface)]">
       {/* Header */}
       <div
-        className={`sticky top-0 z-10 bg-[var(--color-surface)] shrink-0 flex items-center gap-3 ${mobile ? "px-4 py-3 border-b border-[var(--color-border)]" : "px-10 pt-8 pb-0"}`}
+        className="sticky top-0 z-10 bg-[var(--color-surface)] shrink-0 flex items-center gap-3 px-4 py-3 border-b border-[var(--color-border)] md:px-10 md:pt-8 md:pb-0 md:border-b-0"
       >
         <button
           onClick={() => router.push("/settings")}
@@ -201,7 +201,7 @@ export default function AgentEditorPage() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        <div className={`max-w-[520px] ${mobile ? "p-4" : "px-10 pt-5 pb-8"}`}>
+        <div className="max-w-[520px] p-4 md:px-10 md:pt-5 md:pb-8">
           {error && (
             <div className="mb-5 text-[14px] text-[var(--color-red)] bg-[var(--color-red-soft)] px-3.5 py-2.5 rounded-lg">
               {error}
