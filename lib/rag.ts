@@ -156,6 +156,7 @@ export async function processDocument(
 ): Promise<void> {
   try {
     // 1. Download file from storage
+    console.log(`[RAG] Downloading file from storage: ${storagePath}`);
     const { data: fileData, error: downloadError } = await supabase.storage
       .from("documents")
       .download(storagePath);
@@ -163,6 +164,7 @@ export async function processDocument(
     if (downloadError || !fileData) {
       throw new Error(`Download failed: ${downloadError?.message}`);
     }
+    console.log(`[RAG] Downloaded, size: ${fileData.size} bytes`);
 
     // Get the file name from the document record
     const { data: doc } = await supabase
@@ -172,6 +174,7 @@ export async function processDocument(
       .single();
 
     const fileName = doc?.file_name || storagePath;
+    console.log(`[RAG] Extracting text from: ${fileName}`);
 
     // 2. Extract text
     const arrayBuffer = await fileData.arrayBuffer();
@@ -181,16 +184,20 @@ export async function processDocument(
     if (!text.trim()) {
       throw new Error("No text content extracted from document");
     }
+    console.log(`[RAG] Extracted ${text.length} chars`);
 
     // 3. Chunk
     const chunks = chunkText(text);
+    console.log(`[RAG] Created ${chunks.length} chunks`);
 
     if (chunks.length === 0) {
       throw new Error("No chunks generated from document");
     }
 
     // 4. Generate embeddings
+    console.log(`[RAG] Generating embeddings...`);
     const embeddings = await generateEmbeddings(chunks);
+    console.log(`[RAG] Generated ${embeddings.length} embeddings`);
 
     // 5. Store chunks with embeddings
     const rows = chunks.map((content, i) => ({
@@ -212,12 +219,18 @@ export async function processDocument(
         throw new Error(`Chunk insert failed: ${insertError.message}`);
       }
     }
+    console.log(`[RAG] Stored ${rows.length} chunks`);
 
     // 6. Mark document as ready
-    await supabase
+    const { error: updateError } = await supabase
       .from("documents")
       .update({ status: "ready" })
       .eq("id", documentId);
+
+    if (updateError) {
+      throw new Error(`Status update failed: ${updateError.message}`);
+    }
+    console.log(`[RAG] Document ${documentId} marked as ready`);
   } catch (err) {
     console.error(`Document processing failed for ${documentId}:`, err);
 
@@ -241,12 +254,15 @@ export async function retrieveContext(
 ): Promise<{ content: string; fileName: string }[]> {
   const embedding = await generateEmbedding(query);
 
+  console.log(`[RAG Retrieve] Querying for agent ${agentId}, embedding dim: ${embedding.length}`);
   const { data, error } = await supabase.rpc("match_document_chunks", {
     query_embedding: JSON.stringify(embedding),
     match_agent_id: agentId,
     match_threshold: 0.3,
     match_count: topK,
   });
+
+  console.log(`[RAG Retrieve] RPC result: ${data?.length || 0} matches, error: ${error?.message || 'none'}`);
 
   if (error || !data) {
     console.error("Similarity search failed:", error);
