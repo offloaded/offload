@@ -62,8 +62,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Agent not found" }, { status: 404 });
   }
 
-  // Upload to Supabase Storage
-  const storagePath = `${user.id}/${agentId}/${Date.now()}_${file.name}`;
+  // Upload to Supabase Storage — sanitize filename to prevent path traversal
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/\.{2,}/g, ".");
+  const storagePath = `${user.id}/${agentId}/${Date.now()}_${safeName}`;
   const arrayBuffer = await file.arrayBuffer();
 
   const { error: uploadError } = await supabase.storage
