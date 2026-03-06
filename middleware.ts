@@ -35,7 +35,7 @@ export async function middleware(request: NextRequest) {
     !request.nextUrl.pathname.startsWith("/api")
   ) {
     const url = request.nextUrl.clone();
-    url.pathname = "/auth";
+    url.pathname = "/";
     return NextResponse.redirect(url);
   }
 
