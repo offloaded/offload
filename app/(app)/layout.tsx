@@ -26,7 +26,12 @@ export function useApp() {
 }
 
 function useIsMobile() {
-  const [mobile, setMobile] = useState(false);
+  const [mobile, setMobile] = useState(() => {
+    if (typeof window !== "undefined") {
+      return window.innerWidth < 768;
+    }
+    return false;
+  });
   useEffect(() => {
     const check = () => setMobile(window.innerWidth < 768);
     check();
