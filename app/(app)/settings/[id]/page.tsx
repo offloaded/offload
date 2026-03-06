@@ -25,6 +25,14 @@ const PALETTE = [
   "#E11D48",
 ];
 
+interface UploadItem {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  status: "uploading" | "processing" | "ready" | "error";
+  errorMessage?: string;
+}
+
 export default function AgentEditorPage() {
   const params = useParams();
   const router = useRouter();
@@ -40,7 +48,7 @@ export default function AgentEditorPage() {
   const [docs, setDocs] = useState<Document[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [uploading, setUploading] = useState(false);
+  const [uploads, setUploads] = useState<UploadItem[]>([]);
 
   useEffect(() => {
     if (existing) {
@@ -123,9 +131,7 @@ export default function AgentEditorPage() {
     }
   };
 
-  const uploadFile = async (file: File) => {
-    setUploading(true);
-    setError("");
+  const uploadSingleFile = async (file: File, uploadId: string) => {
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -138,14 +144,55 @@ export default function AgentEditorPage() {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `Upload failed (${res.status})`);
       }
+      const doc = await res.json();
+      setUploads((prev) =>
+        prev.map((u) =>
+          u.id === uploadId
+            ? { ...u, status: doc.status === "ready" ? "ready" : doc.status === "error" ? "error" : "processing" }
+            : u
+        )
+      );
       loadDocs();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to upload document"
+      setUploads((prev) =>
+        prev.map((u) =>
+          u.id === uploadId
+            ? {
+                ...u,
+                status: "error" as const,
+                errorMessage:
+                  err instanceof Error ? err.message : "Upload failed",
+              }
+            : u
+        )
       );
-    } finally {
-      setUploading(false);
     }
+  };
+
+  const uploadFiles = async (files: File[]) => {
+    setError("");
+
+    const newUploads: UploadItem[] = files.map((file) => ({
+      id: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      fileName: file.name,
+      fileSize: file.size,
+      status: "uploading" as const,
+    }));
+
+    setUploads((prev) => [...prev, ...newUploads]);
+
+    // Process up to 3 files concurrently
+    const concurrency = 3;
+    const queue = [...files.map((file, i) => ({ file, uploadId: newUploads[i].id }))];
+
+    const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+      while (queue.length > 0) {
+        const item = queue.shift()!;
+        await uploadSingleFile(item.file, item.uploadId);
+      }
+    });
+
+    await Promise.all(workers);
   };
 
   const deleteDoc = async (docId: string) => {
@@ -167,12 +214,20 @@ export default function AgentEditorPage() {
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      uploadFile(file);
+    const fileList = e.target.files;
+    if (fileList && fileList.length > 0) {
+      uploadFiles(Array.from(fileList));
       e.target.value = "";
     }
   };
+
+  const dismissUpload = (uploadId: string) => {
+    setUploads((prev) => prev.filter((u) => u.id !== uploadId));
+  };
+
+  const hasActiveUploads = uploads.some(
+    (u) => u.status === "uploading" || u.status === "processing"
+  );
 
   if (!isNew && !existing && agents.length > 0) {
     return (
@@ -262,6 +317,59 @@ export default function AgentEditorPage() {
               Documents
             </label>
             <div className="border border-[var(--color-border)] rounded-xl overflow-hidden">
+              {/* Active uploads */}
+              {uploads.map((u) => (
+                <div
+                  key={u.id}
+                  className="py-3 px-4 flex items-center gap-2.5 border-b border-[var(--color-border-light)]"
+                >
+                  <div className="text-[var(--color-text-tertiary)]">
+                    {u.status === "uploading" ? (
+                      <SpinnerIcon />
+                    ) : (
+                      <FileIcon />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[14px] text-[var(--color-text)]">
+                      {u.fileName}
+                    </div>
+                    <div className="text-[12px] text-[var(--color-text-tertiary)]">
+                      {formatSize(u.fileSize)}
+                      {u.status === "uploading" && (
+                        <span className="ml-2 text-[var(--color-accent)]">
+                          Uploading...
+                        </span>
+                      )}
+                      {u.status === "processing" && (
+                        <span className="ml-2 text-[var(--color-accent)]">
+                          Processing...
+                        </span>
+                      )}
+                      {u.status === "ready" && (
+                        <span className="ml-2 text-[var(--color-green)]">
+                          Ready
+                        </span>
+                      )}
+                      {u.status === "error" && (
+                        <span className="ml-2 text-[var(--color-red)]">
+                          {u.errorMessage || "Error"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {(u.status === "ready" || u.status === "error") && (
+                    <button
+                      onClick={() => dismissUpload(u.id)}
+                      className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0.5 flex hover:text-[var(--color-text)]"
+                    >
+                      <XIcon />
+                    </button>
+                  )}
+                </div>
+              ))}
+
+              {/* Existing documents */}
               {docs.map((d) => (
                 <div
                   key={d.id}
@@ -301,7 +409,7 @@ export default function AgentEditorPage() {
                   </button>
                 </div>
               ))}
-              {docs.length === 0 && !isNew && (
+              {docs.length === 0 && uploads.length === 0 && !isNew && (
                 <div className="py-3.5 px-4 text-[14px] text-[var(--color-text-tertiary)]">
                   No documents uploaded yet
                 </div>
@@ -312,16 +420,19 @@ export default function AgentEditorPage() {
                     ref={fileInputRef}
                     type="file"
                     accept=".pdf,.docx,.xlsx,.xls,.txt,.md,.csv"
+                    multiple
                     onChange={handleFileChange}
                     className="hidden"
                   />
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    disabled={uploading}
+                    disabled={hasActiveUploads}
                     className="w-full py-3 px-4 flex items-center gap-2 border-none bg-transparent cursor-pointer text-[var(--color-accent)] text-[14px] font-medium disabled:opacity-50"
                   >
                     <PlusIcon />{" "}
-                    {uploading ? "Uploading..." : "Upload document"}
+                    {hasActiveUploads
+                      ? `Uploading ${uploads.filter((u) => u.status === "uploading" || u.status === "processing").length} file(s)...`
+                      : "Upload documents"}
                   </button>
                 </>
               )}
@@ -361,6 +472,30 @@ export default function AgentEditorPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function SpinnerIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      style={{ animation: "spin 1s linear infinite" }}
+    >
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      <circle
+        cx="8"
+        cy="8"
+        r="6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeDasharray="28 10"
+        opacity="0.6"
+      />
+    </svg>
   );
 }
 
