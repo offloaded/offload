@@ -65,11 +65,9 @@ export default function AgentEditorPage() {
     loadDocs();
   }, [loadDocs]);
 
-  // Poll for processing status
   useEffect(() => {
     const hasProcessing = docs.some((d) => d.status === "processing");
     if (!hasProcessing) return;
-
     const interval = setInterval(loadDocs, 3000);
     return () => clearInterval(interval);
   }, [docs, loadDocs]);
@@ -78,7 +76,6 @@ export default function AgentEditorPage() {
     if (!name.trim() || saving) return;
     setSaving(true);
     setError("");
-
     try {
       const res = await fetch("/api/agents", {
         method: isNew ? "POST" : "PUT",
@@ -90,12 +87,10 @@ export default function AgentEditorPage() {
           color,
         }),
       });
-
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `Save failed (${res.status})`);
       }
-
       await refreshAgents();
       router.push("/settings");
     } catch (err) {
@@ -135,17 +130,14 @@ export default function AgentEditorPage() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("agent_id", params.id as string);
-
       const res = await fetch("/api/documents/upload", {
         method: "POST",
         body: formData,
       });
-
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `Upload failed (${res.status})`);
       }
-
       loadDocs();
     } catch (err) {
       setError(
@@ -164,9 +156,7 @@ export default function AgentEditorPage() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(
-          data.error || `Delete failed (${res.status})`
-        );
+        throw new Error(data.error || `Delete failed (${res.status})`);
       }
       setDocs((prev) => prev.filter((d) => d.id !== docId));
     } catch (err) {
@@ -186,7 +176,7 @@ export default function AgentEditorPage() {
 
   if (!isNew && !existing && agents.length > 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-sm text-[var(--color-text-secondary)]">
+      <div className="flex-1 flex items-center justify-center text-[15px] text-[var(--color-text-secondary)]">
         Agent not found
       </div>
     );
@@ -194,9 +184,9 @@ export default function AgentEditorPage() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-[var(--color-surface)]">
-      {/* Header — sticky */}
+      {/* Header */}
       <div
-        className={`sticky top-0 z-10 bg-[var(--color-surface)] shrink-0 flex items-center gap-2.5 ${mobile ? "px-4 py-2.5 border-b border-[var(--color-border)]" : "px-10 pt-8 pb-0"}`}
+        className={`sticky top-0 z-10 bg-[var(--color-surface)] shrink-0 flex items-center gap-3 ${mobile ? "px-4 py-3 border-b border-[var(--color-border)]" : "px-10 pt-8 pb-0"}`}
       >
         <button
           onClick={() => router.push("/settings")}
@@ -204,172 +194,171 @@ export default function AgentEditorPage() {
         >
           <BackIcon />
         </button>
-        <span className="text-lg font-semibold text-[var(--color-text)]">
+        <span className="text-[18px] font-semibold text-[var(--color-text)]">
           {isNew ? "New Agent" : "Edit Agent"}
         </span>
       </div>
 
-      {/* Content — scrollable */}
+      {/* Content */}
       <div className="flex-1 overflow-y-auto">
-      <div className={`max-w-[520px] ${mobile ? "p-4" : "px-10 pt-5 pb-8"}`}>
-
-        {error && (
-          <div className="mb-5 text-sm text-[var(--color-red)] bg-[var(--color-red-soft)] px-3 py-2 rounded-lg">
-            {error}
-          </div>
-        )}
-
-        {/* Color picker */}
-        <div className="mb-5">
-          <label className="block text-xs font-semibold text-[var(--color-text-secondary)] mb-2">
-            Colour
-          </label>
-          <div className="flex gap-2 flex-wrap">
-            {PALETTE.map((c) => (
-              <div
-                key={c}
-                onClick={() => setColor(c)}
-                className="w-[26px] h-[26px] rounded-full cursor-pointer"
-                style={{
-                  background: c,
-                  outline: color === c ? `2px solid ${c}` : "none",
-                  outlineOffset: 2,
-                }}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Name */}
-        <div className="mb-5">
-          <label className="block text-xs font-semibold text-[var(--color-text-secondary)] mb-2">
-            Name
-          </label>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. HR Advisor, Marketing Lead..."
-            className="w-full py-2.5 px-3.5 border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
-          />
-        </div>
-
-        {/* Purpose */}
-        <div className="mb-5">
-          <label className="block text-xs font-semibold text-[var(--color-text-secondary)] mb-2">
-            Purpose
-          </label>
-          <textarea
-            value={purpose}
-            onChange={(e) => setPurpose(e.target.value)}
-            rows={4}
-            placeholder="Describe this agent's role and how it should behave..."
-            className="w-full py-2.5 px-3.5 border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-y leading-relaxed focus:border-[var(--color-accent)]"
-          />
-        </div>
-
-        {/* Documents */}
-        <div className="mb-6">
-          <label className="block text-xs font-semibold text-[var(--color-text-secondary)] mb-2">
-            Documents
-          </label>
-          <div className="border border-[var(--color-border)] rounded-[10px] overflow-hidden">
-            {docs.map((d) => (
-              <div
-                key={d.id}
-                className="py-2.5 px-3.5 flex items-center gap-2 border-b border-[var(--color-border-light)]"
-              >
-                <div className="text-[var(--color-text-tertiary)]">
-                  <FileIcon />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[13px] text-[var(--color-text)]">
-                    {d.file_name}
-                  </div>
-                  <div className="text-[11px] text-[var(--color-text-tertiary)]">
-                    {formatSize(d.file_size)}
-                    {d.status === "processing" && (
-                      <span className="ml-2 text-[var(--color-accent)]">
-                        Processing...
-                      </span>
-                    )}
-                    {d.status === "error" && (
-                      <span className="ml-2 text-[var(--color-red)]">
-                        Error
-                      </span>
-                    )}
-                    {d.status === "ready" && (
-                      <span className="ml-2 text-[var(--color-green)]">
-                        Ready
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <button
-                  onClick={() => deleteDoc(d.id)}
-                  className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0.5 flex hover:text-[var(--color-red)]"
-                >
-                  <XIcon />
-                </button>
-              </div>
-            ))}
-            {docs.length === 0 && !isNew && (
-              <div className="py-3 px-3.5 text-[13px] text-[var(--color-text-tertiary)]">
-                No documents uploaded yet
-              </div>
-            )}
-            {!isNew && (
-              <>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".pdf,.docx,.xlsx,.xls,.txt,.md,.csv"
-                  onChange={handleFileChange}
-                  className="hidden"
-                />
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading}
-                  className="w-full py-2.5 px-3.5 flex items-center gap-1.5 border-none bg-transparent cursor-pointer text-[var(--color-accent)] text-[13px] font-medium disabled:opacity-50"
-                >
-                  <PlusIcon />{" "}
-                  {uploading ? "Uploading..." : "Upload document"}
-                </button>
-              </>
-            )}
-            {isNew && (
-              <div className="py-3 px-3.5 text-[13px] text-[var(--color-text-tertiary)]">
-                Save the agent first, then upload documents
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="flex gap-2.5">
-          <button
-            onClick={save}
-            disabled={!name.trim() || saving}
-            className="flex-1 py-2.5 px-5 border-none rounded-lg text-sm font-semibold cursor-pointer disabled:cursor-default transition-colors"
-            style={{
-              background: name.trim()
-                ? "var(--color-accent)"
-                : "var(--color-active)",
-              color: name.trim() ? "#fff" : "var(--color-text-tertiary)",
-            }}
-          >
-            {saving ? "..." : isNew ? "Create Agent" : "Save"}
-          </button>
-          {!isNew && (
-            <button
-              onClick={remove}
-              disabled={saving}
-              className="py-2.5 px-3.5 bg-[var(--color-red-soft)] text-[var(--color-red)] border-none rounded-lg cursor-pointer flex items-center"
-            >
-              <TrashIcon />
-            </button>
+        <div className={`max-w-[520px] ${mobile ? "p-4" : "px-10 pt-5 pb-8"}`}>
+          {error && (
+            <div className="mb-5 text-[14px] text-[var(--color-red)] bg-[var(--color-red-soft)] px-3.5 py-2.5 rounded-lg">
+              {error}
+            </div>
           )}
+
+          {/* Color picker */}
+          <div className="mb-6">
+            <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-2.5">
+              Colour
+            </label>
+            <div className="flex gap-2.5 flex-wrap">
+              {PALETTE.map((c) => (
+                <div
+                  key={c}
+                  onClick={() => setColor(c)}
+                  className="w-7 h-7 rounded-full cursor-pointer"
+                  style={{
+                    background: c,
+                    outline: color === c ? `2px solid ${c}` : "none",
+                    outlineOffset: 2,
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Name */}
+          <div className="mb-6">
+            <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-2.5">
+              Name
+            </label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. HR Advisor, Marketing Lead..."
+              className="w-full py-3 px-4 border border-[var(--color-border)] rounded-lg text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
+            />
+          </div>
+
+          {/* Purpose */}
+          <div className="mb-6">
+            <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-2.5">
+              Purpose
+            </label>
+            <textarea
+              value={purpose}
+              onChange={(e) => setPurpose(e.target.value)}
+              rows={4}
+              placeholder="Describe this agent's role and how it should behave..."
+              className="w-full py-3 px-4 border border-[var(--color-border)] rounded-lg text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-y leading-relaxed focus:border-[var(--color-accent)]"
+            />
+          </div>
+
+          {/* Documents */}
+          <div className="mb-7">
+            <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-2.5">
+              Documents
+            </label>
+            <div className="border border-[var(--color-border)] rounded-xl overflow-hidden">
+              {docs.map((d) => (
+                <div
+                  key={d.id}
+                  className="py-3 px-4 flex items-center gap-2.5 border-b border-[var(--color-border-light)]"
+                >
+                  <div className="text-[var(--color-text-tertiary)]">
+                    <FileIcon />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[14px] text-[var(--color-text)]">
+                      {d.file_name}
+                    </div>
+                    <div className="text-[12px] text-[var(--color-text-tertiary)]">
+                      {formatSize(d.file_size)}
+                      {d.status === "processing" && (
+                        <span className="ml-2 text-[var(--color-accent)]">
+                          Processing...
+                        </span>
+                      )}
+                      {d.status === "error" && (
+                        <span className="ml-2 text-[var(--color-red)]">
+                          Error
+                        </span>
+                      )}
+                      {d.status === "ready" && (
+                        <span className="ml-2 text-[var(--color-green)]">
+                          Ready
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => deleteDoc(d.id)}
+                    className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0.5 flex hover:text-[var(--color-red)]"
+                  >
+                    <XIcon />
+                  </button>
+                </div>
+              ))}
+              {docs.length === 0 && !isNew && (
+                <div className="py-3.5 px-4 text-[14px] text-[var(--color-text-tertiary)]">
+                  No documents uploaded yet
+                </div>
+              )}
+              {!isNew && (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.docx,.xlsx,.xls,.txt,.md,.csv"
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                    className="w-full py-3 px-4 flex items-center gap-2 border-none bg-transparent cursor-pointer text-[var(--color-accent)] text-[14px] font-medium disabled:opacity-50"
+                  >
+                    <PlusIcon />{" "}
+                    {uploading ? "Uploading..." : "Upload document"}
+                  </button>
+                </>
+              )}
+              {isNew && (
+                <div className="py-3.5 px-4 text-[14px] text-[var(--color-text-tertiary)]">
+                  Save the agent first, then upload documents
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-3">
+            <button
+              onClick={save}
+              disabled={!name.trim() || saving}
+              className="flex-1 py-3 px-5 border-none rounded-lg text-[15px] font-semibold cursor-pointer disabled:cursor-default transition-colors"
+              style={{
+                background: name.trim()
+                  ? "var(--color-accent)"
+                  : "var(--color-active)",
+                color: name.trim() ? "#fff" : "var(--color-text-tertiary)",
+              }}
+            >
+              {saving ? "..." : isNew ? "Create Agent" : "Save"}
+            </button>
+            {!isNew && (
+              <button
+                onClick={remove}
+                disabled={saving}
+                className="py-3 px-4 bg-[var(--color-red-soft)] text-[var(--color-red)] border-none rounded-lg cursor-pointer flex items-center"
+              >
+                <TrashIcon />
+              </button>
+            )}
+          </div>
         </div>
-      </div>
       </div>
     </div>
   );

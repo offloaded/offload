@@ -16,9 +16,9 @@ export function Avatar({
         width: size,
         height: size,
         borderRadius: 8,
-        background: `${color}14`,
+        background: `${color}18`,
         color: color,
-        fontSize: size * 0.38,
+        fontSize: size * 0.4,
       }}
     >
       {name.charAt(0)}

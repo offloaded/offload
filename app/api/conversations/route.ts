@@ -1,6 +1,8 @@
 import { createServerSupabase } from "@/lib/supabase-server";
 import { NextResponse } from "next/server";
 
+const PAGE_SIZE = 30;
+
 export async function GET(request: Request) {
   const supabase = await createServerSupabase();
   const {
@@ -13,6 +15,8 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const agentId = searchParams.get("agent_id");
+  const before = searchParams.get("before"); // cursor: created_at of oldest loaded message
+  const limit = parseInt(searchParams.get("limit") || String(PAGE_SIZE), 10);
 
   if (!agentId) {
     return NextResponse.json(
@@ -38,22 +42,41 @@ export async function GET(request: Request) {
   const { data: conversation } = await query.single();
 
   if (!conversation) {
-    return NextResponse.json({ conversation_id: null, messages: [] });
+    return NextResponse.json({
+      conversation_id: null,
+      messages: [],
+      has_more: false,
+    });
   }
 
-  // Load messages
-  const { data: messages, error } = await supabase
+  // Build messages query with pagination
+  let msgQuery = supabase
     .from("messages")
     .select("*")
     .eq("conversation_id", conversation.id)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: false })
+    .limit(limit + 1); // fetch one extra to check has_more
+
+  if (before) {
+    msgQuery = msgQuery.lt("created_at", before);
+  }
+
+  const { data: messages, error } = await msgQuery;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  const rows = messages || [];
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+
+  // Return in ascending order (oldest first) for display
+  page.reverse();
+
   return NextResponse.json({
     conversation_id: conversation.id,
-    messages: messages || [],
+    messages: page,
+    has_more: hasMore,
   });
 }
