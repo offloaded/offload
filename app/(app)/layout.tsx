@@ -67,7 +67,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (!checked) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-[var(--color-surface)]">
+      <div className="h-screen w-full flex items-center justify-center bg-[var(--color-surface)]">
         <span className="text-sm text-[var(--color-text-secondary)]">Loading...</span>
       </div>
     );
@@ -75,7 +75,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <AppContext value={{ agents, refreshAgents, mobile, openDrawer: () => setDrawerOpen(true) }}>
-      <div className="flex h-screen w-screen bg-[var(--color-page-bg)] overflow-hidden">
+      <div className="flex h-screen w-full bg-[var(--color-page-bg)] overflow-hidden">
         {/* Desktop sidebar — hidden below 768px via CSS */}
         <div className="hidden md:flex w-[220px] min-w-[220px] bg-[var(--color-bg)] border-r border-[var(--color-border)] flex-col">
           <SidebarContent agents={agents} />
