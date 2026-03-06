@@ -6,7 +6,7 @@ import { ChatView } from "@/components/ChatView";
 
 export default function AgentChatPage() {
   const params = useParams();
-  const { agents, mobile, openDrawer } = useApp();
+  const { agents, openDrawer } = useApp();
   const agent = agents.find((a) => a.id === params.id);
 
   if (!agent && agents.length > 0) {
@@ -20,6 +20,6 @@ export default function AgentChatPage() {
   if (!agent) return null;
 
   return (
-    <ChatView agent={agent} mobile={mobile} openDrawer={openDrawer} />
+    <ChatView agent={agent} openDrawer={openDrawer} />
   );
 }

@@ -57,18 +57,14 @@ function AgentMessage({
   agent,
   text,
   time,
-  mobile,
 }: {
   agent: Agent;
   text: string;
   time: string;
-  mobile: boolean;
 }) {
   return (
-    <div
-      className={`${mobile ? "px-4 py-2" : "px-6 py-2"} hover:bg-[var(--color-hover)] transition-colors`}
-    >
-      <div className={`flex max-w-[720px] ${mobile ? "gap-2.5" : "gap-3"}`}>
+    <div className="px-4 py-2 md:px-6 hover:bg-[var(--color-hover)] transition-colors">
+      <div className="flex max-w-[720px] gap-2.5 md:gap-3">
         <Avatar name={agent.name} color={agent.color} size={36} />
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2 mb-0.5">
@@ -94,15 +90,13 @@ function AgentMessage({
 function UserMessage({
   text,
   time,
-  mobile,
 }: {
   text: string;
   time: string;
-  mobile: boolean;
 }) {
   return (
-    <div className={mobile ? "px-4 py-2" : "px-6 py-2"}>
-      <div className={`flex max-w-[720px] ${mobile ? "gap-2.5" : "gap-3"}`}>
+    <div className="px-4 py-2 md:px-6">
+      <div className="flex max-w-[720px] gap-2.5 md:gap-3">
         <div className="w-9 h-9 rounded-lg shrink-0 bg-[var(--color-active)] text-[var(--color-text-secondary)] flex items-center justify-center text-xs font-bold">
           Y
         </div>
@@ -128,11 +122,9 @@ const CHAT_ID = "group";
 
 export function GroupChatView({
   agents,
-  mobile,
   openDrawer,
 }: {
   agents: Agent[];
-  mobile: boolean;
   openDrawer: () => void;
 }) {
   const cached = getCached(CHAT_ID);
@@ -373,7 +365,6 @@ export function GroupChatView({
           key={msg.id || idx}
           text={msg.content}
           time={formatTime(msg.created_at)}
-          mobile={mobile}
         />
       );
     }
@@ -386,7 +377,6 @@ export function GroupChatView({
           agent={p.agent}
           text={p.text}
           time={formatTime(msg.created_at)}
-          mobile={mobile}
         />
       ));
     }
@@ -394,7 +384,7 @@ export function GroupChatView({
     return (
       <div
         key={msg.id || idx}
-        className={`${mobile ? "px-4 py-2" : "px-6 py-2"}`}
+        className="px-4 py-2 md:px-6"
       >
         <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap max-w-[720px]">
           {msg.content}
@@ -406,7 +396,7 @@ export function GroupChatView({
   const renderStreamingBubbles = () => {
     if (!streamText) {
       return (
-        <div className={mobile ? "px-4 py-2" : "px-6 py-2"}>
+        <div className="px-4 py-2 md:px-6">
           <div className="flex items-center gap-1 pt-2.5">
             {[0, 1, 2].map((d) => (
               <div
@@ -430,13 +420,12 @@ export function GroupChatView({
           agent={p.agent}
           text={p.text}
           time={formatTime(new Date().toISOString())}
-          mobile={mobile}
         />
       ));
     }
 
     return (
-      <div className={mobile ? "px-4 py-2" : "px-6 py-2"}>
+      <div className="px-4 py-2 md:px-6">
         <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap max-w-[720px]">
           {streamText}
           <span className="inline-block w-0.5 h-4 bg-[var(--color-text-tertiary)] ml-0.5 align-middle animate-[typing-dot_1s_steps(2)_infinite]" />
@@ -447,9 +436,9 @@ export function GroupChatView({
 
   return (
     <div className="flex-1 flex flex-col bg-[var(--color-surface)] overflow-hidden">
-      {/* Header */}
+      {/* Header — fixed on mobile, in-flow on desktop */}
       <div
-        className="sticky top-0 z-10 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-3 shrink-0 py-3 px-4 md:py-3.5 md:px-6"
+        className="fixed top-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-3 py-3 px-4 md:py-3.5 md:px-6"
       >
         <button
           onClick={openDrawer}
@@ -468,10 +457,10 @@ export function GroupChatView({
         </span>
       </div>
 
-      {/* Messages */}
+      {/* Messages — padded for fixed header/input on mobile */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto pt-3 md:pt-4 pb-2"
+        className="flex-1 overflow-y-auto pt-[52px] pb-[72px] md:pt-4 md:pb-2 min-h-0"
       >
         {/* Sentinel for loading older messages */}
         <div ref={sentinelRef} className="h-1" />
@@ -512,9 +501,9 @@ export function GroupChatView({
         <div ref={endRef} />
       </div>
 
-      {/* Input */}
+      {/* Input — fixed on mobile, in-flow on desktop */}
       <div
-        className="shrink-0 bg-[var(--color-surface)] px-3 pt-2 pb-[max(16px,env(safe-area-inset-bottom))] md:px-5 md:pb-5"
+        className="fixed bottom-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 bg-[var(--color-surface)] px-3 pt-2 pb-[max(16px,env(safe-area-inset-bottom))] md:px-5 md:pb-5"
       >
         <div className="flex gap-2 items-center bg-[var(--color-input-bg)] rounded-xl pl-4 pr-1.5 py-1.5 border border-[var(--color-border)]">
           <input
