@@ -9,11 +9,9 @@ import {
   FileIcon,
   PlusIcon,
   XIcon,
-  CalendarIcon,
   GlobeIcon,
 } from "@/components/Icons";
-import type { Document, ScheduledTask } from "@/lib/types";
-import { describeCron } from "@/lib/cron";
+import type { Document } from "@/lib/types";
 
 const PALETTE = [
   "#2C5FF6",
@@ -49,16 +47,10 @@ export default function AgentEditorPage() {
   const [purpose, setPurpose] = useState("");
   const [color, setColor] = useState(PALETTE[0]);
   const [docs, setDocs] = useState<Document[]>([]);
-  const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [uploads, setUploads] = useState<UploadItem[]>([]);
-  const [newTaskInstruction, setNewTaskInstruction] = useState("");
-  const [newTaskCron, setNewTaskCron] = useState("0 9 * * 1-5");
-  const [newTaskTimezone, setNewTaskTimezone] = useState("UTC");
-  const [showAddTask, setShowAddTask] = useState(false);
-  const [savingTask, setSavingTask] = useState(false);
 
   useEffect(() => {
     if (existing) {
@@ -80,19 +72,9 @@ export default function AgentEditorPage() {
     }
   }, [isNew, params.id]);
 
-  const loadTasks = useCallback(() => {
-    if (!isNew && params.id) {
-      fetch(`/api/scheduled-tasks?agent_id=${params.id}`)
-        .then((r) => (r.ok ? r.json() : []))
-        .then(setTasks)
-        .catch(() => {});
-    }
-  }, [isNew, params.id]);
-
   useEffect(() => {
     loadDocs();
-    loadTasks();
-  }, [loadDocs, loadTasks]);
+  }, [loadDocs]);
 
   useEffect(() => {
     const hasProcessing = docs.some((d) => d.status === "processing");
@@ -151,50 +133,6 @@ export default function AgentEditorPage() {
     } finally {
       setSaving(false);
     }
-  };
-
-  const addTask = async () => {
-    if (!newTaskInstruction.trim() || !newTaskCron.trim() || savingTask) return;
-    setSavingTask(true);
-    setError("");
-    try {
-      const res = await fetch("/api/scheduled-tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          agent_id: params.id,
-          instruction: newTaskInstruction.trim(),
-          cron: newTaskCron.trim(),
-          timezone: newTaskTimezone,
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `Failed (${res.status})`);
-      }
-      setNewTaskInstruction("");
-      setNewTaskCron("0 9 * * 1-5");
-      setShowAddTask(false);
-      loadTasks();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create task");
-    } finally {
-      setSavingTask(false);
-    }
-  };
-
-  const toggleTask = async (taskId: string, enabled: boolean) => {
-    await fetch("/api/scheduled-tasks", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: taskId, enabled }),
-    });
-    loadTasks();
-  };
-
-  const deleteTask = async (taskId: string) => {
-    await fetch(`/api/scheduled-tasks?id=${taskId}`, { method: "DELETE" });
-    loadTasks();
   };
 
   const uploadSingleFile = async (file: File, uploadId: string) => {
@@ -538,146 +476,6 @@ export default function AgentEditorPage() {
               <p className="text-[12px] text-[var(--color-text-tertiary)] mt-1.5 px-1">
                 Requires a Tavily API key in environment variables
               </p>
-            </div>
-          )}
-
-          {/* Scheduled tasks */}
-          {!isNew && (
-            <div className="mb-7">
-              <div className="flex items-baseline justify-between mb-2.5">
-                <label className="text-[13px] font-semibold text-[var(--color-text-secondary)]">
-                  Scheduled Tasks
-                </label>
-                {tasks.length > 0 && (
-                  <span className="text-[12px] text-[var(--color-text-tertiary)]">
-                    {tasks.filter((t) => t.enabled).length} active
-                  </span>
-                )}
-              </div>
-
-              {/* Existing tasks */}
-              {tasks.length > 0 && (
-                <div className="flex flex-col gap-2 mb-2">
-                  {tasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className="border border-[var(--color-border)] rounded-lg p-3 flex flex-col gap-1.5"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[13px] text-[var(--color-text)]" style={{ opacity: task.enabled ? 1 : 0.5 }}>
-                            {task.instruction}
-                          </div>
-                          <div className="text-[11px] text-[var(--color-text-tertiary)] mt-1 flex items-center gap-1.5">
-                            <CalendarIcon />
-                            <span>{describeCron(task.cron)}</span>
-                            <span>&middot;</span>
-                            <span>{task.timezone}</span>
-                          </div>
-                          {task.last_run_at && (
-                            <div className="text-[11px] text-[var(--color-text-tertiary)] mt-0.5">
-                              Last ran {new Date(task.last_run_at).toLocaleString()}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            onClick={() => toggleTask(task.id, !task.enabled)}
-                            className="bg-transparent border-none cursor-pointer p-0.5 flex text-[13px] font-medium"
-                            style={{
-                              color: task.enabled
-                                ? "var(--color-accent)"
-                                : "var(--color-text-tertiary)",
-                            }}
-                          >
-                            {task.enabled ? "On" : "Off"}
-                          </button>
-                          <button
-                            onClick={() => deleteTask(task.id)}
-                            className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0.5 flex hover:text-[var(--color-red)]"
-                          >
-                            <XIcon />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {tasks.length === 0 && !showAddTask && (
-                <div className="py-3.5 px-4 text-[14px] text-[var(--color-text-tertiary)] border border-[var(--color-border)] rounded-lg mb-2">
-                  No scheduled tasks. You can also ask the agent to set up tasks in chat.
-                </div>
-              )}
-
-              {/* Add task form */}
-              {showAddTask ? (
-                <div className="border border-[var(--color-border)] rounded-lg p-3 flex flex-col gap-3">
-                  <textarea
-                    value={newTaskInstruction}
-                    onChange={(e) => setNewTaskInstruction(e.target.value)}
-                    placeholder="What should the agent do? e.g. 'Summarize the latest news about our industry'"
-                    rows={2}
-                    className="w-full py-2 px-3 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-y leading-relaxed focus:border-[var(--color-accent)]"
-                  />
-                  <div className="flex gap-2">
-                    <div className="flex-1">
-                      <label className="block text-[11px] text-[var(--color-text-tertiary)] mb-1">
-                        Cron expression
-                      </label>
-                      <input
-                        value={newTaskCron}
-                        onChange={(e) => setNewTaskCron(e.target.value)}
-                        placeholder="0 9 * * 1-5"
-                        className="w-full py-2 px-3 border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none font-mono focus:border-[var(--color-accent)]"
-                      />
-                      <div className="text-[11px] text-[var(--color-text-tertiary)] mt-0.5">
-                        {(() => {
-                          try {
-                            return describeCron(newTaskCron);
-                          } catch {
-                            return "Invalid expression";
-                          }
-                        })()}
-                      </div>
-                    </div>
-                    <div className="w-[140px]">
-                      <label className="block text-[11px] text-[var(--color-text-tertiary)] mb-1">
-                        Timezone
-                      </label>
-                      <input
-                        value={newTaskTimezone}
-                        onChange={(e) => setNewTaskTimezone(e.target.value)}
-                        placeholder="UTC"
-                        className="w-full py-2 px-3 border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={addTask}
-                      disabled={!newTaskInstruction.trim() || savingTask}
-                      className="flex-1 py-2 px-4 border-none rounded-lg text-[13px] font-semibold cursor-pointer disabled:cursor-default transition-colors bg-[var(--color-accent)] text-white disabled:opacity-50"
-                    >
-                      {savingTask ? "..." : "Add Task"}
-                    </button>
-                    <button
-                      onClick={() => setShowAddTask(false)}
-                      className="py-2 px-4 bg-transparent border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text-secondary)] cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setShowAddTask(true)}
-                  className="w-full py-2.5 px-4 flex items-center justify-center gap-2 border border-dashed border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[var(--color-accent)] text-[14px] font-medium hover:bg-[var(--color-hover)] transition-colors"
-                >
-                  <PlusIcon /> Add scheduled task
-                </button>
-              )}
             </div>
           )}
 

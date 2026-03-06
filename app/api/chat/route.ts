@@ -131,7 +131,7 @@ export async function POST(request: Request) {
     }
   }
 
-  // Web search if enabled
+  // Web search only if enabled — this is the server-side enforcement point
   let webSearchResults: string | undefined;
   if (agent.web_search_enabled) {
     try {
@@ -144,6 +144,16 @@ export async function POST(request: Request) {
     }
   }
 
+  // Build list of disabled features for in-chat activation
+  const disabledFeatures: Array<{ feature: string; label: string; description: string }> = [];
+  if (!agent.web_search_enabled) {
+    disabledFeatures.push({
+      feature: "web_search",
+      label: "Web Search",
+      description: "Search the web for current information, news, and real-time data",
+    });
+  }
+
   // Stream response from Claude
   const anthropic = getAnthropicClient();
   const systemPrompt = buildSystemPrompt(
@@ -153,6 +163,7 @@ export async function POST(request: Request) {
     {
       enableScheduleDetection: true,
       webSearchResults,
+      disabledFeatures: disabledFeatures.length > 0 ? disabledFeatures : undefined,
     }
   );
   console.log(`[Chat RAG] System prompt length: ${systemPrompt.length}`);
@@ -193,12 +204,15 @@ export async function POST(request: Request) {
           }
         }
 
-        // Detect schedule_request before cleaning
+        // Detect schedule_request and feature_request before cleaning
         const scheduleMatch = fullResponse.match(
           /```schedule_request\s*\n([\s\S]*?)\n```/
         );
+        const featureMatch = fullResponse.match(
+          /```feature_request\s*\n([\s\S]*?)\n```/
+        );
 
-        // Clean the response: strip <search> blocks, schedule_request blocks, etc.
+        // Clean the response: strip <search> blocks, schedule_request blocks, feature_request blocks, etc.
         const cleaned = cleanResponse(fullResponse);
 
         // Save the cleaned response
@@ -227,6 +241,19 @@ export async function POST(request: Request) {
             );
           } catch {
             // Invalid JSON in schedule block — ignore
+          }
+        }
+
+        if (featureMatch) {
+          try {
+            const feature = JSON.parse(featureMatch[1]);
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: "feature_request", ...feature })}\n\n`
+              )
+            );
+          } catch {
+            // Invalid JSON in feature block — ignore
           }
         }
 

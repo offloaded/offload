@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { Avatar } from "./Avatar";
-import { SendIcon, MenuIcon, NewChatIcon } from "./Icons";
+import { SendIcon, MenuIcon, NewChatIcon, CalendarIcon, GlobeIcon } from "./Icons";
 import type { Agent, Message } from "@/lib/types";
 import {
   getCached,
   setCache,
   prependMessages,
   clearCache,
+  updateMessages,
   type ChatMessage,
 } from "@/lib/chat-cache";
 import {
@@ -16,9 +17,13 @@ import {
   subscribe,
   getInflightState,
   resetInflight,
+  clearScheduleRequest,
+  clearFeatureRequest,
   type ScheduleRequest,
+  type FeatureRequest,
 } from "@/lib/inflight";
-import { CalendarIcon } from "./Icons";
+import { useApp } from "@/app/(app)/layout";
+import { describeCron } from "@/lib/cron";
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -295,6 +300,7 @@ export function ChatView({
   openDrawer: () => void;
   initialConversationId?: string | null;
 }) {
+  const { refreshAgents } = useApp();
   const chatId = initialConversationId
     ? `conv:${initialConversationId}`
     : `agent:${agent.id}`;
@@ -312,6 +318,8 @@ export function ChatView({
   const [loadingMore, setLoadingMore] = useState(false);
   const [scheduleRequest, setScheduleRequest] = useState<ScheduleRequest | null>(null);
   const [confirmingSchedule, setConfirmingSchedule] = useState(false);
+  const [featureRequest, setFeatureRequest] = useState<FeatureRequest | null>(null);
+  const [confirmingFeature, setConfirmingFeature] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -329,6 +337,9 @@ export function ChatView({
       }
       if (state.scheduleRequest) {
         setScheduleRequest(state.scheduleRequest);
+      }
+      if (state.featureRequest) {
+        setFeatureRequest(state.featureRequest);
       }
       // Sync messages from cache when streaming state changes
       const c = getCached(chatId);
@@ -464,14 +475,100 @@ export function ChatView({
         }),
       });
       if (res.ok) {
-        setScheduleRequest(null);
+        // Add success message to chat
+        let desc: string;
+        try {
+          desc = describeCron(scheduleRequest.cron);
+        } catch {
+          desc = scheduleRequest.cron;
+        }
+        const successMsg: ChatMessage = {
+          role: "assistant",
+          content: `Scheduled task created \u2014 I'll run "${scheduleRequest.instruction}" ${desc} (${scheduleRequest.timezone}).`,
+          created_at: new Date().toISOString(),
+        };
+        updateMessages(chatId, (prev) => [...prev, successMsg]);
+        setMessages((prev) => [...prev, successMsg]);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        const errorMsg: ChatMessage = {
+          role: "assistant",
+          content: `Failed to create scheduled task: ${data.error || `Error ${res.status}`}`,
+          created_at: new Date().toISOString(),
+        };
+        updateMessages(chatId, (prev) => [...prev, errorMsg]);
+        setMessages((prev) => [...prev, errorMsg]);
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      const errorMsg: ChatMessage = {
+        role: "assistant",
+        content: `Failed to create scheduled task: ${err instanceof Error ? err.message : "Network error"}`,
+        created_at: new Date().toISOString(),
+      };
+      updateMessages(chatId, (prev) => [...prev, errorMsg]);
+      setMessages((prev) => [...prev, errorMsg]);
     } finally {
+      setScheduleRequest(null);
+      clearScheduleRequest(chatId);
       setConfirmingSchedule(false);
     }
-  }, [scheduleRequest, confirmingSchedule, agent.id]);
+  }, [scheduleRequest, confirmingSchedule, agent.id, chatId]);
+
+  const confirmFeature = useCallback(async () => {
+    if (!featureRequest || confirmingFeature) return;
+    setConfirmingFeature(true);
+    try {
+      // Map feature ID to agent field
+      const updates: Record<string, boolean> = {};
+      if (featureRequest.feature === "web_search") {
+        updates.web_search_enabled = true;
+      }
+
+      const res = await fetch("/api/agents", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: agent.id, ...updates }),
+      });
+
+      if (res.ok) {
+        await refreshAgents();
+        const enabledMsg: ChatMessage = {
+          role: "assistant",
+          content: `${featureRequest.label} is now enabled. Let me try that again.`,
+          created_at: new Date().toISOString(),
+        };
+        updateMessages(chatId, (prev) => [...prev, enabledMsg]);
+        setMessages((prev) => [...prev, enabledMsg]);
+
+        // Re-send the user's last message so the agent can now use the feature
+        const lastUserMsg = messages.findLast((m) => m.role === "user");
+        if (lastUserMsg) {
+          sendDM(chatId, agent.id, lastUserMsg.content, conversationIdRef.current);
+        }
+      } else {
+        const data = await res.json().catch(() => ({}));
+        const errorMsg: ChatMessage = {
+          role: "assistant",
+          content: `Failed to enable ${featureRequest.label}: ${data.error || `Error ${res.status}`}`,
+          created_at: new Date().toISOString(),
+        };
+        updateMessages(chatId, (prev) => [...prev, errorMsg]);
+        setMessages((prev) => [...prev, errorMsg]);
+      }
+    } catch (err) {
+      const errorMsg: ChatMessage = {
+        role: "assistant",
+        content: `Failed to enable ${featureRequest.label}: ${err instanceof Error ? err.message : "Network error"}`,
+        created_at: new Date().toISOString(),
+      };
+      updateMessages(chatId, (prev) => [...prev, errorMsg]);
+      setMessages((prev) => [...prev, errorMsg]);
+    } finally {
+      setFeatureRequest(null);
+      clearFeatureRequest(chatId);
+      setConfirmingFeature(false);
+    }
+  }, [featureRequest, confirmingFeature, agent.id, chatId, messages, refreshAgents]);
 
   const handleNewChat = useCallback(() => {
     // Clear cache and inflight for current chat
@@ -527,43 +624,81 @@ export function ChatView({
           streamText={streamText}
         />
 
-        <div ref={endRef} />
-      </div>
-
-      {/* Schedule request banner */}
-      {scheduleRequest && (
-        <div className="shrink-0 mx-3 mb-2 md:mx-5 p-3 rounded-lg border border-[var(--color-accent)] bg-[var(--color-accent-soft)] flex items-start gap-3">
-          <span className="text-[var(--color-accent)] mt-0.5">
-            <CalendarIcon />
-          </span>
-          <div className="flex-1 min-w-0">
-            <div className="text-[13px] font-semibold text-[var(--color-text)] mb-0.5">
-              Schedule task?
-            </div>
-            <div className="text-[13px] text-[var(--color-text-secondary)]">
-              {scheduleRequest.instruction}
-            </div>
-            <div className="text-[11px] text-[var(--color-text-tertiary)] mt-0.5">
-              {scheduleRequest.cron} &middot; {scheduleRequest.timezone}
-            </div>
-            <div className="flex gap-2 mt-2">
-              <button
-                onClick={confirmSchedule}
-                disabled={confirmingSchedule}
-                className="py-1.5 px-3 rounded-md border-none text-[12px] font-semibold cursor-pointer bg-[var(--color-accent)] text-white disabled:opacity-50"
-              >
-                {confirmingSchedule ? "..." : "Confirm"}
-              </button>
-              <button
-                onClick={() => setScheduleRequest(null)}
-                className="py-1.5 px-3 rounded-md bg-transparent border border-[var(--color-border)] text-[12px] text-[var(--color-text-secondary)] cursor-pointer"
-              >
-                Dismiss
-              </button>
+        {/* Schedule request banner — inside scrollable area so it's not hidden behind fixed input on mobile */}
+        {scheduleRequest && (
+          <div className="mx-3 my-2 md:mx-5 p-3 rounded-lg border border-[var(--color-accent)] bg-[var(--color-accent-soft)] flex items-start gap-3">
+            <span className="text-[var(--color-accent)] mt-0.5">
+              <CalendarIcon />
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-semibold text-[var(--color-text)] mb-0.5">
+                Schedule task?
+              </div>
+              <div className="text-[13px] text-[var(--color-text-secondary)]">
+                {scheduleRequest.instruction}
+              </div>
+              <div className="text-[11px] text-[var(--color-text-tertiary)] mt-0.5">
+                {scheduleRequest.cron} &middot; {scheduleRequest.timezone}
+              </div>
+              <div className="flex gap-2 mt-2">
+                <button
+                  onClick={confirmSchedule}
+                  disabled={confirmingSchedule}
+                  className="py-1.5 px-3 rounded-md border-none text-[12px] font-semibold cursor-pointer bg-[var(--color-accent)] text-white disabled:opacity-50"
+                >
+                  {confirmingSchedule ? "..." : "Confirm"}
+                </button>
+                <button
+                  onClick={() => {
+                    setScheduleRequest(null);
+                    clearScheduleRequest(chatId);
+                  }}
+                  className="py-1.5 px-3 rounded-md bg-transparent border border-[var(--color-border)] text-[12px] text-[var(--color-text-secondary)] cursor-pointer"
+                >
+                  Dismiss
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* Feature activation banner */}
+        {featureRequest && (
+          <div className="mx-3 my-2 md:mx-5 p-3 rounded-lg border border-[var(--color-accent)] bg-[var(--color-accent-soft)] flex items-start gap-3">
+            <span className="text-[var(--color-accent)] mt-0.5">
+              <GlobeIcon />
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-semibold text-[var(--color-text)] mb-0.5">
+                Enable {featureRequest.label}?
+              </div>
+              <div className="text-[13px] text-[var(--color-text-secondary)]">
+                This agent needs {featureRequest.label.toLowerCase()} to complete your request.
+              </div>
+              <div className="flex gap-2 mt-2">
+                <button
+                  onClick={confirmFeature}
+                  disabled={confirmingFeature}
+                  className="py-1.5 px-3 rounded-md border-none text-[12px] font-semibold cursor-pointer bg-[var(--color-accent)] text-white disabled:opacity-50"
+                >
+                  {confirmingFeature ? "..." : "Enable"}
+                </button>
+                <button
+                  onClick={() => {
+                    setFeatureRequest(null);
+                    clearFeatureRequest(chatId);
+                  }}
+                  className="py-1.5 px-3 rounded-md bg-transparent border border-[var(--color-border)] text-[12px] text-[var(--color-text-secondary)] cursor-pointer"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div ref={endRef} />
+      </div>
 
       {/* Input — isolated component with own state */}
       <ChatInput

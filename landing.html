@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Offloaded — Your AI team, ready to work</title>
+  <meta name="description" content="Create a team of AI agents, give them your documents, and chat with them like any remote worker.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Satoshi:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #FAFAF8;
+      --bg-warm: #F4F3EF;
+      --surface: #FFFFFF;
+      --text: #111111;
+      --text-sec: #555555;
+      --text-ter: #888888;
+      --border: #E2E1DC;
+      --accent: #2C5FF6;
+      --accent-soft: rgba(44,95,246,0.08);
+      --green: #16A34A;
+      --green-soft: rgba(22,163,74,0.08);
+      --amber: #D97706;
+      --amber-soft: rgba(217,119,6,0.08);
+      --purple: #7C3AED;
+      --purple-soft: rgba(124,58,237,0.08);
+      --serif: 'Instrument Serif', Georgia, serif;
+      --sans: 'Satoshi', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--sans);
+      color: var(--text);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* ─── NAV ─── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      padding: 20px 40px;
+      display: flex; align-items: center; justify-content: space-between;
+      background: rgba(250,250,248,0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.3s ease;
+    }
+    nav.scrolled { border-bottom-color: var(--border); }
+
+    .nav-logo {
+      font-family: var(--serif); font-size: 22px; font-weight: 400;
+      color: var(--text); text-decoration: none; letter-spacing: -0.02em;
+    }
+    .nav-links { display: flex; align-items: center; gap: 32px; }
+    .nav-links a {
+      font-size: 14px; font-weight: 500; color: var(--text-sec);
+      text-decoration: none; transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--text); }
+    .nav-links a.btn-primary { color: #FFFFFF; }
+    .nav-links a.btn-primary:hover { color: #FFFFFF; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 12px 24px; border-radius: 10px; font-size: 15px;
+      font-weight: 600; font-family: var(--sans); text-decoration: none;
+      transition: all 0.2s ease; cursor: pointer; border: none;
+    }
+    .btn-primary {
+      background: var(--text); color: #FFFFFF;
+    }
+    .btn-primary:hover { background: #333; transform: translateY(-1px); }
+    .btn-secondary {
+      background: var(--surface); color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { border-color: var(--text-ter); }
+    .btn-small { padding: 9px 18px; font-size: 13px; }
+
+    /* ─── HERO ─── */
+    .hero {
+      padding: 160px 40px 80px; text-align: center;
+      max-width: 900px; margin: 0 auto;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 16px; border-radius: 100px;
+      background: var(--accent-soft); color: var(--accent);
+      font-size: 13px; font-weight: 600; margin-bottom: 28px;
+    }
+    .hero-badge::before {
+      content: ''; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent); animation: pulse 2s ease infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; } 50% { opacity: 0.4; }
+    }
+    .hero h1 {
+      font-family: var(--serif); font-size: clamp(44px, 7vw, 72px);
+      font-weight: 400; line-height: 1.08; letter-spacing: -0.03em;
+      margin-bottom: 24px; color: var(--text);
+    }
+    .hero h1 em {
+      font-style: italic; color: var(--accent);
+    }
+    .hero p {
+      font-size: 18px; line-height: 1.6; color: var(--text-sec);
+      max-width: 540px; margin: 0 auto 40px;
+    }
+    .hero-ctas { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+
+    /* ─── CHAT DEMO ─── */
+    .demo-section {
+      padding: 40px 40px 100px; max-width: 720px; margin: 0 auto;
+    }
+    .demo-window {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 8px 40px rgba(0,0,0,0.06);
+    }
+    .demo-header {
+      padding: 16px 20px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .demo-header-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--text);
+    }
+    .demo-header span { font-size: 14px; font-weight: 600; }
+    .demo-header small { font-size: 12px; color: var(--text-ter); }
+    .demo-messages { padding: 24px 20px; display: flex; flex-direction: column; gap: 16px; }
+
+    .msg { max-width: 85%; animation: msgIn 0.5s ease both; }
+    .msg-user { align-self: flex-end; }
+    .msg-agent { align-self: flex-start; }
+    .msg:nth-child(1) { animation-delay: 0.3s; }
+    .msg:nth-child(2) { animation-delay: 0.7s; }
+    .msg:nth-child(3) { animation-delay: 1.2s; }
+    .msg:nth-child(4) { animation-delay: 1.8s; }
+    .msg:nth-child(5) { animation-delay: 2.4s; }
+    .msg:nth-child(6) { animation-delay: 3.0s; }
+
+    @keyframes msgIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .msg-tag {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11px; font-weight: 600; padding: 3px 8px;
+      border-radius: 20px; margin-bottom: 6px;
+    }
+    .msg-tag::before {
+      content: ''; width: 5px; height: 5px; border-radius: 50%;
+    }
+    .msg-tag-blue { color: var(--accent); background: var(--accent-soft); }
+    .msg-tag-blue::before { background: var(--accent); }
+    .msg-tag-green { color: var(--green); background: var(--green-soft); }
+    .msg-tag-green::before { background: var(--green); }
+    .msg-tag-amber { color: var(--amber); background: var(--amber-soft); }
+    .msg-tag-amber::before { background: var(--amber); }
+
+    .msg-bubble {
+      padding: 12px 16px; font-size: 14px; line-height: 1.6;
+      border-radius: 16px;
+    }
+    .msg-user .msg-bubble {
+      background: var(--bg-warm); border-radius: 16px 16px 4px 16px;
+      color: var(--text);
+    }
+    .msg-agent .msg-bubble {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px 16px 16px 4px; color: var(--text);
+    }
+
+    .demo-input {
+      padding: 12px 20px; border-top: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .demo-input-field {
+      flex: 1; padding: 10px 0; font-size: 14px; color: var(--text-ter);
+      font-family: var(--sans);
+    }
+    .demo-send {
+      width: 34px; height: 34px; border-radius: 8px;
+      background: var(--bg-warm); display: flex; align-items: center; justify-content: center;
+    }
+
+    /* ─── HOW IT WORKS ─── */
+    .how-section {
+      padding: 100px 40px; background: var(--bg-warm);
+    }
+    .how-inner { max-width: 900px; margin: 0 auto; }
+    .how-section h2 {
+      font-family: var(--serif); font-size: clamp(32px, 5vw, 48px);
+      font-weight: 400; letter-spacing: -0.02em;
+      text-align: center; margin-bottom: 64px;
+    }
+    .how-steps {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px;
+    }
+    .how-step {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 32px 28px;
+    }
+    .how-step-num {
+      font-family: var(--serif); font-size: 36px; font-style: italic;
+      color: var(--accent); margin-bottom: 16px; line-height: 1;
+    }
+    .how-step h3 {
+      font-size: 17px; font-weight: 600; margin-bottom: 10px; color: var(--text);
+    }
+    .how-step p {
+      font-size: 14px; line-height: 1.6; color: var(--text-sec);
+    }
+
+    /* ─── FEATURES ─── */
+    .features-section {
+      padding: 100px 40px;
+    }
+    .features-inner { max-width: 900px; margin: 0 auto; }
+    .features-section h2 {
+      font-family: var(--serif); font-size: clamp(32px, 5vw, 48px);
+      font-weight: 400; letter-spacing: -0.02em;
+      text-align: center; margin-bottom: 20px;
+    }
+    .features-section > .features-inner > p {
+      text-align: center; font-size: 17px; color: var(--text-sec);
+      max-width: 500px; margin: 0 auto 64px; line-height: 1.6;
+    }
+    .features-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;
+    }
+    .feature-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 28px;
+    }
+    .feature-icon {
+      width: 40px; height: 40px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 16px; font-size: 18px;
+    }
+    .feature-icon-blue { background: var(--accent-soft); color: var(--accent); }
+    .feature-icon-green { background: var(--green-soft); color: var(--green); }
+    .feature-icon-amber { background: var(--amber-soft); color: var(--amber); }
+    .feature-icon-purple { background: var(--purple-soft); color: var(--purple); }
+
+    .feature-card h3 {
+      font-size: 16px; font-weight: 600; margin-bottom: 8px; color: var(--text);
+    }
+    .feature-card p {
+      font-size: 14px; line-height: 1.6; color: var(--text-sec);
+    }
+
+    /* ─── USE CASES ─── */
+    .usecases-section {
+      padding: 100px 40px; background: var(--bg-warm);
+    }
+    .usecases-inner { max-width: 900px; margin: 0 auto; }
+    .usecases-section h2 {
+      font-family: var(--serif); font-size: clamp(32px, 5vw, 48px);
+      font-weight: 400; letter-spacing: -0.02em;
+      text-align: center; margin-bottom: 20px;
+    }
+    .usecases-section > .usecases-inner > p {
+      text-align: center; font-size: 17px; color: var(--text-sec);
+      max-width: 500px; margin: 0 auto 64px; line-height: 1.6;
+    }
+    .usecases-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;
+    }
+    .usecase-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 28px; text-align: center;
+    }
+    .usecase-emoji { font-size: 32px; margin-bottom: 16px; }
+    .usecase-card h3 {
+      font-size: 16px; font-weight: 600; margin-bottom: 8px; color: var(--text);
+    }
+    .usecase-agents {
+      display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-bottom: 12px;
+    }
+    .usecase-agent {
+      font-size: 11px; font-weight: 600; padding: 3px 10px;
+      border-radius: 20px;
+    }
+    .usecase-card p {
+      font-size: 13px; line-height: 1.6; color: var(--text-sec);
+    }
+
+    /* ─── CTA ─── */
+    .cta-section {
+      padding: 120px 40px; text-align: center;
+    }
+    .cta-inner { max-width: 600px; margin: 0 auto; }
+    .cta-section h2 {
+      font-family: var(--serif); font-size: clamp(36px, 5vw, 52px);
+      font-weight: 400; letter-spacing: -0.02em; margin-bottom: 20px;
+    }
+    .cta-section p {
+      font-size: 17px; color: var(--text-sec); margin-bottom: 36px; line-height: 1.6;
+    }
+
+    /* ─── FOOTER ─── */
+    footer {
+      padding: 40px; border-top: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+      max-width: 980px; margin: 0 auto;
+    }
+    footer span { font-size: 13px; color: var(--text-ter); }
+    footer a { font-size: 13px; color: var(--text-sec); text-decoration: none; }
+    footer a:hover { color: var(--text); }
+
+    /* ─── MOBILE ─── */
+    @media (max-width: 768px) {
+      nav { padding: 16px 20px; }
+      .nav-links { gap: 20px; }
+      .nav-links a.hide-mobile { display: none; }
+      .hero { padding: 120px 20px 60px; }
+      .hero p { font-size: 16px; }
+      .demo-section { padding: 20px 20px 80px; }
+      .how-section, .features-section, .usecases-section, .cta-section { padding: 80px 20px; }
+      .how-steps { grid-template-columns: 1fr; gap: 16px; }
+      .features-grid { grid-template-columns: 1fr; gap: 16px; }
+      .usecases-grid { grid-template-columns: 1fr; gap: 16px; }
+      footer { flex-direction: column; gap: 12px; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav id="nav">
+    <a href="/" class="nav-logo">Offloaded</a>
+    <div class="nav-links">
+      <a href="#how" class="hide-mobile">How it works</a>
+      <a href="#features" class="hide-mobile">Features</a>
+      <a href="https://offloaded.life" class="btn btn-primary btn-small">Get started</a>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-badge">Now in early access</div>
+    <h1>Your AI team,<br>ready to <em>work</em></h1>
+    <p>Create a team of AI agents, give them your documents, and chat with them like any remote worker. They read your policies, answer your questions, and get things done.</p>
+    <div class="hero-ctas">
+      <a href="https://offloaded.life" class="btn btn-primary">Get started free</a>
+      <a href="#how" class="btn btn-secondary">See how it works</a>
+    </div>
+  </section>
+
+  <!-- CHAT DEMO -->
+  <section class="demo-section">
+    <div class="demo-window">
+      <div class="demo-header">
+        <div class="demo-header-dot"></div>
+        <span># Team Chat</span>
+        <small>3 agents</small>
+      </div>
+      <div class="demo-messages">
+        <div class="msg msg-user">
+          <div class="msg-bubble">Can we hire someone who lives in Brisbane but would work remotely?</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-tag msg-tag-blue">HR Advisor</div>
+          <div class="msg-bubble">Based on our hiring policy, candidates need to be Australian residents — which a Brisbane-based person would be. They'd be eligible as long as they also meet the English language requirement. I'd recommend checking if your remote work policy covers interstate arrangements too.</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-tag msg-tag-amber">Legal Advisor</div>
+          <div class="msg-bubble">Good call on the remote work policy. From a compliance perspective, you'll also want to check your workers compensation coverage extends to Queensland — it varies by state. I can review your current policy if you'd like.</div>
+        </div>
+        <div class="msg msg-user">
+          <div class="msg-bubble">Yes please, and can you draft a remote work agreement?</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-tag msg-tag-amber">Legal Advisor</div>
+          <div class="msg-bubble">On it. I'll base it on our contract template and include clauses for interstate WHS obligations, equipment provisions, and communication expectations. I'll have a draft ready in this chat shortly.</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-tag msg-tag-green">Bookkeeper</div>
+          <div class="msg-bubble">Just a heads up — if they're in Queensland, payroll tax thresholds are different. I'll flag the relevant details when you're ready to set up their payroll.</div>
+        </div>
+      </div>
+      <div class="demo-input">
+        <span class="demo-input-field">Message your team...</span>
+        <div class="demo-send">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#999" stroke-width="1.5"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section class="how-section" id="how">
+    <div class="how-inner">
+      <h2>Three steps to your new team</h2>
+      <div class="how-steps">
+        <div class="how-step">
+          <div class="how-step-num">1</div>
+          <h3>Create your agents</h3>
+          <p>Give each agent a name, a purpose, and a personality. An HR advisor, a bookkeeper, a legal analyst — whatever your business needs.</p>
+        </div>
+        <div class="how-step">
+          <div class="how-step-num">2</div>
+          <h3>Upload your knowledge</h3>
+          <p>Add your policies, templates, financial data, and reference documents. Each agent learns from the documents you give them.</p>
+        </div>
+        <div class="how-step">
+          <div class="how-step-num">3</div>
+          <h3>Chat with your team</h3>
+          <p>Ask questions in a group chat or DM an agent directly. They reference your actual documents, collaborate with each other, and get work done.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section class="features-section" id="features">
+    <div class="features-inner">
+      <h2>Everything a team should do</h2>
+      <p>Your agents don't just answer questions. They collaborate, search, schedule, and produce real work.</p>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon feature-icon-blue">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </div>
+          <h3>Group chat</h3>
+          <p>Ask a question and the right agents respond. They tag each other, build on answers, and collaborate like a real team.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon feature-icon-green">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </div>
+          <h3>Document knowledge</h3>
+          <p>Upload your policies, legislation, templates, and data. Agents reference your actual documents — not generic advice.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon feature-icon-amber">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <h3>Scheduled tasks</h3>
+          <p>Tell an agent "give me a daily brief at 8am" and it happens. Web search, document review, reporting — all on autopilot.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon feature-icon-purple">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          </div>
+          <h3>Integrations</h3>
+          <p>Connect Asana, search the web, and more. Each agent gets access only to the tools they need.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- USE CASES -->
+  <section class="usecases-section" id="usecases">
+    <div class="usecases-inner">
+      <h2>One platform, any team</h2>
+      <p>Configure agents for your industry. Same platform, completely different teams.</p>
+      <div class="usecases-grid">
+        <div class="usecase-card">
+          <div class="usecase-emoji">🏢</div>
+          <h3>Small business</h3>
+          <div class="usecase-agents">
+            <span class="usecase-agent" style="background:var(--accent-soft);color:var(--accent)">HR Advisor</span>
+            <span class="usecase-agent" style="background:var(--green-soft);color:var(--green)">Bookkeeper</span>
+            <span class="usecase-agent" style="background:var(--amber-soft);color:var(--amber)">Legal</span>
+          </div>
+          <p>Upload your policies and legislation. Get compliant advice grounded in your actual documents.</p>
+        </div>
+        <div class="usecase-card">
+          <div class="usecase-emoji">💪</div>
+          <h3>Fitness coaching</h3>
+          <div class="usecase-agents">
+            <span class="usecase-agent" style="background:var(--green-soft);color:var(--green)">Nutrition</span>
+            <span class="usecase-agent" style="background:var(--accent-soft);color:var(--accent)">Training</span>
+            <span class="usecase-agent" style="background:var(--purple-soft);color:var(--purple)">Mindset</span>
+          </div>
+          <p>Coaches scale their practice. Clients get 24/7 access to a team that follows their coach's methodology.</p>
+        </div>
+        <div class="usecase-card">
+          <div class="usecase-emoji">📊</div>
+          <h3>Executive ops</h3>
+          <div class="usecase-agents">
+            <span class="usecase-agent" style="background:var(--amber-soft);color:var(--amber)">Analyst</span>
+            <span class="usecase-agent" style="background:var(--accent-soft);color:var(--accent)">Writer</span>
+            <span class="usecase-agent" style="background:var(--green-soft);color:var(--green)">PM</span>
+          </div>
+          <p>Connect Asana and your documents. Get project updates, draft reports, and daily briefs on demand.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta-section">
+    <div class="cta-inner">
+      <h2>Build your team<br>in five minutes</h2>
+      <p>No setup fees. No training required. Create your first agent, upload a document, and start chatting.</p>
+      <a href="https://offloaded.life" class="btn btn-primary">Get started free</a>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <span>&copy; 2026 Offloaded</span>
+    <span style="font-size:13px;color:var(--text-ter)">offloaded.life</span>
+  </footer>
+
+  <script>
+    // Nav scroll effect
+    const nav = document.getElementById('nav');
+    window.addEventListener('scroll', () => {
+      nav.classList.toggle('scrolled', window.scrollY > 20);
+    });
+
+    // Intersection observer for message animations
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.style.animationPlayState = 'running';
+        }
+      });
+    }, { threshold: 0.3 });
+
+    document.querySelectorAll('.msg').forEach(msg => {
+      msg.style.animationPlayState = 'paused';
+      observer.observe(msg);
+    });
+  </script>
+</body>
+</html>
