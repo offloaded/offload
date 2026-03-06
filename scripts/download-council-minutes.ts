@@ -1,6 +1,6 @@
 /**
  * Downloads all Ordinary Council Meeting minutes PDFs from the AMR Shire website.
- * Uses the internal search API directly — no browser automation needed.
+ * Calls the internal search API directly — no browser needed.
  *
  * Usage: npx tsx scripts/download-council-minutes.ts
  */
@@ -10,14 +10,10 @@ import { join } from "path";
 import https from "https";
 
 const API_URL = "https://www.amrshire.wa.gov.au/v1/aapi/search/htmlresult";
+const BASE_URL = "https://www.amrshire.wa.gov.au";
 const OUTPUT_DIR = join(process.cwd(), "council-minutes");
 const PAGE_SIZE = 50;
 const YEARS = Array.from({ length: 11 }, (_, i) => String(2025 - i)); // 2025..2015
-
-interface SearchResult {
-  html: string;
-  totalCount: number;
-}
 
 function buildPayload(year: string, page: number) {
   return {
@@ -72,116 +68,116 @@ function buildPayload(year: string, page: number) {
   };
 }
 
-async function searchPage(
-  year: string,
-  page: number
-): Promise<{ links: { url: string; label: string }[]; total: number }> {
-  const body = JSON.stringify(buildPayload(year, page));
-
+async function fetchResults(year: string, page: number): Promise<string> {
   const res = await fetch(API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body,
+    body: JSON.stringify(buildPayload(year, page)),
   });
 
   if (!res.ok) {
     throw new Error(`API error: ${res.status} ${res.statusText}`);
   }
 
-  const data = (await res.json()) as SearchResult;
+  const data = await res.json();
+  return data.htmlResult || "";
+}
 
-  // Parse PDF links from the returned HTML
-  // Links look like: <a href="...url..." ...>Label - Minutes</a>
-  const linkRegex = /<a\s+[^>]*href="([^"]+)"[^>]*>([^<]*)<\/a>/gi;
+function extractMinutesLinks(
+  html: string
+): { url: string; label: string }[] {
+  // Links have: href="..." download="Label - Minutes"
+  // The download attribute contains the clean label
+  const regex =
+    /<a\s+[^>]*href="([^"]+)"[^>]*download="([^"]*Minutes[^"]*)"[^>]*>/gi;
   const links: { url: string; label: string }[] = [];
   let match;
-  while ((match = linkRegex.exec(data.html)) !== null) {
+  while ((match = regex.exec(html)) !== null) {
     const url = match[1];
     const label = match[2].trim();
-    // Only keep Minutes links (not Agenda, Attachments, etc.)
+    // Only "Minutes" not "Agenda" or "Attachments"
     if (
       label.toLowerCase().includes("minutes") &&
-      !label.toLowerCase().includes("agenda") &&
-      (url.includes(".pdf") || url.includes("getmedia"))
+      !label.toLowerCase().includes("agenda")
     ) {
-      links.push({ url, label });
+      const fullUrl = url.startsWith("http") ? url : `${BASE_URL}${url}`;
+      links.push({ url: fullUrl, label });
     }
   }
-
-  return { links, total: data.totalCount };
+  return links;
 }
 
 function downloadFile(url: string, dest: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const fullUrl = url.startsWith("http")
-      ? url
-      : `https://www.amrshire.wa.gov.au${url}`;
-
-    const makeRequest = (requestUrl: string) => {
+    const makeRequest = (requestUrl: string, redirects = 0) => {
+      if (redirects > 5) {
+        reject(new Error("Too many redirects"));
+        return;
+      }
+      const urlObj = new URL(requestUrl);
       https
-        .get(requestUrl, (res) => {
-          // Follow redirects
-          if (
-            res.statusCode &&
-            res.statusCode >= 300 &&
-            res.statusCode < 400 &&
-            res.headers.location
-          ) {
-            makeRequest(res.headers.location);
-            return;
+        .get(
+          {
+            hostname: urlObj.hostname,
+            path: urlObj.pathname + urlObj.search,
+            headers: {
+              "User-Agent": "Mozilla/5.0 (council-minutes-downloader)",
+            },
+          },
+          (res) => {
+            if (
+              res.statusCode &&
+              res.statusCode >= 300 &&
+              res.statusCode < 400 &&
+              res.headers.location
+            ) {
+              const redirect = res.headers.location.startsWith("http")
+                ? res.headers.location
+                : `${BASE_URL}${res.headers.location}`;
+              makeRequest(redirect, redirects + 1);
+              return;
+            }
+            if (res.statusCode !== 200) {
+              reject(new Error(`HTTP ${res.statusCode}`));
+              return;
+            }
+            const file = createWriteStream(dest);
+            res.pipe(file);
+            file.on("finish", () => {
+              file.close();
+              resolve();
+            });
+            file.on("error", reject);
           }
-          if (res.statusCode !== 200) {
-            reject(new Error(`HTTP ${res.statusCode} for ${requestUrl}`));
-            return;
-          }
-          const file = createWriteStream(dest);
-          res.pipe(file);
-          file.on("finish", () => {
-            file.close();
-            resolve();
-          });
-          file.on("error", reject);
-        })
+        )
         .on("error", reject);
     };
 
-    makeRequest(fullUrl);
+    makeRequest(url);
   });
 }
 
-function extractDate(label: string): string {
-  // Try to extract date from labels like "Ordinary Council Meeting - 26 November 2025 - Minutes"
+function labelToFilename(label: string): string {
+  // Extract date from "Ordinary Council Meeting - 26 November 2025 - Minutes"
+  const months: Record<string, string> = {
+    january: "01", february: "02", march: "03", april: "04",
+    may: "05", june: "06", july: "07", august: "08",
+    september: "09", october: "10", november: "11", december: "12",
+  };
+
   const dateMatch = label.match(
     /(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})/i
   );
+
   if (dateMatch) {
-    const months: Record<string, string> = {
-      january: "01",
-      february: "02",
-      march: "03",
-      april: "04",
-      may: "05",
-      june: "06",
-      july: "07",
-      august: "08",
-      september: "09",
-      october: "10",
-      november: "11",
-      december: "12",
-    };
     const day = dateMatch[1].padStart(2, "0");
     const month = months[dateMatch[2].toLowerCase()];
     const year = dateMatch[3];
-    return `${year}-${month}-${day}`;
+    return `${year}-${month}-${day}-OCM-Minutes.pdf`;
   }
 
-  // Fallback: try DD-Month-YYYY from URL
-  const urlMatch = label.match(/(\d{1,2})-(\w+)-(\d{4})/);
-  if (urlMatch) {
-    return `${urlMatch[3]}-${urlMatch[2]}-${urlMatch[1]}`;
-  }
-
-  return label.replace(/[^a-zA-Z0-9-]/g, "_").slice(0, 60);
+  // Fallback: sanitize the label
+  return label.replace(/[^a-zA-Z0-9-]/g, "_").slice(0, 80) + ".pdf";
 }
 
 async function main() {
@@ -190,65 +186,69 @@ async function main() {
 
   let totalDownloaded = 0;
   let totalSkipped = 0;
+  let totalFailed = 0;
 
   for (const year of YEARS) {
-    console.log(`\n--- ${year} ---`);
+    process.stdout.write(`${year}: `);
 
     let page = 1;
-    let allLinks: { url: string; label: string }[] = [];
+    const allLinks: { url: string; label: string }[] = [];
 
-    // Paginate through all results for this year
+    // Paginate through all results
     while (true) {
-      const { links, total } = await searchPage(year, page);
+      const html = await fetchResults(year, page);
+      if (!html) break;
+
+      const links = extractMinutesLinks(html);
       allLinks.push(...links);
 
-      if (page === 1) {
-        console.log(`  Found ${total} total results for ${year}`);
+      // Check if there are more accordion items — if we got a full page, fetch next
+      const accordionCount = (html.match(/accordion-item/g) || []).length;
+      if (accordionCount >= PAGE_SIZE) {
+        page++;
+      } else {
+        break;
       }
-
-      // Check if there are more pages
-      if (page * PAGE_SIZE >= total) break;
-      page++;
     }
 
     if (allLinks.length === 0) {
-      console.log(`  No minutes PDFs found for ${year}`);
+      console.log("no minutes found");
       continue;
     }
 
-    console.log(`  ${allLinks.length} minutes PDF(s) to download`);
+    console.log(`${allLinks.length} minutes found`);
 
     for (const link of allLinks) {
-      const date = extractDate(link.label);
-      const fileName = `${date}-OCM-Minutes.pdf`;
+      const fileName = labelToFilename(link.label);
       const dest = join(OUTPUT_DIR, fileName);
 
       if (existsSync(dest)) {
-        console.log(`  SKIP (exists): ${fileName}`);
+        process.stdout.write(`  SKIP: ${fileName}\n`);
         totalSkipped++;
         continue;
       }
 
       try {
-        process.stdout.write(`  Downloading: ${fileName}...`);
+        process.stdout.write(`  ${fileName}...`);
         await downloadFile(link.url, dest);
-        console.log(" done");
+        console.log(" ok");
         totalDownloaded++;
       } catch (err) {
-        console.log(` FAILED: ${err instanceof Error ? err.message : err}`);
+        console.log(` FAILED (${err instanceof Error ? err.message : err})`);
+        totalFailed++;
       }
 
-      // Small delay to be polite
-      await new Promise((r) => setTimeout(r, 500));
+      // Be polite
+      await new Promise((r) => setTimeout(r, 300));
     }
   }
 
   console.log(
-    `\nDone! Downloaded: ${totalDownloaded}, Skipped: ${totalSkipped}`
+    `\nDone! Downloaded: ${totalDownloaded} | Skipped: ${totalSkipped} | Failed: ${totalFailed}`
   );
 }
 
 main().catch((err) => {
-  console.error("Fatal error:", err);
+  console.error("Fatal:", err);
   process.exit(1);
 });
