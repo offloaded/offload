@@ -10,6 +10,8 @@ import { preloadAllChats } from "@/lib/chat-cache";
 interface AppContextValue {
   agents: Agent[];
   refreshAgents: () => Promise<void>;
+  activeTaskCount: number;
+  refreshTaskCount: () => void;
   mobile: boolean;
   openDrawer: () => void;
 }
@@ -17,6 +19,8 @@ interface AppContextValue {
 const AppContext = createContext<AppContextValue>({
   agents: [],
   refreshAgents: async () => {},
+  activeTaskCount: 0,
+  refreshTaskCount: () => {},
   mobile: false,
   openDrawer: () => {},
 });
@@ -39,6 +43,7 @@ function useIsMobile() {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [activeTaskCount, setActiveTaskCount] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [checked, setChecked] = useState(false);
   const mobile = useIsMobile();
@@ -54,6 +59,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const refreshTaskCount = useCallback(() => {
+    fetch("/api/scheduled-tasks")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((tasks: { enabled: boolean }[]) => {
+        setActiveTaskCount(tasks.filter((t) => t.enabled).length);
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) {
@@ -61,9 +75,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       } else {
         setChecked(true);
         refreshAgents();
+        refreshTaskCount();
       }
     });
-  }, [supabase, router, refreshAgents]);
+  }, [supabase, router, refreshAgents, refreshTaskCount]);
 
   if (!checked) {
     return (
@@ -74,11 +89,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AppContext value={{ agents, refreshAgents, mobile, openDrawer: () => setDrawerOpen(true) }}>
+    <AppContext value={{ agents, refreshAgents, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true) }}>
       <div className="flex h-screen w-full bg-[var(--color-page-bg)] overflow-hidden">
         {/* Desktop sidebar — hidden below 768px via CSS */}
         <div className="hidden md:flex w-[220px] min-w-[220px] bg-[var(--color-bg)] border-r border-[var(--color-border)] flex-col">
-          <SidebarContent agents={agents} />
+          <SidebarContent agents={agents} activeTaskCount={activeTaskCount} />
         </div>
 
         {/* Mobile drawer — always mounted, visibility controlled by open state */}
@@ -86,6 +101,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           agents={agents}
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
+          activeTaskCount={activeTaskCount}
         />
 
         <div className="flex-1 flex flex-col overflow-hidden">
