@@ -41,7 +41,21 @@ export async function POST(request: Request) {
 
   // Use existing conversation or create a new one
   let convId = conversation_id;
-  if (!convId) {
+  if (convId) {
+    // Verify the conversation belongs to this user
+    const { data: existingConv } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("id", convId)
+      .eq("user_id", user.id)
+      .single();
+    if (!existingConv) {
+      return new Response(
+        JSON.stringify({ error: "Conversation not found" }),
+        { status: 404 }
+      );
+    }
+  } else {
     const { data: newConv, error: convError } = await supabase
       .from("conversations")
       .insert({ user_id: user.id, agent_id })

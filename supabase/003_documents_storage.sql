@@ -134,6 +134,7 @@ create policy "Users can upload documents"
   with check (
     bucket_id = 'documents'
     and auth.role() = 'authenticated'
+    and (storage.foldername(name))[1] = auth.uid()::text
   );
 
 create policy "Users can read own documents"
@@ -141,6 +142,7 @@ create policy "Users can read own documents"
   using (
     bucket_id = 'documents'
     and auth.role() = 'authenticated'
+    and (storage.foldername(name))[1] = auth.uid()::text
   );
 
 create policy "Users can delete own documents"
@@ -148,4 +150,5 @@ create policy "Users can delete own documents"
   using (
     bucket_id = 'documents'
     and auth.role() = 'authenticated'
+    and (storage.foldername(name))[1] = auth.uid()::text
   );
