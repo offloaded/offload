@@ -118,6 +118,69 @@ function UserMessage({
   );
 }
 
+// Extract @mentions from message text by matching known agent names
+function extractMentions(text: string, agents: Agent[]): string[] {
+  const mentions: string[] = [];
+  const lower = text.toLowerCase();
+  for (const agent of agents) {
+    const pattern = `@${agent.name.toLowerCase()}`;
+    if (lower.includes(pattern)) {
+      mentions.push(agent.name);
+    }
+  }
+  return mentions;
+}
+
+// Mention dropdown component
+function MentionDropdown({
+  agents,
+  filter,
+  onSelect,
+  selectedIndex,
+}: {
+  agents: Agent[];
+  filter: string;
+  onSelect: (agent: Agent) => void;
+  selectedIndex: number;
+}) {
+  const filtered = agents.filter((a) =>
+    a.name.toLowerCase().includes(filter.toLowerCase())
+  );
+  if (filtered.length === 0) return null;
+
+  return (
+    <div className="absolute bottom-full left-0 right-0 mb-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-lg overflow-hidden z-50 max-h-[200px] overflow-y-auto">
+      {filtered.map((a, i) => (
+        <button
+          key={a.id}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            onSelect(a);
+          }}
+          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left border-none cursor-pointer transition-colors"
+          style={{
+            background:
+              i === selectedIndex
+                ? "var(--color-hover)"
+                : "transparent",
+          }}
+        >
+          <div
+            className="w-2.5 h-2.5 rounded-full shrink-0"
+            style={{ background: a.color }}
+          />
+          <span className="text-[14px] font-medium text-[var(--color-text)]">
+            {a.name}
+          </span>
+          <span className="text-[12px] text-[var(--color-text-tertiary)] truncate">
+            {a.purpose}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 const CHAT_ID = "group";
 
 export function GroupChatView({
@@ -137,6 +200,10 @@ export function GroupChatView({
   const [loading, setLoading] = useState(!cached);
   const [hasMore, setHasMore] = useState(cached?.hasMore ?? false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionFilter, setMentionFilter] = useState("");
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentionStart, setMentionStart] = useState(-1);
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -252,6 +319,8 @@ export function GroupChatView({
     const text = input.trim();
     if (!text || streaming) return;
 
+    const mentions = extractMentions(text, agents);
+
     const userMsg: ChatMessage = {
       role: "user",
       content: text,
@@ -263,6 +332,7 @@ export function GroupChatView({
       return next;
     });
     setInput("");
+    setMentionOpen(false);
     setStreaming(true);
     setStreamText("");
 
@@ -273,6 +343,7 @@ export function GroupChatView({
         body: JSON.stringify({
           message: text,
           conversation_id: conversationId,
+          ...(mentions.length > 0 ? { mentions } : {}),
         }),
       });
 
@@ -347,9 +418,89 @@ export function GroupChatView({
       setStreamText("");
       inputRef.current?.focus();
     }
-  }, [input, streaming, conversationId]);
+  }, [input, streaming, conversationId, agents]);
+
+  const filteredMentionAgents = mentionOpen
+    ? agents.filter((a) =>
+        a.name.toLowerCase().includes(mentionFilter.toLowerCase())
+      )
+    : [];
+
+  const insertMention = useCallback(
+    (agent: Agent) => {
+      if (mentionStart < 0) return;
+      const before = input.slice(0, mentionStart);
+      const after = input.slice(
+        mentionStart + 1 + mentionFilter.length
+      );
+      const newInput = `${before}@${agent.name} ${after}`;
+      setInput(newInput);
+      setMentionOpen(false);
+      setMentionFilter("");
+      setMentionStart(-1);
+      setMentionIndex(0);
+      // Focus and move cursor after inserted mention
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        if (el) {
+          const pos = before.length + agent.name.length + 2; // @Name + space
+          el.focus();
+          el.setSelectionRange(pos, pos);
+        }
+      });
+    },
+    [input, mentionStart, mentionFilter]
+  );
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    const cursorPos = e.target.selectionStart || val.length;
+    setInput(val);
+
+    // Detect @ mention trigger
+    const textBeforeCursor = val.slice(0, cursorPos);
+    const atIndex = textBeforeCursor.lastIndexOf("@");
+    if (atIndex >= 0 && (atIndex === 0 || textBeforeCursor[atIndex - 1] === " ")) {
+      const query = textBeforeCursor.slice(atIndex + 1);
+      // Only show dropdown if query has no spaces beyond agent names or is short
+      if (!query.includes("\n") && query.length <= 30) {
+        setMentionOpen(true);
+        setMentionFilter(query);
+        setMentionStart(atIndex);
+        setMentionIndex(0);
+        return;
+      }
+    }
+    setMentionOpen(false);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (mentionOpen && filteredMentionAgents.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionIndex((i) =>
+          i < filteredMentionAgents.length - 1 ? i + 1 : 0
+        );
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionIndex((i) =>
+          i > 0 ? i - 1 : filteredMentionAgents.length - 1
+        );
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        insertMention(filteredMentionAgents[mentionIndex]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionOpen(false);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       send();
@@ -505,27 +656,43 @@ export function GroupChatView({
       <div
         className="fixed bottom-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 bg-[var(--color-surface)] px-3 pt-2 pb-[max(16px,env(safe-area-inset-bottom))] md:px-5 md:pb-5"
       >
-        <div className="flex gap-2 items-center bg-[var(--color-input-bg)] rounded-xl pl-4 pr-1.5 py-1.5 border border-[var(--color-border)]">
-          <input
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Message #All..."
-            className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[15px] outline-none py-2"
-          />
-          <button
-            onClick={send}
-            disabled={!canSend}
-            className="w-9 h-9 rounded-lg border-none shrink-0 flex items-center justify-center transition-all duration-150"
-            style={{
-              background: canSend ? "var(--color-accent)" : "transparent",
-              color: canSend ? "#fff" : "var(--color-text-tertiary)",
-              cursor: canSend ? "pointer" : "default",
-            }}
-          >
-            <SendIcon />
-          </button>
+        <div className="relative">
+          {/* @mention dropdown */}
+          {mentionOpen && filteredMentionAgents.length > 0 && (
+            <MentionDropdown
+              agents={agents}
+              filter={mentionFilter}
+              onSelect={insertMention}
+              selectedIndex={mentionIndex}
+            />
+          )}
+
+          <div className="flex gap-2 items-center bg-[var(--color-input-bg)] rounded-xl pl-4 pr-1.5 py-1.5 border border-[var(--color-border)]">
+            <input
+              ref={inputRef}
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              onBlur={() => {
+                // Delay so dropdown click registers first
+                setTimeout(() => setMentionOpen(false), 150);
+              }}
+              placeholder="Message #All... (@ to mention)"
+              className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[15px] outline-none py-2"
+            />
+            <button
+              onClick={send}
+              disabled={!canSend}
+              className="w-9 h-9 rounded-lg border-none shrink-0 flex items-center justify-center transition-all duration-150"
+              style={{
+                background: canSend ? "var(--color-accent)" : "transparent",
+                color: canSend ? "#fff" : "var(--color-text-tertiary)",
+                cursor: canSend ? "pointer" : "default",
+              }}
+            >
+              <SendIcon />
+            </button>
+          </div>
         </div>
       </div>
     </div>
