@@ -33,7 +33,7 @@ describe("ChatView", () => {
 
   it("renders agent name in header", async () => {
     render(
-      <ChatView agent={testAgent} mobile={false} openDrawer={() => {}} />
+      <ChatView agent={testAgent} openDrawer={() => {}} />
     );
 
     expect(screen.getAllByText("HR Advisor").length).toBeGreaterThanOrEqual(1);
@@ -41,7 +41,7 @@ describe("ChatView", () => {
 
   it("shows empty state when no messages", async () => {
     render(
-      <ChatView agent={testAgent} mobile={false} openDrawer={() => {}} />
+      <ChatView agent={testAgent} openDrawer={() => {}} />
     );
 
     await vi.waitFor(() => {
@@ -53,7 +53,7 @@ describe("ChatView", () => {
 
   it("renders the input with correct placeholder", () => {
     render(
-      <ChatView agent={testAgent} mobile={false} openDrawer={() => {}} />
+      <ChatView agent={testAgent} openDrawer={() => {}} />
     );
 
     const inputs = screen.getAllByPlaceholderText("Message HR Advisor...");
@@ -62,7 +62,7 @@ describe("ChatView", () => {
 
   it("disables send button when input is empty", () => {
     render(
-      <ChatView agent={testAgent} mobile={false} openDrawer={() => {}} />
+      <ChatView agent={testAgent} openDrawer={() => {}} />
     );
 
     // Find send buttons (the non-menu ones) — they should be disabled
@@ -73,7 +73,7 @@ describe("ChatView", () => {
 
   it("enables send button when input has text", () => {
     render(
-      <ChatView agent={testAgent} mobile={false} openDrawer={() => {}} />
+      <ChatView agent={testAgent} openDrawer={() => {}} />
     );
 
     const inputs = screen.getAllByPlaceholderText("Message HR Advisor...");
@@ -88,7 +88,7 @@ describe("ChatView", () => {
   it("shows hamburger menu on mobile", () => {
     const openDrawer = vi.fn();
     render(
-      <ChatView agent={testAgent} mobile={true} openDrawer={openDrawer} />
+      <ChatView agent={testAgent} openDrawer={openDrawer} />
     );
 
     // Should have more buttons than desktop (menu + send)
@@ -101,7 +101,7 @@ describe("ChatView", () => {
   it("does not call openDrawer from send button on desktop", () => {
     const openDrawer = vi.fn();
     render(
-      <ChatView agent={testAgent} mobile={false} openDrawer={openDrawer} />
+      <ChatView agent={testAgent} openDrawer={openDrawer} />
     );
 
     const buttons = screen.getAllByRole("button");
@@ -137,7 +137,7 @@ describe("ChatView", () => {
     });
 
     render(
-      <ChatView agent={testAgent} mobile={false} openDrawer={() => {}} />
+      <ChatView agent={testAgent} openDrawer={() => {}} />
     );
 
     await vi.waitFor(() => {
@@ -162,7 +162,7 @@ describe("ChatView", () => {
     });
 
     render(
-      <ChatView agent={testAgent} mobile={false} openDrawer={() => {}} />
+      <ChatView agent={testAgent} openDrawer={() => {}} />
     );
 
     // Wait for initial load
