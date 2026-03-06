@@ -71,7 +71,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) {
-        router.push("/auth");
+        router.push("/");
       } else {
         setChecked(true);
         refreshAgents();
