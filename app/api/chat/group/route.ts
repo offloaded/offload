@@ -15,7 +15,11 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { message, conversation_id } = body;
+  const { message, conversation_id, mentions } = body as {
+    message: string;
+    conversation_id?: string;
+    mentions?: string[];
+  };
 
   if (!message?.trim()) {
     return new Response(
@@ -143,6 +147,17 @@ export async function POST(request: Request) {
     return desc;
   }).join("\n\n");
 
+  // Build mention instruction if user @mentioned specific agents
+  const mentionedAgents = (mentions || [])
+    .map((name) => agents.find((a) => a.name.toLowerCase() === name.toLowerCase()))
+    .filter(Boolean);
+
+  let mentionInstruction = "";
+  if (mentionedAgents.length > 0) {
+    const names = mentionedAgents.map((a) => a!.name).join(", ");
+    mentionInstruction = `\n\nThe user has specifically @mentioned: ${names}. These agents MUST respond first and directly address the user's question. Other agents may still chime in briefly if they have relevant input.`;
+  }
+
   const systemPrompt = `You are the Operations Manager for a team of AI agents. Your job is to route the user's message to the most relevant agent(s) and respond as them.
 
 Your team:
@@ -158,7 +173,14 @@ IMPORTANT RULES:
 6. If the message clearly relates to one agent's domain, only that agent responds.
 7. Do NOT add any text outside of the [Agent Name] format. Every line of your response must start with [Agent Name].
 8. Keep responses concise — each agent should respond in 1-3 sentences unless more detail is needed.
-9. When an agent has knowledge base excerpts provided above, they MUST reference and use that information in their response. Cite the relevant documents.`;
+9. When an agent has knowledge base excerpts provided above, they MUST reference and use that information in their response. Cite the relevant documents.
+
+TEAM COLLABORATION:
+10. Agents are colleagues, not isolated responders. They should act like a real team discussing problems together.
+11. If another agent's expertise is relevant to your answer, tag them and ask for their input. For example: "[Marketing Lead] Great question — this also has HR implications. @HR Advisor, what does our policy say about this?"
+12. If you notice a gap in your own knowledge that another agent could fill, ask them directly.
+13. Build on what other agents have said in the conversation. Reference their previous responses when relevant.
+14. When multiple agents respond, they should feel like a natural team discussion, not a list of independent answers.${mentionInstruction}`;
 
   // Stream response from Claude
   const anthropic = getAnthropicClient();
