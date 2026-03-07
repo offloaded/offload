@@ -45,6 +45,7 @@ export interface ScheduledTask {
   cron: string;
   timezone: string;
   recurring: boolean;
+  destination: "dm" | "group";
   enabled: boolean;
   last_run_at: string | null;
   next_run_at: string | null;

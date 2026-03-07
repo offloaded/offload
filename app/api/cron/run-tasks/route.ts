@@ -79,6 +79,7 @@ async function runTask(
     cron: string;
     timezone: string;
     recurring: boolean;
+    destination: string | null;
     agents: {
       id: string;
       name: string;
@@ -96,23 +97,35 @@ async function runTask(
     { task_id: task.id }
   );
 
-  // 1. Find existing conversation for this agent, or create one
+  // 1. Find existing conversation based on destination, or create one
+  const isGroupDest = task.destination === "group";
   let convId: string;
-  const { data: existingConv } = await supabase
+
+  let convQuery = supabase
     .from("conversations")
     .select("id")
     .eq("user_id", task.user_id)
-    .eq("agent_id", task.agent_id)
     .order("updated_at", { ascending: false })
-    .limit(1)
-    .single();
+    .limit(1);
+
+  if (isGroupDest) {
+    convQuery = convQuery.is("agent_id", null);
+  } else {
+    convQuery = convQuery.eq("agent_id", task.agent_id);
+  }
+
+  const { data: existingConv } = await convQuery.single();
 
   if (existingConv) {
     convId = existingConv.id;
   } else {
+    const insertData: { user_id: string; agent_id?: string } = { user_id: task.user_id };
+    if (!isGroupDest) {
+      insertData.agent_id = task.agent_id;
+    }
     const { data: newConv, error: convError } = await supabase
       .from("conversations")
-      .insert({ user_id: task.user_id, agent_id: task.agent_id })
+      .insert(insertData)
       .select("id")
       .single();
     if (convError || !newConv) {
@@ -121,14 +134,7 @@ async function runTask(
     convId = newConv.id;
   }
 
-  // 2. Insert the instruction as a user message
-  await supabase.from("messages").insert({
-    conversation_id: convId,
-    role: "user",
-    content: `[Scheduled task] ${task.instruction}`,
-  });
-
-  // 3. RAG context
+  // 2. RAG context
   let ragContext: RetrievedChunk[] = [];
   let documentNames: string[] = [];
 
@@ -176,7 +182,7 @@ async function runTask(
     systemPrompt += searchContext;
   }
 
-  systemPrompt += `\n\nThis message is from a scheduled task. The current date and time is ${new Date().toISOString()}. Complete the task thoroughly.`;
+  systemPrompt += `\n\nThis is a scheduled task running automatically. The current date and time is ${new Date().toISOString()}. Write your response as a direct message to the user — just write the content naturally as if chatting. Do NOT include any XML tags, tool calls, send_message blocks, channel references, or delivery instructions. Do NOT mention Slack, Teams, or any messaging platform. Simply write the message content.`;
 
   // 6. Call Claude
   const anthropic = getAnthropicClient();

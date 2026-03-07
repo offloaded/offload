@@ -15,10 +15,10 @@ interface Activity {
 }
 
 function statusIcon(type: string) {
+  if (type === "task_completed" || type === "document_processed") return <span className="text-[var(--color-green)]"><CheckCircleIcon /></span>;
+  if (type === "task_failed" || type === "document_failed") return <span className="text-[var(--color-red)]"><AlertCircleIcon /></span>;
   if (type === "task_started") return <span className="text-[var(--color-accent)]"><SpinnerIcon /></span>;
-  if (type === "task_completed" || type === "document_processed") return <span className="text-green-500"><CheckCircleIcon /></span>;
-  if (type === "task_failed" || type === "document_failed") return <span className="text-red-400"><AlertCircleIcon /></span>;
-  if (type === "web_search") return <span className="text-blue-400"><GlobeIcon /></span>;
+  if (type === "web_search") return <span className="text-[var(--color-accent)]"><GlobeIcon /></span>;
   if (type.startsWith("document")) return <span className="text-[var(--color-text-tertiary)]"><FileIcon /></span>;
   return <span className="text-[var(--color-text-tertiary)]"><CheckCircleIcon /></span>;
 }
@@ -137,7 +137,7 @@ export default function ActivityPage() {
           </div>
         )}
 
-        {activities.map((a) => (
+        {activities.filter((a) => a.type !== "task_started").map((a) => (
           <div
             key={a.id}
             className="flex items-start gap-3 px-4 py-3 md:px-6 border-b border-[var(--color-border-light)] hover:bg-[var(--color-hover)] transition-colors"

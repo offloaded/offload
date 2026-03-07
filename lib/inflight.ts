@@ -12,6 +12,7 @@ export interface ScheduleRequest {
   cron: string;
   timezone: string;
   recurring: boolean;
+  destination: "dm" | "group";
 }
 
 export interface FeatureRequest {
@@ -182,6 +183,7 @@ async function _streamDM(
               cron: event.cron,
               timezone: event.timezone,
               recurring: event.recurring !== false,
+              destination: event.destination === "group" ? "group" : "dm",
             };
             notify(chatId);
           } else if (event.type === "feature_request") {

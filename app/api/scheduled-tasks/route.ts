@@ -45,7 +45,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { agent_id, instruction, cron, timezone, recurring } = body;
+  const { agent_id, instruction, cron, timezone, recurring, destination } = body;
 
   if (!agent_id || !instruction?.trim() || !cron?.trim()) {
     return NextResponse.json(
@@ -86,6 +86,7 @@ export async function POST(request: Request) {
       cron: cron.trim(),
       timezone: timezone || "UTC",
       recurring: recurring !== false, // default true for backward compat
+      destination: destination === "group" ? "group" : "dm",
       next_run_at: nextRun,
     })
     .select()

@@ -492,6 +492,7 @@ export function ChatView({
           cron: scheduleRequest.cron,
           timezone: scheduleRequest.timezone,
           recurring: scheduleRequest.recurring,
+          destination: scheduleRequest.destination,
         }),
       });
       if (res.ok) {
