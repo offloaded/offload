@@ -118,8 +118,10 @@ export default function AgentEditorPage() {
           reactivity,
           repetition_tolerance: repetitionTolerance,
           warmth,
-          voice_samples: voiceSamples.filter((s) => s.trim()),
-          voice_profile: voiceProfile || null,
+          ...(!isNew && (voiceSamples.some((s) => s.trim()) || voiceProfile) ? {
+            voice_samples: voiceSamples.filter((s) => s.trim()),
+            voice_profile: voiceProfile || null,
+          } : {}),
         }),
       });
       if (!res.ok) {
