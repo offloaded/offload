@@ -11,6 +11,9 @@ export interface Agent {
   reactivity: number;
   repetition_tolerance: number;
   warmth: number;
+  // Tone of voice
+  voice_samples: string[] | null;
+  voice_profile: string | null;
   created_at: string;
   updated_at: string;
 }

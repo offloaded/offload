@@ -70,7 +70,7 @@ export async function PUT(request: Request) {
   }
 
   const body = await request.json();
-  const { id, name, purpose, color, web_search_enabled, verbosity, initiative, reactivity, repetition_tolerance, warmth } = body;
+  const { id, name, purpose, color, web_search_enabled, verbosity, initiative, reactivity, repetition_tolerance, warmth, voice_samples, voice_profile } = body;
 
   if (!id) {
     return NextResponse.json({ error: "Agent ID required" }, { status: 400 });
@@ -90,6 +90,8 @@ export async function PUT(request: Request) {
   if (reactivity !== undefined) updates.reactivity = clampTrait(reactivity);
   if (repetition_tolerance !== undefined) updates.repetition_tolerance = clampTrait(repetition_tolerance);
   if (warmth !== undefined) updates.warmth = clampTrait(warmth);
+  if (voice_samples !== undefined) updates.voice_samples = voice_samples;
+  if (voice_profile !== undefined) updates.voice_profile = voice_profile;
 
   const { data, error } = await supabase
     .from("agents")

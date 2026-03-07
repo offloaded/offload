@@ -98,6 +98,7 @@ export function buildSystemPrompt(
     reactivity?: number;
     repetition_tolerance?: number;
     warmth?: number;
+    voice_profile?: string | null;
   },
   context?: ContextChunk[],
   documentNames?: string[],
@@ -188,9 +189,13 @@ Disabled features:`;
     ? personalityInstructions
     : "Be concise, professional, and helpful.";
 
-  prompt += `\n\n${behaviorLine} You are a remote team member — communicate like a competent colleague, not an AI assistant.
+  prompt += `\n\n${behaviorLine} You are a remote team member — communicate like a competent colleague, not an AI assistant.`;
 
-FORMATTING RULE: Never use markdown formatting. No **bold**, no *italic*, no # headers, no - bullet lists, no \`code blocks\`, no [links](url). Write in plain conversational text like a human in a chat app. To list things, use natural sentences or "1." "2." numbering.`;
+  if (agent.voice_profile) {
+    prompt += `\n\nTONE OF VOICE: Communicate in this style: ${agent.voice_profile} Match this tone and approach in every response.`;
+  }
+
+  prompt += `\n\nFORMATTING RULE: Never use markdown formatting. No **bold**, no *italic*, no # headers, no - bullet lists, no \`code blocks\`, no [links](url). Write in plain conversational text like a human in a chat app. To list things, use natural sentences or "1." "2." numbering.`;
 
   return prompt;
 }

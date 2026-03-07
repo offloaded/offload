@@ -53,6 +53,10 @@ export default function AgentEditorPage() {
   const [reactivity, setReactivity] = useState(3);
   const [repetitionTolerance, setRepetitionTolerance] = useState(3);
   const [warmth, setWarmth] = useState(3);
+  const [voiceSamples, setVoiceSamples] = useState<string[]>([]);
+  const [voiceProfile, setVoiceProfile] = useState("");
+  const [voiceProfileEdited, setVoiceProfileEdited] = useState(false);
+  const [extractingVoice, setExtractingVoice] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [uploads, setUploads] = useState<UploadItem[]>([]);
@@ -68,6 +72,8 @@ export default function AgentEditorPage() {
       setReactivity(existing.reactivity ?? 3);
       setRepetitionTolerance(existing.repetition_tolerance ?? 3);
       setWarmth(existing.warmth ?? 3);
+      setVoiceSamples(existing.voice_samples ?? []);
+      setVoiceProfile(existing.voice_profile ?? "");
     } else if (isNew) {
       setColor(PALETTE[agents.length % PALETTE.length]);
     }
@@ -112,6 +118,8 @@ export default function AgentEditorPage() {
           reactivity,
           repetition_tolerance: repetitionTolerance,
           warmth,
+          voice_samples: voiceSamples.filter((s) => s.trim()),
+          voice_profile: voiceProfile || null,
         }),
       });
       if (!res.ok) {
@@ -232,6 +240,45 @@ export default function AgentEditorPage() {
     }
   };
 
+  const extractVoice = async () => {
+    const validSamples = voiceSamples.filter((s) => s.trim());
+    if (validSamples.length === 0 || extractingVoice || isNew) return;
+    setExtractingVoice(true);
+    setError("");
+    try {
+      const res = await fetch("/api/agents/voice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_id: params.id, samples: validSamples }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Voice extraction failed");
+      }
+      const data = await res.json();
+      setVoiceProfile(data.voice_profile || "");
+      setVoiceProfileEdited(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Voice extraction failed");
+    } finally {
+      setExtractingVoice(false);
+    }
+  };
+
+  const addVoiceSample = () => {
+    if (voiceSamples.length < 5) {
+      setVoiceSamples([...voiceSamples, ""]);
+    }
+  };
+
+  const updateVoiceSample = (index: number, value: string) => {
+    setVoiceSamples(voiceSamples.map((s, i) => (i === index ? value : s)));
+  };
+
+  const removeVoiceSample = (index: number) => {
+    setVoiceSamples(voiceSamples.filter((_, i) => i !== index));
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = e.target.files;
     if (fileList && fileList.length > 0) {
@@ -343,6 +390,71 @@ export default function AgentEditorPage() {
               <TraitSlider label="Warmth" lowLabel="Formal" highLabel="Friendly" value={warmth} onChange={setWarmth} />
             </div>
           </div>
+
+          {/* Tone of Voice */}
+          {!isNew && (
+            <div className="mb-7">
+              <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-1">
+                Tone of Voice
+              </label>
+              <p className="text-[12px] text-[var(--color-text-tertiary)] mb-3">
+                Paste examples of how you communicate — emails, messages, notes — and the agent will learn to match your style.
+              </p>
+
+              {voiceSamples.map((sample, i) => (
+                <div key={i} className="relative mb-2">
+                  <textarea
+                    value={sample}
+                    onChange={(e) => updateVoiceSample(i, e.target.value)}
+                    rows={3}
+                    placeholder={`Sample ${i + 1} — paste an email, message, or note...`}
+                    className="w-full py-3 px-4 pr-9 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-y leading-relaxed focus:border-[var(--color-accent)]"
+                  />
+                  <button
+                    onClick={() => removeVoiceSample(i)}
+                    className="absolute top-2 right-2 bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0.5 flex hover:text-[var(--color-red)]"
+                  >
+                    <XIcon />
+                  </button>
+                </div>
+              ))}
+
+              <div className="flex gap-2 mb-3">
+                {voiceSamples.length < 5 && (
+                  <button
+                    onClick={addVoiceSample}
+                    className="py-2 px-4 flex items-center gap-1.5 border border-dashed border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[var(--color-accent)] text-[13px] font-medium hover:bg-[var(--color-hover)] transition-colors"
+                  >
+                    <PlusIcon /> Add sample
+                  </button>
+                )}
+                {voiceSamples.filter((s) => s.trim()).length > 0 && (
+                  <button
+                    onClick={extractVoice}
+                    disabled={extractingVoice}
+                    className="py-2 px-4 border border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[13px] font-medium disabled:opacity-50 hover:bg-[var(--color-hover)] transition-colors"
+                    style={{ color: "var(--color-accent)" }}
+                  >
+                    {extractingVoice ? "Analysing..." : voiceProfile ? "Re-analyse" : "Analyse style"}
+                  </button>
+                )}
+              </div>
+
+              {voiceProfile && (
+                <div>
+                  <label className="block text-[12px] font-medium text-[var(--color-text-tertiary)] mb-1.5">
+                    Voice profile {voiceProfileEdited && <span className="text-[var(--color-accent)]">(edited)</span>}
+                  </label>
+                  <textarea
+                    value={voiceProfile}
+                    onChange={(e) => { setVoiceProfile(e.target.value); setVoiceProfileEdited(true); }}
+                    rows={3}
+                    className="w-full py-3 px-4 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-y leading-relaxed focus:border-[var(--color-accent)]"
+                  />
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Documents */}
           <div className="mb-7">
