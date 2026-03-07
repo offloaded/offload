@@ -704,6 +704,7 @@ export function GroupChatView({
         ref={scrollRef}
         className="flex-1 overflow-y-auto overflow-x-hidden pt-[52px] pb-[72px] md:pt-4 md:pb-2 min-h-0"
       >
+        <div className="flex flex-col justify-end min-h-full">
         <div ref={sentinelRef} className="h-1" />
 
         <GroupMessageList
@@ -716,6 +717,7 @@ export function GroupChatView({
         />
 
         <div ref={endRef} />
+        </div>
       </div>
 
       {/* Input — isolated component with own state */}
