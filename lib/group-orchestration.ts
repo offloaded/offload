@@ -260,7 +260,7 @@ CRITICAL: If you are asked a question, answer it directly from your own perspect
   }
 
   if (priorResponses) {
-    prompt += `\n\nYour colleagues have already said:\n${priorResponses}\nDon't repeat what's been covered. If they answered well, a brief acknowledgement is fine. Focus on what only you can uniquely add from your role.`;
+    prompt += `\n\nYour colleagues have already said:\n${priorResponses}\nDo NOT repeat what's been covered — not even in different words. If they answered well and you have nothing new to add, a single brief acknowledgement is fine. Focus ONLY on what you can uniquely add from your role. If your prior response is shown above, do NOT restate it.`;
   }
 
   if (weight === "brief") {
@@ -299,10 +299,18 @@ export async function evaluateAgents(
       const initiative = agent.initiative ?? 3;
       const initiativeNote =
         initiative <= 2
-          ? "\nYour initiative is LOW — only set respond=true if the message is squarely in your core expertise and clearly needs your input. Default to not responding."
+          ? "\nINITIATIVE=LOW: Only set respond=true if the message directly asks for your input, @mentions you, or is squarely in your core expertise. If you have already responded in the recent conversation, set respond=false unless directly asked again."
           : initiative >= 4
-          ? "\nYour initiative is HIGH — you actively contribute. Set respond=true if you can add any value, even tangentially."
-          : "";
+          ? "\nINITIATIVE=HIGH: You actively engage. Set respond=true if you can add value, ask a useful question, or build on the discussion — even tangentially."
+          : "\nINITIATIVE=MEDIUM: Respond when the topic is relevant to your role. Don't force yourself into conversations where others have it covered.";
+
+      // Check if this agent already spoke in the recent context
+      const alreadySpoke = recentMessages.some((m) =>
+        m.includes(`[${agent.name}]`) || m.startsWith(`Team: [${agent.name}]`)
+      );
+      const reEngageNote = alreadySpoke
+        ? "\nYou have ALREADY responded in this conversation. Only set respond=true if: (1) someone @mentioned you or asked you directly, (2) you have genuinely NEW information (not a restatement), or (3) your initiative is HIGH and there is a meaningful new angle to add. NEVER repeat a point you already made."
+        : "";
 
       try {
         const response = await anthropic.messages.create({
@@ -311,10 +319,11 @@ export async function evaluateAgents(
           system: `You are a relevance classifier for a group chat. Reply with JSON only, no extra text:
 {"respond": true/false, "urgency": "high|medium|low", "weight": "full|brief", "reason": "brief reason"}
 urgency: high=core to their expertise/critical to answer, medium=useful contribution, low=tangential
-weight: full=substantive response needed, brief=1 sentence acknowledgment only`,
+weight: full=substantive response needed, brief=1 sentence acknowledgment only
+IMPORTANT: An agent should NOT respond just to agree or restate what they already said. Only respond=true if they have something new to contribute.`,
           messages: [{
             role: "user",
-            content: `You are ${agent.name}. Your role: ${agent.purpose.slice(0, 200)}.${initiativeNote}
+            content: `You are ${agent.name}. Your role: ${agent.purpose.slice(0, 200)}.${initiativeNote}${reEngageNote}
 
 ${contextText}New message: "${newMessage}"
 
