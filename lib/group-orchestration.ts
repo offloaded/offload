@@ -80,6 +80,9 @@ export async function runGroupOrchestration(
   triggerMessage: string,
   excludeAgentId?: string
 ): Promise<void> {
+  const LOG = "[GroupOrchestration]";
+  console.log(`${LOG} triggered — conv=${conversationId} exclude=${excludeAgentId ?? "none"} msg="${triggerMessage.slice(0, 80)}"`);
+
   // 1. Load all agents, then exclude the one who just posted
   const { data: allAgents } = await supabase
     .from("agents")
@@ -87,11 +90,19 @@ export async function runGroupOrchestration(
     .eq("user_id", userId)
     .order("created_at", { ascending: true });
 
-  if (!allAgents || allAgents.length === 0) return;
+  if (!allAgents || allAgents.length === 0) {
+    console.log(`${LOG} no agents found for user ${userId} — aborting`);
+    return;
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const agents = excludeAgentId ? allAgents.filter((a: any) => a.id !== excludeAgentId) : allAgents;
-  if (agents.length === 0) return;
+  if (agents.length === 0) {
+    console.log(`${LOG} no agents remain after excluding poster — aborting`);
+    return;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  console.log(`${LOG} ${agents.length} potential responder(s): ${agents.map((a: any) => a.name).join(", ")}`);
 
   // 2. Load recent conversation history (newest-first limit, then reverse)
   const { data: history } = await supabase
@@ -103,14 +114,43 @@ export async function runGroupOrchestration(
 
   if (history) history.reverse();
 
-  const messages: { role: "user" | "assistant"; content: string }[] = (history || []).map(
+  // Build a valid messages array for Claude's API.
+  // Group chats store everything as role "assistant" (tagged [AgentName] content).
+  // Claude requires the array to start with "user" and alternate roles.
+  // Fix: merge consecutive same-role messages and prepend a synthetic user turn if needed.
+  const rawMessages = (history || []).map(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (m: any) => ({ role: m.role as "user" | "assistant", content: m.content })
+    (m: any) => ({ role: m.role as "user" | "assistant", content: m.content as string })
   );
+
+  const messages: { role: "user" | "assistant"; content: string }[] = [];
+  for (const msg of rawMessages) {
+    if (messages.length === 0) {
+      if (msg.role === "assistant") {
+        // First message must be user — insert a framing stub
+        messages.push({ role: "user", content: "[group chat]" });
+      }
+      messages.push(msg);
+    } else {
+      const last = messages[messages.length - 1];
+      if (last.role === msg.role) {
+        // Merge consecutive same-role messages to keep alternating pattern
+        last.content += "\n" + msg.content;
+      } else {
+        messages.push(msg);
+      }
+    }
+  }
+  if (messages.length === 0) {
+    // No history at all — seed with just the trigger
+    messages.push({ role: "user", content: "[group chat]" });
+    messages.push({ role: "assistant", content: triggerMessage });
+  }
 
   // 3. Classify intent on the plain text (strip [AgentName] prefix if present)
   const plainText = triggerMessage.replace(/^\[[^\]]+\]\s*/, "").trim();
   const intent = classifyIntent(plainText);
+  console.log(`${LOG} messages=${messages.length} first_role=${messages[0]?.role} intent=${intent}`);
 
   // 4. RAG retrieval for relevant agents (knowledge/action intents only)
   const { data: allDocs } = await supabase
@@ -212,6 +252,7 @@ TEAM COLLABORATION:
   }
 
   // 6. Call Claude
+  console.log(`${LOG} calling Claude — system=${systemPrompt.length}chars messages=${messages.length}`);
   const anthropic = getAnthropicClient();
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-5-20250929",
@@ -229,7 +270,10 @@ TEAM COLLABORATION:
 
   const cleaned = cleanResponse(rawText).trim();
 
+  console.log(`${LOG} Claude response: "${cleaned.slice(0, 120)}"`);
+
   if (!cleaned || /^\[no reactions\]$/i.test(cleaned) || cleaned.toLowerCase().includes("[no reactions]")) {
+    console.log(`${LOG} no reactions — skipping save`);
     return;
   }
 
@@ -244,4 +288,6 @@ TEAM COLLABORATION:
     .from("conversations")
     .update({ updated_at: new Date().toISOString() })
     .eq("id", conversationId);
+
+  console.log(`${LOG} responses saved to conv=${conversationId}`);
 }

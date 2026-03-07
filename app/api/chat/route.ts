@@ -356,10 +356,9 @@ async function crossPostToGroupChat(
     .update({ updated_at: new Date().toISOString() })
     .eq("id", convId);
 
-  // Trigger other agents via full group orchestration (non-blocking)
-  runGroupOrchestration(supabase, userId, convId, taggedContent, agent.id).catch((err) =>
-    console.error("[Chat] Group reactions failed:", err)
-  );
+  console.log(`[Chat] Agent message saved to group chat, triggering orchestration for conv=${convId}`);
+  // Await so serverless doesn't kill it before Claude responds
+  await runGroupOrchestration(supabase, userId, convId, taggedContent, agent.id);
 
   return convId;
 }

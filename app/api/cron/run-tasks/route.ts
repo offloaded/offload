@@ -220,6 +220,7 @@ async function runTask(
 
   // 8b. For group chat, trigger other agents to react via full orchestration
   if (isGroupDest) {
+    console.log(`[Cron] Agent message saved to group chat, triggering orchestration for conv=${convId}`);
     try {
       await runGroupOrchestration(supabase, task.user_id, convId, savedContent, task.agent_id);
     } catch (err) {
