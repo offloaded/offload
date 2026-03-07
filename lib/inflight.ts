@@ -22,12 +22,17 @@ export interface FeatureRequest {
   label: string;
 }
 
+export interface GroupMessageRequest {
+  conversation_id: string;
+}
+
 interface InflightState {
   streaming: boolean;
   streamText: string;
   conversationId: string | null;
   scheduleRequest: ScheduleRequest | null;
   featureRequest: FeatureRequest | null;
+  groupMessageRequest: GroupMessageRequest | null;
 }
 
 type Listener = (state: InflightState) => void;
@@ -43,7 +48,7 @@ function getOrCreate(chatId: string): InflightEntry {
   let entry = inflights.get(chatId);
   if (!entry) {
     entry = {
-      state: { streaming: false, streamText: "", conversationId: null, scheduleRequest: null, featureRequest: null },
+      state: { streaming: false, streamText: "", conversationId: null, scheduleRequest: null, featureRequest: null, groupMessageRequest: null },
       listeners: new Set(),
     };
     inflights.set(chatId, entry);
@@ -73,13 +78,13 @@ export function getInflightState(chatId: string): InflightState {
   const entry = inflights.get(chatId);
   return entry
     ? { ...entry.state }
-    : { streaming: false, streamText: "", conversationId: null, scheduleRequest: null, featureRequest: null };
+    : { streaming: false, streamText: "", conversationId: null, scheduleRequest: null, featureRequest: null, groupMessageRequest: null };
 }
 
 export function resetInflight(chatId: string) {
   const entry = inflights.get(chatId);
   if (entry) {
-    entry.state = { streaming: false, streamText: "", conversationId: null, scheduleRequest: null, featureRequest: null };
+    entry.state = { streaming: false, streamText: "", conversationId: null, scheduleRequest: null, featureRequest: null, groupMessageRequest: null };
     notify(chatId);
   }
 }
@@ -98,6 +103,13 @@ export function clearFeatureRequest(chatId: string) {
   }
 }
 
+export function clearGroupMessageRequest(chatId: string) {
+  const entry = inflights.get(chatId);
+  if (entry) {
+    entry.state.groupMessageRequest = null;
+  }
+}
+
 // ─── Send DM (agent chat) ───
 
 export function sendDM(
@@ -107,7 +119,7 @@ export function sendDM(
   conversationId: string | null
 ) {
   const entry = getOrCreate(chatId);
-  entry.state = { streaming: true, streamText: "", conversationId, scheduleRequest: null, featureRequest: null };
+  entry.state = { streaming: true, streamText: "", conversationId, scheduleRequest: null, featureRequest: null, groupMessageRequest: null };
 
   // Add user message to cache BEFORE notifying so subscribers see it
   const userMsg: ChatMessage = {
@@ -195,6 +207,11 @@ async function _streamDM(
               label: event.label,
             };
             notify(chatId);
+          } else if (event.type === "group_message_request") {
+            entry.state.groupMessageRequest = {
+              conversation_id: event.conversation_id,
+            };
+            notify(chatId);
           } else if (event.type === "error") {
             throw new Error(event.error);
           }
@@ -239,7 +256,7 @@ export function sendGroup(
   mentions: string[]
 ) {
   const entry = getOrCreate(chatId);
-  entry.state = { streaming: true, streamText: "", conversationId, scheduleRequest: null, featureRequest: null };
+  entry.state = { streaming: true, streamText: "", conversationId, scheduleRequest: null, featureRequest: null, groupMessageRequest: null };
 
   // Add user message to cache BEFORE notifying so subscribers see it
   const userMsg: ChatMessage = {

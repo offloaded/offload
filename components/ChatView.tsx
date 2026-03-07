@@ -20,8 +20,10 @@ import {
   resetInflight,
   clearScheduleRequest,
   clearFeatureRequest,
+  clearGroupMessageRequest,
   type ScheduleRequest,
   type FeatureRequest,
+  type GroupMessageRequest,
 } from "@/lib/inflight";
 import { useApp } from "@/app/(app)/layout";
 import { describeCron } from "@/lib/cron";
@@ -325,6 +327,7 @@ export function ChatView({
   const [confirmingSchedule, setConfirmingSchedule] = useState(false);
   const [featureRequest, setFeatureRequest] = useState<FeatureRequest | null>(null);
   const [confirmingFeature, setConfirmingFeature] = useState(false);
+  const [groupMessageRequest, setGroupMessageRequest] = useState<GroupMessageRequest | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -351,6 +354,9 @@ export function ChatView({
       }
       if (state.featureRequest) {
         setFeatureRequest(state.featureRequest);
+      }
+      if (state.groupMessageRequest) {
+        setGroupMessageRequest(state.groupMessageRequest);
       }
       // Sync messages from cache when streaming state changes
       const c = getCached(chatId);
@@ -740,6 +746,30 @@ export function ChatView({
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Group message posted banner */}
+        {groupMessageRequest && (
+          <div className="mx-3 my-2 md:mx-5 p-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-hover)] flex items-center gap-3">
+            <div className="flex-1 min-w-0 text-[13px] text-[var(--color-text-secondary)]">
+              Posted to group chat.
+            </div>
+            <a
+              href="/chat"
+              className="py-1.5 px-3 rounded-md border-none text-[12px] font-semibold cursor-pointer bg-[var(--color-accent)] text-white no-underline"
+            >
+              View
+            </a>
+            <button
+              onClick={() => {
+                setGroupMessageRequest(null);
+                clearGroupMessageRequest(chatId);
+              }}
+              className="py-1.5 px-3 rounded-md bg-transparent border border-[var(--color-border)] text-[12px] text-[var(--color-text-secondary)] cursor-pointer"
+            >
+              Dismiss
+            </button>
           </div>
         )}
 

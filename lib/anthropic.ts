@@ -33,7 +33,9 @@ export function buildSystemPrompt(
 ): string {
   let prompt = `You are ${agent.name}.
 
-Your purpose: ${agent.purpose}`;
+Your purpose: ${agent.purpose}
+
+CRITICAL — YOU ARE NOT A TOOL-USING SYSTEM: Never output XML tags, tool calls, or structured action syntax of any kind. This means no <send_message>, </send_message>, <action>, <channel>, or similar tags. Never write delivery instructions. The system handles all message routing — your job is only to write the content as plain conversational text.`;
 
   if (documentNames && documentNames.length > 0) {
     prompt += `\n\nYou have access to the following documents in your knowledge base:\n${documentNames.map((n) => `- ${n}`).join("\n")}`;
@@ -62,30 +64,32 @@ Your purpose: ${agent.purpose}`;
   }
 
   if (options?.enableScheduleDetection) {
-    prompt += `\n\nYou can help users set up scheduled tasks — both recurring and one-off.
+    prompt += `\n\nYou can help users set up scheduled tasks and post immediate messages to the group chat. Use plain text for your visible response — the only structured output allowed is the specific JSON blocks described below.
 
-RECURRING tasks: phrases like "every morning", "daily at 5pm", "every Monday", "weekly", "each hour". Set "recurring": true and include a "cron" field.
+SCHEDULED TASKS (future delivery):
+Infer where to deliver:
+- "remind me", "send me", "message me", "DM me", "let me know" → destination "dm"
+- "ask the group", "tell the team", "post in the group chat", "message the team" → destination "group"
+- Default to "dm" when unclear.
 
-ONE-OFF tasks: phrases like "in 5 minutes", "at 3pm today", "tomorrow morning", "next Tuesday at noon", "in an hour". Set "recurring": false and include a "run_at" field with the exact ISO 8601 datetime — do NOT include a "cron" field. The current date and time is ${new Date().toISOString()}.
-
-Also infer where to deliver the result:
-- "message me", "send me", "remind me", "DM me", "let me know" → "destination": "dm" (direct message with this agent)
-- "message the group", "tell the team", "post in the group chat", "notify the channel" → "destination": "group"
-- If ambiguous or unspecified, default to "dm"
-
-For RECURRING tasks, include a JSON block at the END of your response in exactly this format:
-
+For RECURRING tasks ("every morning", "daily at 5pm", "every Monday"):
 \`\`\`schedule_request
 {"instruction": "the task to perform", "cron": "0 9 * * *", "timezone": "Pacific/Auckland", "recurring": true, "destination": "dm"}
 \`\`\`
 
-For ONE-OFF tasks, include a JSON block at the END of your response in exactly this format:
-
+For ONE-OFF tasks ("in 5 minutes", "at 3pm today", "tomorrow at noon", "in an hour"):
 \`\`\`schedule_request
-{"instruction": "the task to perform", "run_at": "2025-03-07T15:00:00.000Z", "timezone": "Pacific/Auckland", "recurring": false, "destination": "dm"}
+{"instruction": "the task to perform", "run_at": "${new Date().toISOString()}", "timezone": "Pacific/Auckland", "recurring": false, "destination": "dm"}
 \`\`\`
 
-Use standard 5-field cron expressions for recurring tasks only. For one-off run_at, calculate the exact UTC datetime from the user's request. Infer timezone from context or default to the user's likely timezone. Only include this block when the user is explicitly requesting a scheduled or delayed task.`;
+Current date/time: ${new Date().toISOString()}. Only include a schedule_request block when the user is explicitly requesting a future scheduled or delayed task.
+
+IMMEDIATE GROUP MESSAGES (post to group chat right now, not scheduled):
+When the user asks you to message/post something to the group or team immediately (not at a future time), write your visible reply naturally (e.g. "I'll post that to the group now."), then include at the END of your response:
+\`\`\`group_message_request
+{"message": "the exact message to post to the group chat"}
+\`\`\`
+The message content is just plain text — no XML, no tags. Only use this block when the user explicitly wants something posted to the group right now.`;
   }
 
   // Disabled feature activation instructions
@@ -105,9 +109,7 @@ Disabled features:`;
 
   prompt += `\n\nBe concise, professional, and helpful. You are a remote team member — communicate like a competent colleague, not an AI assistant.
 
-CRITICAL FORMATTING RULE: Never use markdown formatting in your responses. No **bold** or *italic* asterisks. No # headers. No - bullet lists. No \`code blocks\`. No [links](url). Write in plain conversational text exactly like a human colleague messaging in a chat app. If you need to emphasize something, use words ("importantly", "note that") not formatting symbols. If you need to list things, use natural sentences or number them with "1." "2." etc.
-
-Never output any XML tags, tool calls, or search markup in your response. Your response must be clean, readable text only.`;
+FORMATTING RULE: Never use markdown formatting. No **bold**, no *italic*, no # headers, no - bullet lists, no \`code blocks\`, no [links](url). Write in plain conversational text like a human in a chat app. To list things, use natural sentences or "1." "2." numbering.`;
 
   return prompt;
 }
@@ -124,17 +126,19 @@ export function cleanResponse(text: string, streaming = false): string {
   let cleaned = text;
   // Remove complete <tag>...</tag> blocks (search, tool_call, function_call, tool_use, invoke, antThinking, send_message, message, action)
   cleaned = cleaned.replace(/<(?:search|tool_call|function_call|tool_use|invoke|antThinking|send_message|message|action|delivery)[^>]*>[\s\S]*?<\/(?:search|tool_call|function_call|tool_use|invoke|antThinking|send_message|message|action|delivery)>/gi, "");
-  // Remove ```schedule_request and ```feature_request blocks (we handle these separately via SSE events)
+  // Remove ```schedule_request, ```feature_request, and ```group_message_request blocks (handled separately via SSE events)
   cleaned = cleaned.replace(/```schedule_request\s*\n[\s\S]*?\n```/g, "");
   cleaned = cleaned.replace(/```feature_request\s*\n[\s\S]*?\n```/g, "");
+  cleaned = cleaned.replace(/```group_message_request\s*\n[\s\S]*?\n```/g, "");
 
   if (streaming) {
     // Remove incomplete opening tags whose closing tag hasn't arrived yet.
     // e.g. "<search><provider>brave</provider><query>test" mid-stream
     cleaned = cleaned.replace(/<(?:search|tool_call|function_call|tool_use|invoke|antThinking|send_message|message|action|delivery)[^>]*>[\s\S]*$/gi, "");
-    // Remove incomplete ```schedule_request or ```feature_request that hasn't closed
+    // Remove incomplete ```schedule_request, ```feature_request, or ```group_message_request that hasn't closed
     cleaned = cleaned.replace(/```schedule_request[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```feature_request[\s\S]*$/g, "");
+    cleaned = cleaned.replace(/```group_message_request[\s\S]*$/g, "");
   }
 
   // Trim leftover whitespace from removals

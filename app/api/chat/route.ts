@@ -3,6 +3,7 @@ import { getAnthropicClient, buildSystemPrompt, cleanResponse } from "@/lib/anth
 import { retrieveContext, type RetrievedChunk } from "@/lib/rag";
 import { webSearch, formatSearchResults } from "@/lib/web-search";
 import { logActivity } from "@/lib/activity";
+import { runGroupOrchestration } from "@/lib/group-orchestration";
 
 export async function POST(request: Request) {
   const supabase = await createServerSupabase();
@@ -210,12 +211,15 @@ export async function POST(request: Request) {
           }
         }
 
-        // Detect schedule_request and feature_request before cleaning
+        // Detect schedule_request, feature_request, and group_message_request before cleaning
         const scheduleMatch = fullResponse.match(
           /```schedule_request\s*\n([\s\S]*?)\n```/
         );
         const featureMatch = fullResponse.match(
           /```feature_request\s*\n([\s\S]*?)\n```/
+        );
+        const groupMsgMatch = fullResponse.match(
+          /```group_message_request\s*\n([\s\S]*?)\n```/
         );
 
         // Clean the response: strip <search> blocks, schedule_request blocks, feature_request blocks, etc.
@@ -263,6 +267,22 @@ export async function POST(request: Request) {
           }
         }
 
+        if (groupMsgMatch) {
+          try {
+            const { message: groupMsg } = JSON.parse(groupMsgMatch[1]);
+            if (groupMsg) {
+              const groupConvId = await crossPostToGroupChat(supabase, user.id, agent, groupMsg);
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ type: "group_message_request", conversation_id: groupConvId })}\n\n`
+                )
+              );
+            }
+          } catch (err) {
+            console.error("[Chat] Failed to cross-post to group:", err);
+          }
+        }
+
         controller.enqueue(
           encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`)
         );
@@ -288,3 +308,59 @@ export async function POST(request: Request) {
     },
   });
 }
+
+/**
+ * Cross-post a message to the user's group chat conversation, then trigger
+ * other agents to react (same orchestration as the group chat route).
+ * Returns the group conversation ID.
+ */
+async function crossPostToGroupChat(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  userId: string,
+  agent: { id: string; name: string; purpose: string },
+  messageContent: string
+): Promise<string> {
+  // Find or create the group conversation (agent_id = null)
+  const { data: existingConv } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("user_id", userId)
+    .is("agent_id", null)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  let convId: string;
+  if (existingConv) {
+    convId = existingConv.id;
+  } else {
+    const { data: newConv, error: convError } = await supabase
+      .from("conversations")
+      .insert({ user_id: userId, agent_id: null })
+      .select("id")
+      .single();
+    if (convError || !newConv) throw new Error(`Failed to create group conversation: ${convError?.message}`);
+    convId = newConv.id;
+  }
+
+  // Save the message tagged with the agent's name
+  const taggedContent = `[${agent.name}] ${messageContent}`;
+  await supabase.from("messages").insert({
+    conversation_id: convId,
+    role: "assistant",
+    content: taggedContent,
+  });
+  await supabase
+    .from("conversations")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", convId);
+
+  // Trigger other agents via full group orchestration (non-blocking)
+  runGroupOrchestration(supabase, userId, convId, taggedContent, agent.id).catch((err) =>
+    console.error("[Chat] Group reactions failed:", err)
+  );
+
+  return convId;
+}
+
