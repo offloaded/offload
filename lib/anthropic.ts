@@ -99,6 +99,7 @@ export function buildSystemPrompt(
     repetition_tolerance?: number;
     warmth?: number;
     voice_profile?: string | null;
+    soft_skills?: { skill: string; confidence: string; note?: string }[] | null;
   },
   context?: ContextChunk[],
   documentNames?: string[],
@@ -195,6 +196,19 @@ Disabled features:`;
     prompt += `\n\nTONE OF VOICE: Communicate in this style: ${agent.voice_profile} Match this tone and approach in every response.`;
   }
 
+  if (agent.soft_skills && agent.soft_skills.length > 0) {
+    const skillsList = agent.soft_skills
+      .map((s) => `- ${s.skill} (${s.confidence})${s.note ? ` — ${s.note}` : ""}`)
+      .join("\n");
+    prompt += `\n\nYOUR SOFT SKILLS:\n${skillsList}\nLean into these strengths when responding. For skills with low confidence, actively work on improving.`;
+  }
+
+  prompt += `\n\nSKILLS SELF-ASSESSMENT: When asked about your skills, capabilities, or what you're good at, reflect on your purpose and experience. You can update your skills by including a JSON block at the END of your response:
+\`\`\`skills_update
+[{"skill": "skill name", "confidence": "low|medium|high", "note": "why you have this skill"}]
+\`\`\`
+Only include this block when explicitly discussing your skills or when asked to develop a new capability.`;
+
   prompt += `\n\nFORMATTING RULE: Never use markdown formatting. No **bold**, no *italic*, no # headers, no - bullet lists, no \`code blocks\`, no [links](url). Write in plain conversational text like a human in a chat app. To list things, use natural sentences or "1." "2." numbering.`;
 
   return prompt;
@@ -216,6 +230,7 @@ export function cleanResponse(text: string, streaming = false): string {
   cleaned = cleaned.replace(/```schedule_request\s*\n[\s\S]*?\n```/g, "");
   cleaned = cleaned.replace(/```feature_request\s*\n[\s\S]*?\n```/g, "");
   cleaned = cleaned.replace(/```group_message_request\s*\n[\s\S]*?\n```/g, "");
+  cleaned = cleaned.replace(/```skills_update\s*\n[\s\S]*?\n```/g, "");
 
   if (streaming) {
     // Remove incomplete opening tags whose closing tag hasn't arrived yet.
@@ -225,6 +240,7 @@ export function cleanResponse(text: string, streaming = false): string {
     cleaned = cleaned.replace(/```schedule_request[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```feature_request[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```group_message_request[\s\S]*$/g, "");
+    cleaned = cleaned.replace(/```skills_update[\s\S]*$/g, "");
   }
 
   // Strip leading [AgentName] or [You] bracket prefix that agents sometimes generate

@@ -11,7 +11,7 @@ import {
   XIcon,
   GlobeIcon,
 } from "@/components/Icons";
-import type { Document } from "@/lib/types";
+import type { Document, SoftSkill } from "@/lib/types";
 
 const PALETTE = [
   "#2C5FF6",
@@ -57,6 +57,8 @@ export default function AgentEditorPage() {
   const [voiceProfile, setVoiceProfile] = useState("");
   const [voiceProfileEdited, setVoiceProfileEdited] = useState(false);
   const [extractingVoice, setExtractingVoice] = useState(false);
+  const [softSkills, setSoftSkills] = useState<SoftSkill[]>([]);
+  const [newSkillName, setNewSkillName] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [uploads, setUploads] = useState<UploadItem[]>([]);
@@ -74,6 +76,7 @@ export default function AgentEditorPage() {
       setWarmth(existing.warmth ?? 3);
       setVoiceSamples(existing.voice_samples ?? []);
       setVoiceProfile(existing.voice_profile ?? "");
+      setSoftSkills(existing.soft_skills ?? []);
     } else if (isNew) {
       setColor(PALETTE[agents.length % PALETTE.length]);
     }
@@ -122,6 +125,7 @@ export default function AgentEditorPage() {
             voice_samples: voiceSamples.filter((s) => s.trim()),
             voice_profile: voiceProfile || null,
           } : {}),
+          ...(!isNew ? { soft_skills: softSkills.length > 0 ? softSkills : null } : {}),
         }),
       });
       if (!res.ok) {
@@ -279,6 +283,27 @@ export default function AgentEditorPage() {
 
   const removeVoiceSample = (index: number) => {
     setVoiceSamples(voiceSamples.filter((_, i) => i !== index));
+  };
+
+  const addSoftSkill = () => {
+    const trimmed = newSkillName.trim();
+    if (!trimmed) return;
+    if (softSkills.some((s) => s.skill.toLowerCase() === trimmed.toLowerCase())) return;
+    setSoftSkills([...softSkills, { skill: trimmed, confidence: "medium" }]);
+    setNewSkillName("");
+  };
+
+  const removeSoftSkill = (index: number) => {
+    setSoftSkills(softSkills.filter((_, i) => i !== index));
+  };
+
+  const cycleConfidence = (index: number) => {
+    const order: SoftSkill["confidence"][] = ["low", "medium", "high"];
+    setSoftSkills(softSkills.map((s, i) => {
+      if (i !== index) return s;
+      const next = order[(order.indexOf(s.confidence) + 1) % order.length];
+      return { ...s, confidence: next };
+    }));
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -455,6 +480,64 @@ export default function AgentEditorPage() {
                   />
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Soft Skills */}
+          {!isNew && (
+            <div className="mb-7">
+              <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-1">
+                Soft Skills
+              </label>
+              <p className="text-[12px] text-[var(--color-text-tertiary)] mb-3">
+                Skills this agent leans into when responding. Add them here or ask the agent &quot;what are your soft skills?&quot; in chat.
+              </p>
+
+              {softSkills.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {softSkills.map((s, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-1 py-1 px-2.5 rounded-full border border-[var(--color-border)] text-[13px]"
+                    >
+                      <span className="text-[var(--color-text)]">{s.skill}</span>
+                      <button
+                        onClick={() => cycleConfidence(i)}
+                        className="bg-transparent border-none cursor-pointer text-[11px] font-medium px-1 rounded"
+                        style={{
+                          color: s.confidence === "high" ? "var(--color-green)" : s.confidence === "medium" ? "var(--color-accent)" : "var(--color-text-tertiary)",
+                        }}
+                        title={`Confidence: ${s.confidence} (click to cycle)`}
+                      >
+                        {s.confidence}
+                      </button>
+                      <button
+                        onClick={() => removeSoftSkill(i)}
+                        className="bg-transparent border-none cursor-pointer text-[var(--color-text-tertiary)] hover:text-[var(--color-red)] p-0 flex text-[10px] leading-none"
+                      >
+                        <XIcon />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <input
+                  value={newSkillName}
+                  onChange={(e) => setNewSkillName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSoftSkill(); } }}
+                  placeholder="Add a skill..."
+                  className="flex-1 py-2 px-3 border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
+                />
+                <button
+                  onClick={addSoftSkill}
+                  disabled={!newSkillName.trim()}
+                  className="py-2 px-3 border border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[var(--color-accent)] text-[13px] font-medium disabled:opacity-30 hover:bg-[var(--color-hover)] transition-colors"
+                >
+                  Add
+                </button>
+              </div>
             </div>
           )}
 
