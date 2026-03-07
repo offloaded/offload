@@ -76,7 +76,7 @@ async function runTask(
     user_id: string;
     agent_id: string;
     instruction: string;
-    cron: string;
+    cron: string | null;
     timezone: string;
     recurring: boolean;
     destination: string | null;
@@ -241,7 +241,7 @@ async function runTask(
   } else {
     let nextRun: string;
     try {
-      nextRun = getNextRun(task.cron, new Date()).toISOString();
+      nextRun = getNextRun(task.cron!, new Date()).toISOString();
     } catch {
       nextRun = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     }

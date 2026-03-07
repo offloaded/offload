@@ -9,7 +9,8 @@ import { cleanResponse } from "./anthropic";
 
 export interface ScheduleRequest {
   instruction: string;
-  cron: string;
+  cron?: string;    // recurring tasks only
+  run_at?: string;  // one-off tasks: ISO datetime string
   timezone: string;
   recurring: boolean;
   destination: "dm" | "group";
@@ -182,6 +183,7 @@ async function _streamDM(
             entry.state.scheduleRequest = {
               instruction: event.instruction,
               cron: event.cron,
+              run_at: event.run_at,
               timezone: event.timezone,
               recurring: event.recurring !== false,
               destination: event.destination === "group" ? "group" : "dm",
@@ -311,6 +313,7 @@ async function _streamGroup(
             entry.state.scheduleRequest = {
               instruction: event.instruction,
               cron: event.cron,
+              run_at: event.run_at,
               timezone: event.timezone,
               recurring: event.recurring !== false,
               destination: event.destination === "group" ? "group" : "dm",

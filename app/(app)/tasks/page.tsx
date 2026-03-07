@@ -309,6 +309,8 @@ function TaskCard({
         </span>
         <span>&middot;</span>
         <span>{task.timezone}</span>
+        <span>&middot;</span>
+        <span>{task.destination === "group" ? "Group chat" : "DM"}</span>
         {task.last_run_at && (
           <>
             <span>&middot;</span>
@@ -347,6 +349,7 @@ function AddTaskForm({
   const [timezone, setTimezone] = useState(
     Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
   );
+  const [destination, setDestination] = useState<"dm" | "group">("dm");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -381,6 +384,7 @@ function AddTaskForm({
           instruction: instruction.trim(),
           cron,
           timezone,
+          destination,
         }),
       });
       if (!res.ok) {
@@ -620,6 +624,26 @@ function AddTaskForm({
           onChange={(e) => setTimezone(e.target.value)}
           className="w-full py-2.5 px-3 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
         />
+      </div>
+
+      {/* Deliver to */}
+      <div className="mb-4">
+        <label className="block text-[12px] font-semibold text-[var(--color-text-tertiary)] mb-1.5">
+          Deliver to
+        </label>
+        <div className="relative">
+          <select
+            value={destination}
+            onChange={(e) => setDestination(e.target.value as "dm" | "group")}
+            className="w-full py-2.5 pl-3 pr-8 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)]"
+          >
+            <option value="dm">Direct message</option>
+            <option value="group">Group chat</option>
+          </select>
+          <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--color-text-tertiary)]">
+            <ChevronDownIcon />
+          </div>
+        </div>
       </div>
 
       {/* Preview */}
