@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { HashIcon, GearIcon, XIcon, ClockIcon, PlusIcon, RepeatClockIcon, ActivityIcon } from "./Icons";
+import { useState, useEffect } from "react";
+import { HashIcon, GearIcon, XIcon, ClockIcon, PlusIcon, RepeatClockIcon, ActivityIcon, SunIcon, MoonIcon } from "./Icons";
 import { createClient } from "@/lib/supabase";
 import type { Agent } from "@/lib/types";
 
@@ -27,6 +28,33 @@ function NavItem({
     >
       {children}
     </Link>
+  );
+}
+
+function ThemeToggle() {
+  const [dark, setDark] = useState(false);
+
+  useEffect(() => {
+    setDark(document.documentElement.getAttribute("data-theme") === "dark");
+  }, []);
+
+  const toggle = () => {
+    const next = dark ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem("theme", next);
+    setDark(!dark);
+  };
+
+  return (
+    <button
+      onClick={toggle}
+      className="flex items-center gap-2.5 px-3 py-2 rounded-lg w-full text-[14px] bg-transparent border-none cursor-pointer transition-colors font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)]"
+    >
+      <span className="opacity-60">
+        {dark ? <SunIcon /> : <MoonIcon />}
+      </span>
+      <span>{dark ? "Light mode" : "Dark mode"}</span>
+    </button>
   );
 }
 
@@ -169,6 +197,7 @@ export function SidebarContent({
             </span>
             <span>Settings</span>
           </NavItem>
+          <ThemeToggle />
         </div>
       </div>
 

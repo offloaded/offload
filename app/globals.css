@@ -20,6 +20,26 @@
   --color-page-bg: #F7F7F8;
 }
 
+/* Dark theme overrides */
+[data-theme="dark"] {
+  --color-bg: #0F1012;
+  --color-surface: #1A1B1E;
+  --color-hover: #222326;
+  --color-active: #2A2B2F;
+  --color-border: #2A2B2F;
+  --color-border-light: #333438;
+  --color-text: #E8E9EC;
+  --color-text-secondary: #9D9EA5;
+  --color-text-tertiary: #6B6C73;
+  --color-accent: #4B7BF5;
+  --color-accent-soft: rgba(75, 123, 245, 0.15);
+  --color-input-bg: #1A1B1E;
+  --color-red: #EF4444;
+  --color-red-soft: rgba(239, 68, 68, 0.12);
+  --color-green: #22C55E;
+  --color-page-bg: #0F1012;
+}
+
 html, body {
   margin: 0;
   padding: 0;
@@ -38,8 +58,25 @@ html, body {
   box-sizing: border-box;
 }
 
+/* Smooth theme transitions */
+*,
+*::before,
+*::after {
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+/* Opt out of transition for elements where it causes jank */
+input, textarea, select,
+[data-no-transition] {
+  transition: none;
+}
+
 ::selection {
   background: rgba(44, 95, 246, 0.15);
+}
+
+[data-theme="dark"] ::selection {
+  background: rgba(75, 123, 245, 0.3);
 }
 
 @keyframes typing-dot {

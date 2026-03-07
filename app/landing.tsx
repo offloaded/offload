@@ -245,6 +245,24 @@ const landingStyles = `
     --landing-sans: 'Satoshi', -apple-system, BlinkMacSystemFont, sans-serif;
   }
 
+  [data-theme="dark"] {
+    --landing-bg: #0F1012;
+    --landing-bg-warm: #161719;
+    --landing-surface: #1A1B1E;
+    --landing-text: #E8E9EC;
+    --landing-text-sec: #9D9EA5;
+    --landing-text-ter: #6B6C73;
+    --landing-border: #2A2B2F;
+    --landing-accent: #4B7BF5;
+    --landing-accent-soft: rgba(75,123,245,0.15);
+    --landing-green: #22C55E;
+    --landing-green-soft: rgba(34,197,94,0.15);
+    --landing-amber: #F59E0B;
+    --landing-amber-soft: rgba(245,158,11,0.15);
+    --landing-purple: #A78BFA;
+    --landing-purple-soft: rgba(167,139,250,0.15);
+  }
+
   body {
     font-family: var(--landing-sans);
     color: var(--landing-text);
@@ -258,7 +276,7 @@ const landingStyles = `
     position: fixed; top: 0; left: 0; right: 0; z-index: 100;
     padding: 20px 40px;
     display: flex; align-items: center; justify-content: space-between;
-    background: rgba(250,250,248,0.85);
+    background: color-mix(in srgb, var(--landing-bg) 85%, transparent);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border-bottom: 1px solid transparent;
@@ -286,9 +304,9 @@ const landingStyles = `
     transition: all 0.2s ease; cursor: pointer; border: none;
   }
   .btn-primary {
-    background: var(--landing-text); color: #FFFFFF;
+    background: var(--landing-accent); color: #FFFFFF;
   }
-  .btn-primary:hover { background: #333; transform: translateY(-1px); }
+  .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
   .btn-secondary {
     background: var(--landing-surface); color: var(--landing-text);
     border: 1px solid var(--landing-border);
@@ -342,7 +360,7 @@ const landingStyles = `
     display: flex; align-items: center; gap: 10px;
   }
   .demo-header-dot {
-    width: 8px; height: 8px; border-radius: 50%; background: var(--landing-text);
+    width: 8px; height: 8px; border-radius: 50%; background: var(--landing-accent);
   }
   .demo-header span { font-size: 14px; font-weight: 600; }
   .demo-header small { font-size: 12px; color: var(--landing-text-ter); }
