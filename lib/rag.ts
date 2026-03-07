@@ -214,15 +214,6 @@ export function chunkText(
   return chunks;
 }
 
-// Backwards-compatible overload for callers that don't need metadata
-export function chunkTextSimple(
-  text: string,
-  chunkSize = CHUNK_SIZE,
-  overlap = CHUNK_OVERLAP
-): string[] {
-  return chunkText(text, "", chunkSize, overlap).map((c) => c.content);
-}
-
 // ─── Embeddings ───
 
 let openaiClient: OpenAI | null = null;
@@ -536,18 +527,6 @@ export async function retrieveContext(
     documentId: chunk.document_id,
     metadata: chunk.metadata || {},
   }));
-
-  // Debug logging
-  console.log(`[RAG Debug] ─── Retrieved ${results.length} chunks ───`);
-  for (const r of results) {
-    const meta = [];
-    if (r.metadata.document_date) meta.push(`date=${r.metadata.document_date}`);
-    if (r.metadata.section_heading) meta.push(`section="${r.metadata.section_heading}"`);
-    console.log(
-      `[RAG Debug]  score=${r.similarity.toFixed(4)}  chunk=${r.chunkIndex}  file="${r.fileName}"  ${meta.join(" ")}  preview="${r.content.slice(0, 80).replace(/\n/g, " ")}..."`
-    );
-  }
-  console.log(`[RAG Debug] ─── end ───`);
 
   return results;
 }

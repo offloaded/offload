@@ -4,26 +4,24 @@ import { chunkText, extractText } from "@/lib/rag";
 describe("chunkText", () => {
   it("returns single chunk for short text", () => {
     const text = "Hello world. This is a short text.";
-    const chunks = chunkText(text);
+    const chunks = chunkText(text, "test.txt");
     expect(chunks).toHaveLength(1);
-    expect(chunks[0]).toBe(text);
+    expect(chunks[0].content).toBe(text);
   });
 
   it("returns empty array for empty text", () => {
-    expect(chunkText("")).toHaveLength(0);
-    expect(chunkText("   ")).toHaveLength(0);
+    expect(chunkText("", "test.txt")).toHaveLength(0);
+    expect(chunkText("   ", "test.txt")).toHaveLength(0);
   });
 
   it("splits long text into multiple chunks", () => {
-    // Create text longer than 2000 chars (500 tokens * 4 chars/token)
     const sentence = "This is a test sentence with some content. ";
     const text = sentence.repeat(100); // ~4400 chars
-    const chunks = chunkText(text);
+    const chunks = chunkText(text, "test.txt");
 
     expect(chunks.length).toBeGreaterThan(1);
-    // Each chunk should be non-empty
     for (const chunk of chunks) {
-      expect(chunk.length).toBeGreaterThan(0);
+      expect(chunk.content.length).toBeGreaterThan(0);
     }
   });
 
@@ -31,55 +29,59 @@ describe("chunkText", () => {
     const para1 = "A".repeat(1200);
     const para2 = "B".repeat(1200);
     const text = `${para1}\n\n${para2}`;
-    const chunks = chunkText(text);
+    const chunks = chunkText(text, "test.txt");
 
     expect(chunks.length).toBeGreaterThanOrEqual(2);
-    // First chunk should mostly be A's
-    expect(chunks[0]).toMatch(/^A+/);
+    expect(chunks[0].content).toMatch(/^A+/);
   });
 
   it("respects sentence boundaries", () => {
-    // Build text that would split mid-sentence without boundary detection
     const text = "First sentence here. " + "A".repeat(1800) + ". End of block.";
-    const chunks = chunkText(text);
+    const chunks = chunkText(text, "test.txt");
 
-    // Should split at a sentence boundary, not mid-word
     for (const chunk of chunks) {
-      // Chunks shouldn't start or end mid-word (unless at very end)
-      expect(chunk.trim()).toBe(chunk);
+      expect(chunk.content.trim()).toBe(chunk.content);
     }
   });
 
   it("handles overlap between chunks", () => {
     const words = Array.from({ length: 600 }, (_, i) => `word${i}`);
     const text = words.join(" ");
-    const chunks = chunkText(text);
+    const chunks = chunkText(text, "test.txt");
 
     if (chunks.length >= 2) {
-      // The end of chunk 1 should overlap with the start of chunk 2
-      const endOfFirst = chunks[0].slice(-100);
-      const startOfSecond = chunks[1].slice(0, 200);
-      // Some overlap content should appear in both
-      const firstWords = endOfFirst.split(" ");
-      const secondWords = startOfSecond.split(" ");
-      const overlap = firstWords.filter((w) => secondWords.includes(w));
-      expect(overlap.length).toBeGreaterThan(0);
+      // Check that the second chunk starts with content that appeared in the first chunk
+      const firstContent = chunks[0].content;
+      const secondContent = chunks[1].content;
+      const secondStart = secondContent.split(" ")[0];
+      // The start of chunk 2 should appear somewhere in chunk 1 (overlap)
+      expect(firstContent).toContain(secondStart);
     }
   });
 
   it("normalizes whitespace", () => {
     const text = "Hello    world\r\n\r\nNew   paragraph";
-    const chunks = chunkText(text);
-    expect(chunks[0]).not.toContain("\r\n");
-    expect(chunks[0]).not.toContain("    ");
+    const chunks = chunkText(text, "test.txt");
+    expect(chunks[0].content).not.toContain("\r\n");
+    expect(chunks[0].content).not.toContain("    ");
   });
 
   it("accepts custom chunk size parameters", () => {
     const text = "word ".repeat(200); // 1000 chars
-    const smallChunks = chunkText(text, 50, 10); // 50 tokens = 200 chars
-    const bigChunks = chunkText(text, 500, 10); // 500 tokens = 2000 chars
+    const smallChunks = chunkText(text, "test.txt", 50, 10);
+    const bigChunks = chunkText(text, "test.txt", 500, 10);
 
     expect(smallChunks.length).toBeGreaterThan(bigChunks.length);
+  });
+
+  it("includes metadata with total_chunks", () => {
+    const text = "A".repeat(5000);
+    const chunks = chunkText(text, "test.txt");
+
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(chunk.metadata.total_chunks).toBe(chunks.length);
+    }
   });
 });
 

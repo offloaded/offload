@@ -161,13 +161,12 @@ describe("Chat API - conversation_id behavior", () => {
     expect(routeCode).not.toContain('Find existing conversation');
   });
 
-  it("group chat API creates new conversation when no conversation_id is given", async () => {
+  it("group chat API finds or creates group conversation", async () => {
     const { readFileSync } = await import("fs");
     const routeCode = readFileSync("app/api/chat/group/route.ts", "utf-8");
 
+    // Should reuse existing group conversation or create new one
+    expect(routeCode).toContain('.is("agent_id", null)');
     expect(routeCode).toContain('.insert({ user_id: user.id, agent_id: null })');
-    expect(routeCode).not.toContain('Find existing conversation');
-    // Should NOT search for existing conversations
-    expect(routeCode).not.toContain('.is("agent_id", null)');
   });
 });
