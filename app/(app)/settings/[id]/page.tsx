@@ -48,6 +48,11 @@ export default function AgentEditorPage() {
   const [color, setColor] = useState(PALETTE[0]);
   const [docs, setDocs] = useState<Document[]>([]);
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [verbosity, setVerbosity] = useState(3);
+  const [initiative, setInitiative] = useState(3);
+  const [reactivity, setReactivity] = useState(3);
+  const [repetitionTolerance, setRepetitionTolerance] = useState(3);
+  const [warmth, setWarmth] = useState(3);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [uploads, setUploads] = useState<UploadItem[]>([]);
@@ -58,6 +63,11 @@ export default function AgentEditorPage() {
       setPurpose(existing.purpose);
       setColor(existing.color);
       setWebSearchEnabled(existing.web_search_enabled ?? false);
+      setVerbosity(existing.verbosity ?? 3);
+      setInitiative(existing.initiative ?? 3);
+      setReactivity(existing.reactivity ?? 3);
+      setRepetitionTolerance(existing.repetition_tolerance ?? 3);
+      setWarmth(existing.warmth ?? 3);
     } else if (isNew) {
       setColor(PALETTE[agents.length % PALETTE.length]);
     }
@@ -97,6 +107,11 @@ export default function AgentEditorPage() {
           purpose: purpose.trim(),
           color,
           web_search_enabled: webSearchEnabled,
+          verbosity,
+          initiative,
+          reactivity,
+          repetition_tolerance: repetitionTolerance,
+          warmth,
         }),
       });
       if (!res.ok) {
@@ -315,6 +330,20 @@ export default function AgentEditorPage() {
             />
           </div>
 
+          {/* Personality */}
+          <div className="mb-7">
+            <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-3">
+              Personality
+            </label>
+            <div className="flex flex-col gap-4">
+              <TraitSlider label="Verbosity" lowLabel="Concise" highLabel="Detailed" value={verbosity} onChange={setVerbosity} />
+              <TraitSlider label="Initiative" lowLabel="Reactive" highLabel="Proactive" value={initiative} onChange={setInitiative} />
+              <TraitSlider label="Reactivity" lowLabel="Independent" highLabel="Collaborative" value={reactivity} onChange={setReactivity} />
+              <TraitSlider label="Repetition" lowLabel="Say it once" highLabel="Reinforce" value={repetitionTolerance} onChange={setRepetitionTolerance} />
+              <TraitSlider label="Warmth" lowLabel="Formal" highLabel="Friendly" value={warmth} onChange={setWarmth} />
+            </div>
+          </div>
+
           {/* Documents */}
           <div className="mb-7">
             <div className="flex items-baseline justify-between mb-2.5">
@@ -505,6 +534,45 @@ export default function AgentEditorPage() {
             )}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function TraitSlider({
+  label,
+  lowLabel,
+  highLabel,
+  value,
+  onChange,
+}: {
+  label: string;
+  lowLabel: string;
+  highLabel: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[13px] text-[var(--color-text)]">{label}</span>
+        <span className="text-[12px] text-[var(--color-text-tertiary)] tabular-nums w-4 text-right">{value}</span>
+      </div>
+      <div className="flex items-center gap-2.5">
+        <span className="text-[11px] text-[var(--color-text-tertiary)] w-20 text-right shrink-0">{lowLabel}</span>
+        <input
+          type="range"
+          min={1}
+          max={5}
+          step={1}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
+          style={{
+            background: `linear-gradient(to right, var(--color-accent) 0%, var(--color-accent) ${(value - 1) * 25}%, var(--color-border) ${(value - 1) * 25}%, var(--color-border) 100%)`,
+          }}
+        />
+        <span className="text-[11px] text-[var(--color-text-tertiary)] w-20 shrink-0">{highLabel}</span>
       </div>
     </div>
   );

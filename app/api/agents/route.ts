@@ -70,11 +70,13 @@ export async function PUT(request: Request) {
   }
 
   const body = await request.json();
-  const { id, name, purpose, color, web_search_enabled } = body;
+  const { id, name, purpose, color, web_search_enabled, verbosity, initiative, reactivity, repetition_tolerance, warmth } = body;
 
   if (!id) {
     return NextResponse.json({ error: "Agent ID required" }, { status: 400 });
   }
+
+  const clampTrait = (v: unknown) => Math.max(1, Math.min(5, Number(v)));
 
   const updates: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
@@ -83,6 +85,11 @@ export async function PUT(request: Request) {
   if (purpose !== undefined) updates.purpose = purpose.trim();
   if (color !== undefined) updates.color = color;
   if (web_search_enabled !== undefined) updates.web_search_enabled = web_search_enabled;
+  if (verbosity !== undefined) updates.verbosity = clampTrait(verbosity);
+  if (initiative !== undefined) updates.initiative = clampTrait(initiative);
+  if (reactivity !== undefined) updates.reactivity = clampTrait(reactivity);
+  if (repetition_tolerance !== undefined) updates.repetition_tolerance = clampTrait(repetition_tolerance);
+  if (warmth !== undefined) updates.warmth = clampTrait(warmth);
 
   const { data, error } = await supabase
     .from("agents")
