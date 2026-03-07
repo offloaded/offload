@@ -1,66 +1,7 @@
 import { createServerSupabase } from "@/lib/supabase-server";
 import { getAnthropicClient, cleanResponse } from "@/lib/anthropic";
 import { retrieveContext } from "@/lib/rag";
-
-// ─── Pipeline helpers ──────────────────────────────────────────────────────
-
-type MessageIntent = "casual" | "knowledge" | "action" | "search";
-
-/**
- * Fast rule-based intent classifier.
- * Determines how the pipeline should respond — no LLM call required.
- */
-function classifyIntent(text: string): MessageIntent {
-  const lower = text.toLowerCase().trim();
-  const wordCount = lower.split(/\s+/).length;
-
-  // Casual: short greetings, acknowledgements, small talk
-  const casualPatterns = [
-    /^(hi|hello|hey|howdy|yo|morning|evening|afternoon)\b/,
-    /^good (morning|afternoon|evening|day|night)\b/,
-    /^(thanks|thank you|ty|cheers|thx|appreciate it)\b/,
-    /^(bye|goodbye|see ya|cya|later|see you)\b/,
-    /^(ok|okay|got it|noted|sure|sounds good|perfect|great|cool|nice|awesome|brilliant|yep|yup|nope|roger)\b/,
-    /^(no worries|np|all good|no problem)\b/,
-    /^how are (you|everyone|the team|things)\b/,
-    /^how'?s? (everyone|it going|the team|things)\b/,
-    /^what'?s? up\b/,
-    /^(lol|haha|nice one)\b/,
-  ];
-  if (wordCount <= 12 && casualPatterns.some((p) => p.test(lower))) return "casual";
-
-  // Search: real-time or external info (web search territory)
-  if (/\b(latest|current (news|events?|status)|today'?s?|this (morning|week|month)|breaking|just (happened|announced|released)|news about|search (for|the)|look up|google|check online)\b/.test(lower)) {
-    return "search";
-  }
-
-  // Action: scheduling, task creation, imperative requests
-  if (/\b(schedule|remind\b|set (a |an )?(reminder|alarm|meeting|appointment)|draft|write (a |an |me )|send (a |an )?|book|set up|organi[sz]e|arrang[e]|cancel|reschedul|every (day|morning|evening|week|month|hour)|daily|weekly|monthly|at \d|tomorrow|next (monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|month)|in \d+ (minute|hour|day|week)s?)\b/.test(lower)) {
-    return "action";
-  }
-
-  return "knowledge";
-}
-
-/**
- * Score how relevant an agent is to a message using word overlap.
- * Returns 0 if the agent has no relevance.
- */
-function scoreAgentRelevance(message: string, agent: { name: string; purpose: string }): number {
-  const msgWords = new Set(
-    message.toLowerCase().replace(/[^\w\s]/g, " ").split(/\s+/).filter((w) => w.length > 3)
-  );
-  if (msgWords.size === 0) return 0;
-
-  let score = 0;
-  const agentText = `${agent.name} ${agent.purpose}`.toLowerCase().replace(/[^\w\s]/g, " ");
-  for (const w of agentText.split(/\s+/)) {
-    if (w.length > 3 && msgWords.has(w)) score++;
-  }
-  // Direct name mention is a strong signal
-  if (message.toLowerCase().includes(agent.name.toLowerCase())) score += 5;
-  return score;
-}
+import { classifyIntent, scoreAgentRelevance } from "@/lib/group-orchestration";
 
 export async function POST(request: Request) {
   const LOG = "[Group Chat]";
