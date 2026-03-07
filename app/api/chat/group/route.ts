@@ -190,7 +190,16 @@ TEAM COLLABORATION:
 11. If another agent's expertise is relevant to your answer, tag them and ask for their input. For example: "[Marketing Lead] Great question — this also has HR implications. @HR Advisor, what does our policy say about this?"
 12. If you notice a gap in your own knowledge that another agent could fill, ask them directly.
 13. Build on what other agents have said in the conversation. Reference their previous responses when relevant.
-14. When multiple agents respond, they should feel like a natural team discussion, not a list of independent answers.${mentionInstruction}`;
+14. When multiple agents respond, they should feel like a natural team discussion, not a list of independent answers.${mentionInstruction}
+
+SCHEDULED TASKS:
+If the user asks to schedule, remind, or delay something (e.g. "every morning", "daily at 5pm", "in 5 minutes", "tomorrow at noon"), the most relevant agent should acknowledge the request AND you must include a JSON block at the very END of your response in exactly this format:
+
+\`\`\`schedule_request
+{"agent_id": "the-agent-id-who-should-run-it", "instruction": "the task to perform", "cron": "0 9 * * *", "timezone": "Pacific/Auckland", "recurring": true, "destination": "group"}
+\`\`\`
+
+Use standard 5-field cron (minute hour day-of-month month day-of-week). Set "recurring": true for repeating tasks, false for one-off. The current date/time is ${new Date().toISOString()}. For one-off tasks, compute the specific cron for that date/time. Set "destination" to "group" if the user wants the response in the group chat, or "dm" if they want a direct message. Default to "group" since the user is in the group chat. Only include this block when the user is explicitly requesting a scheduled or delayed task.`;
 
   // Stream response from Claude with retry on rate limit
   const anthropic = getAnthropicClient();
@@ -247,6 +256,11 @@ TEAM COLLABORATION:
           }
         }
 
+        // Detect schedule_request before cleaning
+        const scheduleMatch = fullResponse.match(
+          /```schedule_request\s*\n([\s\S]*?)\n```/
+        );
+
         // Clean the response: strip any <search> blocks or tool markup
         const cleaned = cleanResponse(fullResponse);
 
@@ -264,6 +278,19 @@ TEAM COLLABORATION:
               `data: ${JSON.stringify({ type: "replace", text: cleaned })}\n\n`
             )
           );
+        }
+
+        if (scheduleMatch) {
+          try {
+            const schedule = JSON.parse(scheduleMatch[1]);
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: "schedule_request", ...schedule })}\n\n`
+              )
+            );
+          } catch {
+            // Invalid JSON in schedule block — ignore
+          }
         }
 
         controller.enqueue(
