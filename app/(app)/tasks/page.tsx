@@ -286,7 +286,7 @@ function TaskCard({
               : "var(--color-hover)",
           }}
         >
-          {task.enabled ? "Active" : "Paused"}
+          {task.enabled ? "Active" : task.recurring === false && task.last_run_at ? "Completed" : "Paused"}
         </button>
         <button
           onClick={onDelete}
@@ -305,7 +305,7 @@ function TaskCard({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-[var(--color-text-tertiary)]">
         <span className="flex items-center gap-1">
           <CalendarIcon />
-          {scheduleDesc}
+          {task.recurring === false ? "One-off" : scheduleDesc}
         </span>
         <span>&middot;</span>
         <span>{task.timezone}</span>

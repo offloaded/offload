@@ -491,6 +491,7 @@ export function ChatView({
           instruction: scheduleRequest.instruction,
           cron: scheduleRequest.cron,
           timezone: scheduleRequest.timezone,
+          recurring: scheduleRequest.recurring,
         }),
       });
       if (res.ok) {
@@ -501,9 +502,12 @@ export function ChatView({
         } catch {
           desc = scheduleRequest.cron;
         }
+        const taskType = scheduleRequest.recurring ? "Scheduled task" : "One-off task";
         const successMsg: ChatMessage = {
           role: "assistant",
-          content: `Scheduled task created \u2014 I'll run "${scheduleRequest.instruction}" ${desc} (${scheduleRequest.timezone}).`,
+          content: scheduleRequest.recurring
+            ? `${taskType} created \u2014 I'll run "${scheduleRequest.instruction}" ${desc} (${scheduleRequest.timezone}).`
+            : `${taskType} created \u2014 I'll run "${scheduleRequest.instruction}" once at ${desc} (${scheduleRequest.timezone}).`,
           created_at: new Date().toISOString(),
         };
         updateMessages(chatId, (prev) => [...prev, successMsg]);

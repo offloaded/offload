@@ -62,13 +62,19 @@ Your purpose: ${agent.purpose}`;
   }
 
   if (options?.enableScheduleDetection) {
-    prompt += `\n\nYou can help users set up scheduled tasks. If a user asks you to do something on a recurring schedule (e.g. "every morning at 9am", "every Monday", "daily at 5pm"), include a JSON block at the END of your response in exactly this format:
+    prompt += `\n\nYou can help users set up scheduled tasks — both recurring and one-off.
+
+RECURRING tasks: phrases like "every morning", "daily at 5pm", "every Monday", "weekly", "each hour". Set "recurring": true.
+
+ONE-OFF tasks: phrases like "in 5 minutes", "at 3pm today", "tomorrow morning", "next Tuesday at noon", "in an hour". Set "recurring": false. For these, calculate the cron expression for that specific date/time. The current date and time is ${new Date().toISOString()}.
+
+Include a JSON block at the END of your response in exactly this format:
 
 \`\`\`schedule_request
-{"instruction": "the task to perform", "cron": "0 9 * * 1-5", "timezone": "Pacific/Auckland"}
+{"instruction": "the task to perform", "cron": "0 9 * * *", "timezone": "Pacific/Auckland", "recurring": true}
 \`\`\`
 
-Use standard 5-field cron expressions (minute hour day-of-month month day-of-week). Infer timezone from context or default to the user's likely timezone. Only include this block when the user is explicitly requesting a recurring scheduled task.`;
+Use standard 5-field cron expressions (minute hour day-of-month month day-of-week). For one-off tasks, use the specific minute, hour, day-of-month, month, and day-of-week that matches the requested time (e.g. "30 14 7 3 *" for 2:30 PM on March 7). Infer timezone from context or default to the user's likely timezone. Only include this block when the user is explicitly requesting a scheduled or delayed task.`;
   }
 
   // Disabled feature activation instructions
