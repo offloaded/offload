@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, createContext, useContext } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, createContext, useContext } from "react";
 import { createClient } from "@/lib/supabase";
 import { SidebarContent, Drawer } from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
@@ -17,6 +17,7 @@ interface AppContextValue {
   unreadCounts: Record<string, number>;
   refreshUnreadCounts: () => void;
   markRead: (conversationId: string) => void;
+  setActiveChatKey: (chatKey: string | null) => void;
   hasNewActivity: boolean;
 }
 
@@ -30,6 +31,7 @@ const AppContext = createContext<AppContextValue>({
   unreadCounts: {},
   refreshUnreadCounts: () => {},
   markRead: () => {},
+  setActiveChatKey: () => {},
   hasNewActivity: false,
 });
 
@@ -78,10 +80,32 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       .catch(() => {});
   }, []);
 
+  const activeChatKeyRef = useRef<string | null>(null);
+
+  const setActiveChatKey = useCallback((chatKey: string | null) => {
+    activeChatKeyRef.current = chatKey;
+    // Immediately zero out unread count for the active chat
+    if (chatKey) {
+      setUnreadCounts((prev) => {
+        if (!prev[chatKey]) return prev;
+        const next = { ...prev };
+        delete next[chatKey];
+        return next;
+      });
+    }
+  }, []);
+
   const refreshUnreadCounts = useCallback(() => {
     fetch("/api/unread-counts")
       .then((r) => (r.ok ? r.json() : {}))
-      .then((counts: Record<string, number>) => setUnreadCounts(counts))
+      .then((counts: Record<string, number>) => {
+        // Don't show unread for the chat the user is currently viewing
+        const activeKey = activeChatKeyRef.current;
+        if (activeKey && counts[activeKey]) {
+          delete counts[activeKey];
+        }
+        setUnreadCounts(counts);
+      })
       .catch(() => {});
   }, []);
 
@@ -137,7 +161,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AppContext value={{ agents, refreshAgents, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, hasNewActivity }}>
+    <AppContext value={{ agents, refreshAgents, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity }}>
       <div className="flex h-screen w-full bg-[var(--color-page-bg)] overflow-hidden">
         {/* Desktop sidebar — hidden below 768px via CSS */}
         <div className="hidden md:flex w-[220px] min-w-[220px] bg-[var(--color-bg)] border-r border-[var(--color-border)] flex-col">

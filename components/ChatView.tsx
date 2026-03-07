@@ -301,7 +301,7 @@ export function ChatView({
   openDrawer: () => void;
   initialConversationId?: string | null;
 }) {
-  const { refreshAgents, markRead } = useApp();
+  const { refreshAgents, markRead, setActiveChatKey } = useApp();
   const chatId = initialConversationId
     ? `conv:${initialConversationId}`
     : `agent:${agent.id}`;
@@ -328,6 +328,12 @@ export function ChatView({
   const conversationIdRef = useRef(conversationId);
   conversationIdRef.current = conversationId;
 
+  // Track this chat as active so unread badges are suppressed
+  useEffect(() => {
+    setActiveChatKey(agent.id);
+    return () => setActiveChatKey(null);
+  }, [agent.id, setActiveChatKey]);
+
   // Subscribe to inflight state changes (background streaming)
   useEffect(() => {
     return subscribe(chatId, (state) => {
@@ -347,8 +353,12 @@ export function ChatView({
       if (c) {
         setMessages(c.messages);
       }
+      // Mark read when streaming finishes so new message doesn't count as unread
+      if (!state.streaming && conversationIdRef.current) {
+        markRead(conversationIdRef.current);
+      }
     });
-  }, [chatId]);
+  }, [chatId, markRead]);
 
   // Fetch initial messages
   useEffect(() => {
