@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useApp } from "@/app/(app)/layout";
 import { MenuIcon, CheckCircleIcon, AlertCircleIcon, SpinnerIcon, GlobeIcon, FileIcon } from "@/components/Icons";
 
@@ -51,8 +51,6 @@ export default function ActivityPage() {
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-
   const fetchActivities = useCallback(async (before?: string) => {
     const url = before
       ? `/api/activity?before=${encodeURIComponent(before)}`
@@ -192,7 +190,6 @@ export default function ActivityPage() {
           </div>
         )}
 
-        <div ref={bottomRef} />
       </div>
     </div>
   );

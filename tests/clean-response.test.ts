@@ -54,6 +54,42 @@ describe("cleanResponse", () => {
     expect(result).toContain("First result.");
     expect(result).toContain("Second result.");
   });
+
+  it("strips skills_update blocks", () => {
+    const input = 'I can help with that.\n\n```skills_update\n[{"skill": "Project Management", "confidence": "high"}]\n```\n\nAnything else?';
+    const result = cleanResponse(input);
+    expect(result).not.toContain("skills_update");
+    expect(result).not.toContain("Project Management");
+    expect(result).toContain("I can help with that.");
+    expect(result).toContain("Anything else?");
+  });
+
+  it("strips feature_request blocks", () => {
+    const input = 'I can search for that if you enable web search.\n\n```feature_request\n{"feature": "web_search", "label": "Web Search"}\n```';
+    const result = cleanResponse(input);
+    expect(result).not.toContain("feature_request");
+    expect(result).toContain("enable web search");
+  });
+
+  it("strips group_message_request blocks", () => {
+    const input = "I'll post that to the group now.\n\n```group_message_request\n{\"message\": \"Hey team\"}\n```";
+    const result = cleanResponse(input);
+    expect(result).not.toContain("group_message_request");
+    expect(result).toContain("post that to the group");
+  });
+
+  it("strips leading [AgentName] bracket prefix", () => {
+    const input = "[HR Advisor] Here is my response about the policy.";
+    const result = cleanResponse(input);
+    expect(result).not.toContain("[HR Advisor]");
+    expect(result).toContain("Here is my response about the policy.");
+  });
+
+  it("does not strip brackets mid-text", () => {
+    const input = "The value is [important] for the process.";
+    const result = cleanResponse(input);
+    expect(result).toContain("[important]");
+  });
 });
 
 describe("cleanResponse streaming mode", () => {
@@ -84,5 +120,19 @@ describe("cleanResponse streaming mode", () => {
     expect(result).not.toContain("<search>");
     expect(result).toContain("Before.");
     expect(result).toContain("After the search.");
+  });
+
+  it("strips incomplete skills_update block mid-stream", () => {
+    const input = 'Here are my skills.\n\n```skills_update\n[{"skill": "Analysis"';
+    const result = cleanResponse(input, true);
+    expect(result).not.toContain("skills_update");
+    expect(result).toContain("Here are my skills.");
+  });
+
+  it("strips incomplete group_message_request mid-stream", () => {
+    const input = 'Posting now.\n\n```group_message_request\n{"message": "Hey';
+    const result = cleanResponse(input, true);
+    expect(result).not.toContain("group_message_request");
+    expect(result).toContain("Posting now.");
   });
 });
