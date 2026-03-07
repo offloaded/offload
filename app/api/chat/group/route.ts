@@ -91,8 +91,11 @@ export async function POST(request: Request) {
     .from("messages")
     .select("role, content")
     .eq("conversation_id", convId)
-    .order("created_at", { ascending: true })
-    .limit(50);
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  // Re-sort ascending for the LLM (we fetched newest-first for the limit)
+  if (history) history.reverse();
 
   const messages = (history || []).map((m) => ({
     role: m.role as "user" | "assistant",
@@ -119,8 +122,7 @@ export async function POST(request: Request) {
   const retrievalPromises = agents
     .filter((a) => docsByAgent.has(a.id))
     .map(async (a) => {
-      const docCount = docsByAgent.get(a.id)?.length || 0;
-      const topK = docCount > 20 ? 25 : docCount > 5 ? 15 : 5;
+      const topK = 5; // Cap at 5 per agent in group chat to control token usage
       try {
         const ctx = await retrieveContext(supabase, a.id, message.trim(), topK);
         if (ctx.length > 0) {
@@ -135,7 +137,9 @@ export async function POST(request: Request) {
 
   // Build system prompt with per-agent document context
   const agentDescriptions = agents.map((a) => {
-    let desc = `- ${a.name} (id: ${a.id}, color: ${a.color}): ${a.purpose}`;
+    // Truncate purpose to first 120 chars to reduce token usage in group chat
+    const shortPurpose = a.purpose.length > 120 ? a.purpose.slice(0, 120).trimEnd() + "..." : a.purpose;
+    let desc = `- ${a.name} (id: ${a.id}, color: ${a.color}): ${shortPurpose}`;
     const docNames = docsByAgent.get(a.id);
     if (docNames && docNames.length > 0) {
       desc += `\n  Documents: ${docNames.join(", ")}`;
@@ -188,15 +192,33 @@ TEAM COLLABORATION:
 13. Build on what other agents have said in the conversation. Reference their previous responses when relevant.
 14. When multiple agents respond, they should feel like a natural team discussion, not a list of independent answers.${mentionInstruction}`;
 
-  // Stream response from Claude
+  // Stream response from Claude with retry on rate limit
   const anthropic = getAnthropicClient();
 
-  const stream = anthropic.messages.stream({
-    model: "claude-sonnet-4-5-20250929",
-    max_tokens: 4096,
-    system: systemPrompt,
-    messages,
-  });
+  const MAX_RETRIES = 3;
+  let stream: ReturnType<typeof anthropic.messages.stream> | null = null;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      stream = anthropic.messages.stream({
+        model: "claude-sonnet-4-5-20250929",
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages,
+      });
+      // Await the first event to detect 429 errors before streaming starts
+      await stream.ensureResponse();
+      break;
+    } catch (err: unknown) {
+      const status = (err as { status?: number }).status;
+      if (status === 429 && attempt < MAX_RETRIES) {
+        const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+        console.warn(`[Group Chat] Rate limited (429), retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
 
   const encoder = new TextEncoder();
   let fullResponse = "";
@@ -210,7 +232,7 @@ TEAM COLLABORATION:
           )
         );
 
-        for await (const event of stream) {
+        for await (const event of stream!) {
           if (
             event.type === "content_block_delta" &&
             event.delta.type === "text_delta"
