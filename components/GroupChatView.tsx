@@ -68,10 +68,12 @@ const AgentMessage = memo(function AgentMessage({
   agent,
   text,
   time,
+  agents,
 }: {
   agent: Agent;
   text: string;
   time: string;
+  agents: Agent[];
 }) {
   return (
     <div className="px-4 py-2 md:px-6 hover:bg-[var(--color-hover)] transition-colors">
@@ -90,7 +92,7 @@ const AgentMessage = memo(function AgentMessage({
             </span>
           </div>
           <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words">
-            {text}
+            {renderTextWithMentions(text, agents)}
           </div>
         </div>
       </div>
@@ -101,9 +103,11 @@ const AgentMessage = memo(function AgentMessage({
 const UserMessage = memo(function UserMessage({
   text,
   time,
+  agents,
 }: {
   text: string;
   time: string;
+  agents: Agent[];
 }) {
   return (
     <div className="px-4 py-2 md:px-6">
@@ -121,13 +125,45 @@ const UserMessage = memo(function UserMessage({
             </span>
           </div>
           <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words">
-            {text}
+            {renderTextWithMentions(text, agents)}
           </div>
         </div>
       </div>
     </div>
   );
 });
+
+// Render text with @AgentName mentions highlighted in agent color
+function renderTextWithMentions(
+  text: string,
+  agents: Agent[]
+): React.ReactNode {
+  // Build a regex that matches @AgentName or @You/@User (case-insensitive)
+  const names = agents.map((a) => a.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (names.length === 0) return text;
+  const pattern = new RegExp(`(@(?:You|User|${names.join("|")}))`, "gi");
+  const parts = text.split(pattern);
+  return parts.map((part, i) => {
+    if (!part.startsWith("@")) return part;
+    const name = part.slice(1).toLowerCase();
+    if (name === "you" || name === "user") {
+      return (
+        <span key={i} className="font-semibold" style={{ color: "var(--color-accent)" }}>
+          {part}
+        </span>
+      );
+    }
+    const agent = agents.find((a) => a.name.toLowerCase() === name);
+    if (agent) {
+      return (
+        <span key={i} className="font-semibold" style={{ color: agent.color }}>
+          {part}
+        </span>
+      );
+    }
+    return part;
+  });
+}
 
 // Extract @mentions from message text by matching known agent names
 function extractMentions(text: string, agents: Agent[]): string[] {
@@ -220,6 +256,7 @@ const GroupMessageList = memo(function GroupMessageList({
           key={msg.id || idx}
           text={msg.content}
           time={formatTime(msg.created_at)}
+          agents={agents}
         />
       );
     }
@@ -232,6 +269,7 @@ const GroupMessageList = memo(function GroupMessageList({
           agent={p.agent}
           text={p.text}
           time={formatTime(msg.created_at)}
+          agents={agents}
         />
       ));
     }
@@ -275,6 +313,7 @@ const GroupMessageList = memo(function GroupMessageList({
           agent={p.agent}
           text={p.text}
           time={formatTime(new Date().toISOString())}
+          agents={agents}
         />
       ));
     }

@@ -258,6 +258,7 @@ export async function POST(request: Request) {
 
           const scheduleInstructions = intent === "action" ? buildScheduleInstructions() : undefined;
 
+          const teamMemberNames = agents.map((a) => a.name);
           const agentResponses = await Promise.all(
             respondingAgents.map(async (agent) => {
               const text = await generateAgentResponse(
@@ -267,6 +268,7 @@ export async function POST(request: Request) {
                 messages,
                 message.trim(),
                 docsByAgent,
+                teamMemberNames,
                 scheduleInstructions
               );
               // Replace placeholder agent_id with real id in any schedule_request block
