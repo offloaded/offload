@@ -300,7 +300,7 @@ export function ChatView({
   openDrawer: () => void;
   initialConversationId?: string | null;
 }) {
-  const { refreshAgents } = useApp();
+  const { refreshAgents, markRead } = useApp();
   const chatId = initialConversationId
     ? `conv:${initialConversationId}`
     : `agent:${agent.id}`;
@@ -358,6 +358,9 @@ export function ChatView({
       setConversationId(inflight.conversationId || cached.conversationId);
       setHasMore(cached.hasMore);
       setLoading(false);
+      if (inflight.conversationId || cached.conversationId) {
+        markRead(inflight.conversationId || cached.conversationId!);
+      }
       return;
     }
 
@@ -385,6 +388,7 @@ export function ChatView({
         setMessages(msgs);
         setHasMore(more);
         setCache(chatId, { conversationId: convId, messages: msgs, hasMore: more });
+        if (convId) markRead(convId);
       })
       .catch(() => {})
       .finally(() => setLoading(false));

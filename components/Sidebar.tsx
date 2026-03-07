@@ -35,11 +35,13 @@ export function SidebarContent({
   showClose,
   onClose,
   activeTaskCount = 0,
+  unreadCounts = {},
 }: {
   agents: Agent[];
   showClose?: boolean;
   onClose?: () => void;
   activeTaskCount?: number;
+  unreadCounts?: Record<string, number>;
 }) {
   const pathname = usePathname();
 
@@ -69,7 +71,12 @@ export function SidebarContent({
           <span className="opacity-60">
             <HashIcon />
           </span>
-          <span># All</span>
+          <span className="flex-1"># All</span>
+          {(unreadCounts["group"] || 0) > 0 && (
+            <span className="text-[11px] font-semibold bg-[var(--color-accent)] text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">
+              {unreadCounts["group"]}
+            </span>
+          )}
         </NavItem>
         <NavItem href="/history" isActive={pathname === "/history"}>
           <span className="opacity-60">
@@ -85,22 +92,33 @@ export function SidebarContent({
                 Direct messages
               </span>
             </div>
-            {agents.map((a) => (
-              <NavItem
-                key={a.id}
-                href={`/agent/${a.id}`}
-                isActive={pathname === `/agent/${a.id}`}
-              >
-                <div
-                  className="w-2.5 h-2.5 rounded-full"
-                  style={{
-                    background: a.color,
-                    opacity: pathname === `/agent/${a.id}` ? 1 : 0.5,
-                  }}
-                />
-                <span>{a.name}</span>
-              </NavItem>
-            ))}
+            {agents.map((a) => {
+              const unread = unreadCounts[a.id] || 0;
+              return (
+                <NavItem
+                  key={a.id}
+                  href={`/agent/${a.id}`}
+                  isActive={pathname === `/agent/${a.id}`}
+                >
+                  <div
+                    className="w-2.5 h-2.5 rounded-full"
+                    style={{
+                      background: a.color,
+                      opacity: pathname === `/agent/${a.id}` ? 1 : 0.5,
+                    }}
+                  />
+                  <span className="flex-1">{a.name}</span>
+                  {unread > 0 && (
+                    <span
+                      className="text-[11px] font-semibold text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none"
+                      style={{ background: a.color }}
+                    >
+                      {unread}
+                    </span>
+                  )}
+                </NavItem>
+              );
+            })}
           </>
         )}
 
@@ -181,11 +199,13 @@ export function Drawer({
   open,
   onClose,
   activeTaskCount,
+  unreadCounts,
 }: {
   agents: Agent[];
   open: boolean;
   onClose: () => void;
   activeTaskCount?: number;
+  unreadCounts?: Record<string, number>;
 }) {
   return (
     <>
@@ -209,6 +229,7 @@ export function Drawer({
           showClose
           onClose={onClose}
           activeTaskCount={activeTaskCount}
+          unreadCounts={unreadCounts}
         />
       </div>
     </>
