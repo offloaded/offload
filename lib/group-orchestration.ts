@@ -249,6 +249,7 @@ function buildGroupAgentSystemPrompt(
     reactivity?: number;
     repetition_tolerance?: number;
     warmth?: number;
+    voice_profile?: string | null;
   },
   context: ContextChunk[],
   teamMemberNames: string[],
@@ -274,7 +275,13 @@ NEVER wrap any name in square brackets like [SomeName]. NEVER speak as the user 
 Just write your natural response — the system adds attribution automatically.
 Plain conversational text only — no markdown, no bold, no headers, no bullet lists.
 
-CRITICAL: If you are asked a question, answer it directly from your own perspective and expertise. Do NOT redirect the question back to the group or ask others the same question. Do NOT say things like "Can everyone give me an update?" — instead, give YOUR OWN update or answer.`;
+CRITICAL: If you are asked a question, answer it directly from your own perspective and expertise. Do NOT redirect the question back to the group or ask others the same question. Do NOT say things like "Can everyone give me an update?" — instead, give YOUR OWN update or answer.
+
+CONTEXT: Only respond to the MOST RECENT message in the conversation. Ignore older topics that have already been discussed and resolved. If the latest message asks about risks, respond about risks — do not reference or answer questions from earlier in the conversation.`;
+
+  if (agent.voice_profile) {
+    prompt += `\n\nTONE OF VOICE: Communicate in this style: ${agent.voice_profile} Match this tone and approach in every response.`;
+  }
 
   if (docNames?.length) {
     prompt += `\n\nYour knowledge base: ${docNames.join(", ")}`;
@@ -402,7 +409,7 @@ export async function generateAgentResponse(
   anthropic: Anthropic,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
-  agent: { id: string; name: string; purpose: string; verbosity?: number; initiative?: number; reactivity?: number; repetition_tolerance?: number; warmth?: number },
+  agent: { id: string; name: string; purpose: string; verbosity?: number; initiative?: number; reactivity?: number; repetition_tolerance?: number; warmth?: number; voice_profile?: string | null },
   messages: { role: "user" | "assistant"; content: string }[],
   plainMessage: string,
   docsByAgent: Map<string, string[]>,
@@ -445,41 +452,132 @@ export async function generateAgentResponse(
   return cleanResponse(text);
 }
 
-// ─── History builder (shared) ─────────────────────────────────────────────
+// ─── Topic boundary detection ─────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function buildHistory(supabase: any, conversationId: string, limit = 20): Promise<{ role: "user" | "assistant"; content: string }[]> {
+type SimpleMessage = { role: "user" | "assistant"; content: string };
+
+/**
+ * Detect whether the latest user message starts a new topic or continues
+ * the current discussion. Uses a fast Haiku call with minimal context.
+ *
+ * Returns the index into `allMessages` where the current topic begins.
+ * - If NEW topic: returns the index of the latest user message
+ * - If CONTINUE: returns 0 (keep everything)
+ */
+async function detectTopicBoundary(
+  anthropic: Anthropic,
+  allMessages: SimpleMessage[],
+): Promise<number> {
+  // Find the last user message
+  let lastUserIdx = -1;
+  for (let i = allMessages.length - 1; i >= 0; i--) {
+    if (allMessages[i].role === "user") { lastUserIdx = i; break; }
+  }
+  if (lastUserIdx <= 0) return 0; // first message or not found — keep all
+
+  // If 5 or fewer messages, no point checking — keep all
+  if (allMessages.length <= 5) return 0;
+
+  // Grab the 3 messages before the latest user message for context
+  const contextStart = Math.max(0, lastUserIdx - 3);
+  const priorContext = allMessages.slice(contextStart, lastUserIdx);
+  const latestUserMsg = allMessages[lastUserIdx].content;
+
+  if (priorContext.length === 0) return 0;
+
+  const contextSummary = priorContext
+    .map((m) => `${m.role === "user" ? "User" : "Team"}: ${m.content.slice(0, 150)}`)
+    .join("\n");
+
+  try {
+    const response = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 10,
+      system: "You detect topic shifts in group chat. Reply with exactly one word: CONTINUE or NEW.\nCONTINUE = the new message builds on, references, or is about the same subject as the recent messages.\nNEW = the new message starts a clearly different subject (e.g. from weekend plans to work risks, or from scheduling to a technical question).",
+      messages: [{
+        role: "user",
+        content: `Recent conversation:\n${contextSummary}\n\nNew message from user: "${latestUserMsg.slice(0, 200)}"`,
+      }],
+    });
+    const answer = response.content[0].type === "text" ? response.content[0].text.trim().toUpperCase() : "";
+    console.log(`[TopicBoundary] verdict=${answer} for: "${latestUserMsg.slice(0, 80)}"`);
+
+    if (answer.startsWith("NEW")) {
+      // New topic — only keep messages from this user message onward
+      // But always include at least the last user message
+      console.log(`[TopicBoundary] Trimming history: keeping ${allMessages.length - lastUserIdx} of ${allMessages.length} messages`);
+      return lastUserIdx;
+    }
+  } catch (err) {
+    console.error("[TopicBoundary] Error (keeping full history):", err);
+  }
+
+  return 0; // CONTINUE or error — keep all
+}
+
+/**
+ * Build smart context-aware message history.
+ *
+ * 1. Fetch a generous window of recent messages (30)
+ * 2. Run topic boundary detection
+ * 3. If new topic: trim to messages from the new topic onward
+ * 4. Always keep at least the last 5 messages
+ */
+export async function buildSmartHistory(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  anthropic: Anthropic,
+  conversationId: string,
+): Promise<SimpleMessage[]> {
+  // Fetch a generous window — we'll trim intelligently
   const { data: history } = await supabase
     .from("messages")
     .select("role, content")
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: false })
-    .limit(limit);
+    .limit(30);
 
-  if (history) history.reverse();
+  if (!history || history.length === 0) return [];
+  history.reverse();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rawMessages = (history || []).map((m: any) => ({
+  const rawMessages: SimpleMessage[] = history.map((m: any) => ({
     role: m.role as "user" | "assistant",
     content: m.content as string,
   }));
 
-  const messages: { role: "user" | "assistant"; content: string }[] = [];
+  // Merge consecutive same-role messages (Claude API requires alternation)
+  const merged: SimpleMessage[] = [];
   for (const msg of rawMessages) {
-    if (messages.length === 0) {
-      if (msg.role === "assistant") messages.push({ role: "user", content: "[group chat]" });
-      messages.push(msg);
+    if (merged.length === 0) {
+      if (msg.role === "assistant") merged.push({ role: "user", content: "[group chat]" });
+      merged.push(msg);
     } else {
-      const last = messages[messages.length - 1];
+      const last = merged[merged.length - 1];
       if (last.role === msg.role) {
         last.content += "\n" + msg.content;
       } else {
-        messages.push(msg);
+        merged.push(msg);
       }
     }
   }
 
-  return messages;
+  // If 5 or fewer messages, keep all — no topic detection needed
+  if (merged.length <= 5) {
+    console.log(`[SmartHistory] ${merged.length} messages — keeping all (too few to trim)`);
+    return merged;
+  }
+
+  // Detect topic boundary
+  const boundaryIdx = await detectTopicBoundary(anthropic, merged);
+
+  // Always keep at least the last 5 messages
+  const minKeep = Math.max(0, merged.length - 5);
+  const trimIdx = Math.min(boundaryIdx, minKeep);
+  const result = merged.slice(trimIdx);
+
+  console.log(`[SmartHistory] ${merged.length} total → keeping ${result.length} (boundary=${boundaryIdx}, minKeep=${minKeep})`);
+  return result;
 }
 
 // ─── Main orchestration function ──────────────────────────────────────────
@@ -559,21 +657,21 @@ export async function runGroupOrchestration(
     docsByAgent.set(doc.agent_id, list);
   }
 
-  // 5. Build message history
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const teamMemberNames = allAgents.map((a: any) => a.name as string);
+  const anthropic = getAnthropicClient();
+
+  // 5. Build message history with smart topic-aware trimming
   let messages: { role: "user" | "assistant"; content: string }[];
   if (_round > 0) {
     messages = [{ role: "user", content: triggerMessage }];
   } else {
-    messages = await buildHistory(supabase, conversationId, 20);
+    messages = await buildSmartHistory(supabase, anthropic, conversationId);
     if (messages.length === 0) {
       messages.push({ role: "user", content: "[group chat]" });
       messages.push({ role: "assistant", content: triggerMessage });
     }
   }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const teamMemberNames = allAgents.map((a: any) => a.name as string);
-  const anthropic = getAnthropicClient();
 
   // 6. CASUAL SHORTCUT — no evaluate, no RAG, Haiku model
   if (effectiveIntent === "casual" && mentionedAgentIds.length === 0) {

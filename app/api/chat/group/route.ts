@@ -7,6 +7,7 @@ import {
   evaluateAgents,
   generateAgentResponse,
   scoreAgentRelevance,
+  buildSmartHistory,
 } from "@/lib/group-orchestration";
 
 // Schedule detection instructions included in agent prompts when intent is "action"
@@ -115,28 +116,10 @@ export async function POST(request: Request) {
   await supabase.from("messages").insert({ conversation_id: convId, role: "user", content: message.trim() });
   await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
 
-  // Load message history
-  const historyLimit = effectiveIntent === "casual" && !isTeamWide ? 6 : 20;
-  const { data: history } = await supabase
-    .from("messages")
-    .select("role, content")
-    .eq("conversation_id", convId)
-    .order("created_at", { ascending: false })
-    .limit(historyLimit);
-
-  if (history) history.reverse();
-  const messages = (history || []).map((m: { role: string; content: string }) => ({
-    role: m.role as "user" | "assistant",
-    content: m.content,
-  }));
-
-  // Validate no consecutive same-role messages (causes Claude API 400)
-  for (let i = 1; i < messages.length; i++) {
-    if (messages[i].role === messages[i - 1].role) {
-      console.log(`${LOG} ⚠ Consecutive ${messages[i].role} messages at index ${i - 1},${i}`);
-    }
-  }
-  console.log(`${LOG} ✓ History: ${messages.length} message(s)`);
+  // Load message history with smart topic-aware trimming
+  const anthropic = getAnthropicClient();
+  const messages = await buildSmartHistory(supabase, anthropic, convId!);
+  console.log(`${LOG} ✓ History: ${messages.length} message(s) (smart trimmed)`);
 
   // Load docs per agent
   const { data: allDocs } = await supabase
@@ -161,7 +144,6 @@ export async function POST(request: Request) {
   const mentionedAgents = agents.filter((a) => allMentionedIds.includes(a.id));
   const nonMentionedAgents = agents.filter((a) => !allMentionedIds.includes(a.id));
 
-  const anthropic = getAnthropicClient();
   const encoder = new TextEncoder();
 
   const readable = new ReadableStream({
