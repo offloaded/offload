@@ -21,63 +21,41 @@ interface ContextChunk {
   };
 }
 
-// ─── Personality trait → system prompt instructions ───────────────────────
+// ─── Style tag → system prompt instructions ───────────────────────
 
-const PERSONALITY_INSTRUCTIONS: Record<string, Record<number, string>> = {
-  verbosity: {
-    1: "Short, direct answers only. Get to the point fast — one or two sentences max.",
-    2: "Be concise. Get to the point without unnecessary elaboration.",
-    4: "Provide thorough responses with full reasoning, relevant context, and examples where helpful.",
-    5: "Give detailed, comprehensive responses with full reasoning, context, and worked examples. Be thorough.",
-  },
-  initiative: {
-    1: "After giving your answer, stay quiet unless directly @mentioned. Do not ask follow-up questions, comment on others' replies, or volunteer additional thoughts.",
-    2: "After giving your answer, only speak again if you have something genuinely new to add. Don't ask follow-up questions unless critical.",
-    4: "Actively engage — ask others questions, offer to help explain things, and build on the conversation after your initial answer.",
-    5: "Be highly proactive: ask others questions, offer to explain things, start new threads within the conversation, and volunteer relevant information even after you've already responded.",
-  },
-  reactivity: {
-    1: "Give your own independent answer. Don't reference, build on, or react to what others have said — just give your perspective directly.",
-    2: "Focus on your own perspective. Only briefly acknowledge others if directly relevant.",
-    4: "Engage with what others said — play back key points to confirm understanding, note agreements or disagreements, and connect ideas between different agents' responses.",
-    5: "Actively collaborate: play back what others said to confirm understanding, ask clarifying questions about their points, connect ideas between different agents' responses, and build on the group's thinking.",
-  },
-  repetition_tolerance: {
-    1: "Make your point once, concisely. If the conversation continues on your topic, stay quiet — one contribution per topic. Do not restate or rephrase what you already said.",
-    2: "Avoid repeating yourself. Say it once clearly and move on unless asked directly.",
-    4: "Expand on your answer if the conversation develops — provide additional context, nuance, or examples. Ask follow-up questions to ensure your point was understood.",
-    5: "Re-engage when the conversation develops on your topic. Add context, nuance, and follow-up questions. Ensure your perspective is fully captured even if it takes multiple messages.",
-  },
-  warmth: {
-    1: "Strictly professional and factual. No small talk, humour, or emoji. Get straight to business.",
-    2: "Keep a professional tone with minimal informality.",
-    4: "Be warm and friendly — casual, approachable tone. Acknowledge others personally. Occasional humour is welcome.",
-    5: "Be casual, warm, and personable. Use humour, emoji, and informal language freely. Acknowledge others by name and be encouraging.",
-  },
+const WORKING_STYLE_INSTRUCTIONS: Record<string, string> = {
+  Proactive: "Take initiative. Flag potential issues before being asked. Suggest next steps. Ask clarifying questions when needed.",
+  Analytical: "Be data-driven and evidence-based. Structure your thinking clearly. Reference specific facts and figures from your documents.",
+  Collaborative: "Build on what others say. Reference your colleagues' input. Look for connections across different perspectives.",
 };
 
-export function buildPersonalityInstructions(agent: {
-  verbosity?: number;
-  initiative?: number;
-  reactivity?: number;
-  repetition_tolerance?: number;
-  warmth?: number;
-}): string {
-  const traits: [string, number | undefined][] = [
-    ["verbosity",            agent.verbosity],
-    ["initiative",           agent.initiative],
-    ["reactivity",           agent.reactivity],
-    ["repetition_tolerance", agent.repetition_tolerance],
-    ["warmth",               agent.warmth],
-  ];
-  const lines = traits
-    .map(([key, val]) => {
-      const v = val ?? 3;
-      return PERSONALITY_INSTRUCTIONS[key]?.[v] ?? "";
-    })
-    .filter(Boolean);
+const COMMUNICATION_STYLE_INSTRUCTIONS: Record<string, string> = {
+  Concise: "Keep responses brief and to the point. Prioritise clarity over completeness.",
+  Professional: "Maintain a formal, structured tone. Use proper terminology.",
+  Supportive: "Be encouraging and warm. Acknowledge effort and progress. Use a friendly tone.",
+};
 
-  // Append the universal re-engagement rule
+export function buildStyleInstructions(agent: {
+  working_style?: string[] | null;
+  communication_style?: string[] | null;
+}): string {
+  const lines: string[] = [];
+
+  if (agent.working_style && agent.working_style.length > 0) {
+    for (const style of agent.working_style) {
+      const instruction = WORKING_STYLE_INSTRUCTIONS[style];
+      if (instruction) lines.push(instruction);
+    }
+  }
+
+  if (agent.communication_style && agent.communication_style.length > 0) {
+    for (const style of agent.communication_style) {
+      const instruction = COMMUNICATION_STYLE_INSTRUCTIONS[style];
+      if (instruction) lines.push(instruction);
+    }
+  }
+
+  // Universal re-engagement rule for group chat
   lines.push(
     "CRITICAL: Never repeat a point you have already made in this conversation, regardless of your personality. " +
     "If you have already responded on a topic, only speak again if: (1) you are directly @mentioned, " +
@@ -93,11 +71,8 @@ export function buildSystemPrompt(
     name: string;
     purpose: string;
     web_search_enabled?: boolean;
-    verbosity?: number;
-    initiative?: number;
-    reactivity?: number;
-    repetition_tolerance?: number;
-    warmth?: number;
+    working_style?: string[] | null;
+    communication_style?: string[] | null;
     voice_profile?: string | null;
     soft_skills?: { skill: string; confidence: string; note?: string }[] | null;
   },
@@ -185,9 +160,9 @@ Disabled features:`;
     prompt += `\n\nOnly include the feature_request block when the user's request clearly requires one of these disabled features.`;
   }
 
-  const personalityInstructions = buildPersonalityInstructions(agent);
-  const behaviorLine = personalityInstructions
-    ? personalityInstructions
+  const styleInstructions = buildStyleInstructions(agent);
+  const behaviorLine = styleInstructions
+    ? styleInstructions
     : "Be concise, professional, and helpful.";
 
   prompt += `\n\n${behaviorLine} You are a remote team member — communicate like a competent colleague, not an AI assistant.`;

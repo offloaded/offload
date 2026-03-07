@@ -66,14 +66,12 @@ User
 | id | uuid PK | |
 | user_id | uuid FK -> auth.users | RLS enforced |
 | name | text | |
+| role | text | Short title (e.g. "EOS Coach") — shown in sidebar |
 | purpose | text | Free-text role description |
 | color | text | Hex color for UI |
 | web_search_enabled | boolean | Enables Tavily search |
-| verbosity | integer 1-5 | Personality trait |
-| initiative | integer 1-5 | Personality trait |
-| reactivity | integer 1-5 | Personality trait |
-| repetition_tolerance | integer 1-5 | Personality trait |
-| warmth | integer 1-5 | Personality trait |
+| working_style | jsonb | Array of style tags: "Proactive", "Analytical", "Collaborative" |
+| communication_style | jsonb | Array of style tags: "Concise", "Professional", "Supportive" |
 | voice_samples | jsonb | Array of writing sample strings |
 | voice_profile | text | LLM-extracted communication style description |
 | soft_skills | jsonb | Array of {skill, confidence, note} objects |
@@ -244,17 +242,22 @@ All tables have Row Level Security (RLS) policies enforcing `auth.uid() = user_i
    - If group destination: trigger `runGroupOrchestration()` for other agents to react
    - Update `next_run_at` (recurring) or disable (one-off)
 
-### Personality System
+### Style System
 **File:** `lib/anthropic.ts`
 
-Five traits (1-5 scale, default 3) map to system prompt instructions:
-- **Verbosity**: response depth (terse to thorough)
-- **Initiative**: re-engagement behavior (quiet after answering to proactively starting threads)
-- **Reactivity**: engagement with others (independent answers to collaborative building)
-- **Repetition tolerance**: topic re-engagement (one contribution to expanding over time)
-- **Warmth**: tone (professional/factual to casual/emoji)
+Selectable style tags replace the old personality slider system. Each tag maps to a system prompt instruction:
 
-Universal rule appended: never repeat a point already made. Only re-engage if @mentioned, asked directly, or have genuinely new information.
+**Working Style** (how the agent approaches problems):
+- **Proactive**: Take initiative, flag issues, suggest next steps, ask clarifying questions
+- **Analytical**: Data-driven, structured thinking, evidence-based reasoning
+- **Collaborative**: Build on others' input, reference colleagues, team-oriented
+
+**Communication Style** (how the agent communicates):
+- **Concise**: Brief, to the point, prioritise clarity over completeness
+- **Professional**: Formal, structured tone, proper terminology
+- **Supportive**: Encouraging, warm, acknowledges effort and progress
+
+Multiple tags can be selected per category. Universal rule appended: never repeat a point already made. Only re-engage if @mentioned, asked directly, or have genuinely new information.
 
 ### Voice Profile
 **Files:** `app/api/agents/voice/route.ts`, `lib/anthropic.ts`

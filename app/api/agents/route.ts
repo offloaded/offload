@@ -35,7 +35,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { name, purpose, color } = body;
+  const { name, role, purpose, color } = body;
 
   if (!name?.trim()) {
     return NextResponse.json({ error: "Name is required" }, { status: 400 });
@@ -46,6 +46,7 @@ export async function POST(request: Request) {
     .insert({
       user_id: user.id,
       name: name.trim(),
+      role: role?.trim() || null,
       purpose: purpose?.trim() || "",
       color: color || "#2C5FF6",
     })
@@ -70,26 +71,22 @@ export async function PUT(request: Request) {
   }
 
   const body = await request.json();
-  const { id, name, purpose, color, web_search_enabled, verbosity, initiative, reactivity, repetition_tolerance, warmth, voice_samples, voice_profile, soft_skills } = body;
+  const { id, name, role, purpose, color, web_search_enabled, working_style, communication_style, voice_samples, voice_profile, soft_skills } = body;
 
   if (!id) {
     return NextResponse.json({ error: "Agent ID required" }, { status: 400 });
   }
 
-  const clampTrait = (v: unknown) => Math.max(1, Math.min(5, Number(v)));
-
   const updates: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
   if (name !== undefined) updates.name = name.trim();
+  if (role !== undefined) updates.role = role?.trim() || null;
   if (purpose !== undefined) updates.purpose = purpose.trim();
   if (color !== undefined) updates.color = color;
   if (web_search_enabled !== undefined) updates.web_search_enabled = web_search_enabled;
-  if (verbosity !== undefined) updates.verbosity = clampTrait(verbosity);
-  if (initiative !== undefined) updates.initiative = clampTrait(initiative);
-  if (reactivity !== undefined) updates.reactivity = clampTrait(reactivity);
-  if (repetition_tolerance !== undefined) updates.repetition_tolerance = clampTrait(repetition_tolerance);
-  if (warmth !== undefined) updates.warmth = clampTrait(warmth);
+  if (working_style !== undefined) updates.working_style = working_style;
+  if (communication_style !== undefined) updates.communication_style = communication_style;
   if (voice_samples !== undefined) updates.voice_samples = voice_samples;
   if (voice_profile !== undefined) updates.voice_profile = voice_profile;
   if (soft_skills !== undefined) updates.soft_skills = soft_skills;

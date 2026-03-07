@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicClient, cleanResponse, buildPersonalityInstructions } from "./anthropic";
+import { getAnthropicClient, cleanResponse, buildStyleInstructions } from "./anthropic";
 import { retrieveContext } from "./rag";
 
 type MessageIntent = "casual" | "knowledge" | "action" | "search";
@@ -244,11 +244,8 @@ function buildGroupAgentSystemPrompt(
   agent: {
     name: string;
     purpose: string;
-    verbosity?: number;
-    initiative?: number;
-    reactivity?: number;
-    repetition_tolerance?: number;
-    warmth?: number;
+    working_style?: string[] | null;
+    communication_style?: string[] | null;
     voice_profile?: string | null;
     soft_skills?: { skill: string; confidence: string; note?: string }[] | null;
   },
@@ -262,7 +259,7 @@ function buildGroupAgentSystemPrompt(
   const otherMembers = teamMemberNames.filter((n) => n !== agent.name);
   const teamList = otherMembers.length > 0 ? otherMembers.join(", ") : "no other members";
 
-  const personalityInstructions = buildPersonalityInstructions(agent);
+  const styleInstructions = buildStyleInstructions(agent);
 
   let prompt = `You are ${agent.name}, a member of a team group chat.
 
@@ -271,7 +268,7 @@ Your role: ${agent.purpose}
 Team members you can address: ${teamList}. Address the user as @You.
 When referencing someone, use @Name (e.g. @${otherMembers[0] ?? "Alice"}, @You). Never use markdown like **replies to Name** or "replies to".
 
-${personalityInstructions ? `${personalityInstructions}\n\n` : "Write a concise, natural response (1-3 sentences) from your perspective.\n"}Do NOT prefix your response with your name or "[${agent.name}]".
+${styleInstructions ? `${styleInstructions}\n\n` : "Write a concise, natural response (1-3 sentences) from your perspective.\n"}Do NOT prefix your response with your name or "[${agent.name}]".
 NEVER wrap any name in square brackets like [SomeName]. NEVER speak as the user or prefix with [You].
 Just write your natural response — the system adds attribution automatically.
 Plain conversational text only — no markdown, no bold, no headers, no bullet lists.
@@ -333,7 +330,7 @@ export type EvalResult = {
 
 export async function evaluateAgents(
   anthropic: Anthropic,
-  agents: { id: string; name: string; purpose: string; initiative?: number }[],
+  agents: { id: string; name: string; purpose: string; working_style?: string[] | null }[],
   recentMessages: string[],
   newMessage: string
 ): Promise<EvalResult[]> {
@@ -343,31 +340,27 @@ export async function evaluateAgents(
 
   return Promise.all(
     agents.map(async (agent): Promise<EvalResult> => {
-      const initiative = agent.initiative ?? 3;
+      const isProactive = agent.working_style?.includes("Proactive") ?? false;
 
       // Check if this agent already spoke in the recent context
       const alreadySpoke = recentMessages.some((m) =>
         m.includes(`[${agent.name}]`) || m.startsWith(`Team: [${agent.name}]`)
       );
 
-      // Initiative only governs RE-ENGAGEMENT (speaking again after already responding).
-      // First-time responses are governed purely by relevance to the agent's role.
-      let initiativeNote = "";
+      let reEngagementNote = "";
       if (alreadySpoke) {
-        initiativeNote = initiative <= 2
-          ? "\nYou have ALREADY responded. INITIATIVE=LOW: set respond=false unless you are directly @mentioned or asked a direct question."
-          : initiative >= 4
-          ? "\nYou have ALREADY responded. INITIATIVE=HIGH: you may respond again if you have genuinely NEW information, a new angle, or a useful follow-up question. Do NOT restate what you already said."
-          : "\nYou have ALREADY responded. INITIATIVE=MEDIUM: only respond again if you have something new to add that wasn't in your previous response.";
+        reEngagementNote = isProactive
+          ? "\nYou have ALREADY responded. As a proactive agent, you may respond again if you have genuinely NEW information, a new angle, or a useful follow-up question. Do NOT restate what you already said."
+          : "\nYou have ALREADY responded. Only respond again if you are directly @mentioned, asked a direct question, or have something genuinely new to add.";
       }
 
-      const evalPrompt = `You are ${agent.name}. Your role: ${agent.purpose.slice(0, 200)}.${initiativeNote}
+      const evalPrompt = `You are ${agent.name}. Your role: ${agent.purpose.slice(0, 200)}.${reEngagementNote}
 
 ${contextText}New message: "${newMessage}"
 
 Should you respond? Consider: Is this relevant to your role? Would your expertise add value?${alreadySpoke ? " Remember you already responded — only say yes if you have something NEW." : " When in doubt, respond — it's better to contribute than stay silent."}`;
 
-      console.log(`[Evaluate] ${agent.name}: alreadySpoke=${alreadySpoke} initiative=${initiative}`);
+      console.log(`[Evaluate] ${agent.name}: alreadySpoke=${alreadySpoke} proactive=${isProactive}`);
 
       try {
         const response = await anthropic.messages.create({
@@ -417,7 +410,7 @@ export async function generateAgentResponse(
   anthropic: Anthropic,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
-  agent: { id: string; name: string; purpose: string; verbosity?: number; initiative?: number; reactivity?: number; repetition_tolerance?: number; warmth?: number; voice_profile?: string | null; soft_skills?: { skill: string; confidence: string; note?: string }[] | null },
+  agent: { id: string; name: string; purpose: string; working_style?: string[] | null; communication_style?: string[] | null; voice_profile?: string | null; soft_skills?: { skill: string; confidence: string; note?: string }[] | null },
   messages: { role: "user" | "assistant"; content: string }[],
   plainMessage: string,
   docsByAgent: Map<string, string[]>,

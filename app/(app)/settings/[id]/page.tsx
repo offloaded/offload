@@ -26,6 +26,18 @@ const PALETTE = [
   "#E11D48",
 ];
 
+const WORKING_STYLES = [
+  { id: "Proactive", description: "Volunteers information, flags issues, asks questions without being asked" },
+  { id: "Analytical", description: "Data-driven, structured thinking, evidence-based reasoning" },
+  { id: "Collaborative", description: "Builds on others' input, references colleagues, team-oriented" },
+];
+
+const COMMUNICATION_STYLES = [
+  { id: "Concise", description: "Brief, to the point, no fluff" },
+  { id: "Professional", description: "Formal tone, structured responses" },
+  { id: "Supportive", description: "Encouraging, warm, acknowledges effort" },
+];
+
 interface UploadItem {
   id: string;
   fileName: string;
@@ -37,22 +49,20 @@ interface UploadItem {
 export default function AgentEditorPage() {
   const params = useParams();
   const router = useRouter();
-  const { agents, refreshAgents, mobile } = useApp();
+  const { agents, refreshAgents } = useApp();
   const isNew = params.id === "new";
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const existing = !isNew ? agents.find((a) => a.id === params.id) : null;
 
   const [name, setName] = useState("");
+  const [role, setRole] = useState("");
   const [purpose, setPurpose] = useState("");
   const [color, setColor] = useState(PALETTE[0]);
   const [docs, setDocs] = useState<Document[]>([]);
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
-  const [verbosity, setVerbosity] = useState(3);
-  const [initiative, setInitiative] = useState(3);
-  const [reactivity, setReactivity] = useState(3);
-  const [repetitionTolerance, setRepetitionTolerance] = useState(3);
-  const [warmth, setWarmth] = useState(3);
+  const [workingStyle, setWorkingStyle] = useState<string[]>([]);
+  const [communicationStyle, setCommunicationStyle] = useState<string[]>([]);
   const [voiceSamples, setVoiceSamples] = useState<string[]>([]);
   const [voiceProfile, setVoiceProfile] = useState("");
   const [voiceProfileEdited, setVoiceProfileEdited] = useState(false);
@@ -66,14 +76,12 @@ export default function AgentEditorPage() {
   useEffect(() => {
     if (existing) {
       setName(existing.name);
+      setRole(existing.role ?? "");
       setPurpose(existing.purpose);
       setColor(existing.color);
       setWebSearchEnabled(existing.web_search_enabled ?? false);
-      setVerbosity(existing.verbosity ?? 3);
-      setInitiative(existing.initiative ?? 3);
-      setReactivity(existing.reactivity ?? 3);
-      setRepetitionTolerance(existing.repetition_tolerance ?? 3);
-      setWarmth(existing.warmth ?? 3);
+      setWorkingStyle(existing.working_style ?? []);
+      setCommunicationStyle(existing.communication_style ?? []);
       setVoiceSamples(existing.voice_samples ?? []);
       setVoiceProfile(existing.voice_profile ?? "");
       setSoftSkills(existing.soft_skills ?? []);
@@ -113,14 +121,12 @@ export default function AgentEditorPage() {
         body: JSON.stringify({
           ...(isNew ? {} : { id: params.id }),
           name: name.trim(),
+          role: role.trim() || null,
           purpose: purpose.trim(),
           color,
           web_search_enabled: webSearchEnabled,
-          verbosity,
-          initiative,
-          reactivity,
-          repetition_tolerance: repetitionTolerance,
-          warmth,
+          working_style: workingStyle.length > 0 ? workingStyle : null,
+          communication_style: communicationStyle.length > 0 ? communicationStyle : null,
           ...(!isNew && (voiceSamples.some((s) => s.trim()) || voiceProfile) ? {
             voice_samples: voiceSamples.filter((s) => s.trim()),
             voice_profile: voiceProfile || null,
@@ -162,6 +168,18 @@ export default function AgentEditorPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const toggleWorkingStyle = (id: string) => {
+    setWorkingStyle((prev) =>
+      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
+    );
+  };
+
+  const toggleCommunicationStyle = (id: string) => {
+    setCommunicationStyle((prev) =>
+      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
+    );
   };
 
   const uploadSingleFile = async (file: File, uploadId: string) => {
@@ -214,7 +232,6 @@ export default function AgentEditorPage() {
 
     setUploads((prev) => [...prev, ...newUploads]);
 
-    // Process up to 3 files concurrently
     const concurrency = 3;
     const queue = [...files.map((file, i) => ({ file, uploadId: newUploads[i].id }))];
 
@@ -297,15 +314,6 @@ export default function AgentEditorPage() {
     setSoftSkills(softSkills.filter((_, i) => i !== index));
   };
 
-  const cycleConfidence = (index: number) => {
-    const order: SoftSkill["confidence"][] = ["low", "medium", "high"];
-    setSoftSkills(softSkills.map((s, i) => {
-      if (i !== index) return s;
-      const next = order[(order.indexOf(s.confidence) + 1) % order.length];
-      return { ...s, confidence: next };
-    }));
-  };
-
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = e.target.files;
     if (fileList && fileList.length > 0) {
@@ -385,7 +393,23 @@ export default function AgentEditorPage() {
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. HR Advisor, Marketing Lead..."
+              placeholder="e.g. Alex, Jordan, Sam..."
+              className="w-full py-3 px-4 border border-[var(--color-border)] rounded-lg text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
+            />
+          </div>
+
+          {/* Role */}
+          <div className="mb-6">
+            <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-1">
+              Role
+            </label>
+            <p className="text-[12px] text-[var(--color-text-tertiary)] mb-2">
+              A short title shown in the sidebar and agent tags.
+            </p>
+            <input
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              placeholder="e.g. EOS Coach, HR Business Partner, Research Analyst..."
               className="w-full py-3 px-4 border border-[var(--color-border)] rounded-lg text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
             />
           </div>
@@ -404,148 +428,192 @@ export default function AgentEditorPage() {
             />
           </div>
 
-          {/* Personality */}
+          {/* Working Style */}
           <div className="mb-7">
-            <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-3">
-              Personality
+            <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-1">
+              Working Style
             </label>
-            <div className="flex flex-col gap-4">
-              <TraitSlider label="Verbosity" lowLabel="Concise" highLabel="Detailed" value={verbosity} onChange={setVerbosity} />
-              <TraitSlider label="Initiative" lowLabel="Reactive" highLabel="Proactive" value={initiative} onChange={setInitiative} />
-              <TraitSlider label="Reactivity" lowLabel="Independent" highLabel="Collaborative" value={reactivity} onChange={setReactivity} />
-              <TraitSlider label="Repetition" lowLabel="Say it once" highLabel="Reinforce" value={repetitionTolerance} onChange={setRepetitionTolerance} />
-              <TraitSlider label="Warmth" lowLabel="Formal" highLabel="Friendly" value={warmth} onChange={setWarmth} />
+            <p className="text-[12px] text-[var(--color-text-tertiary)] mb-3">
+              How this agent approaches problems.
+            </p>
+            <div className="flex flex-wrap gap-2 mb-5">
+              {WORKING_STYLES.map((style) => {
+                const selected = workingStyle.includes(style.id);
+                return (
+                  <button
+                    key={style.id}
+                    onClick={() => toggleWorkingStyle(style.id)}
+                    className="py-2 px-3.5 rounded-lg text-[13px] font-medium border cursor-pointer transition-all"
+                    style={{
+                      background: selected ? "var(--color-accent-soft)" : "transparent",
+                      borderColor: selected ? "var(--color-accent)" : "var(--color-border)",
+                      color: selected ? "var(--color-accent)" : "var(--color-text-secondary)",
+                    }}
+                    title={style.description}
+                  >
+                    {style.id}
+                  </button>
+                );
+              })}
             </div>
+
+            {/* Soft Skills (nested) */}
+            {!isNew && (
+              <div className="pl-0">
+                <label className="block text-[12px] font-semibold text-[var(--color-text-tertiary)] mb-1">
+                  Soft skills
+                </label>
+                <p className="text-[11px] text-[var(--color-text-tertiary)] mb-2.5">
+                  Skills the agent develops through use. You can add them manually or ask the agent to assess its own skills.
+                </p>
+
+                {softSkills.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-2.5">
+                    {softSkills.map((s, i) => {
+                      const opacity = s.confidence === "high" ? 1 : s.confidence === "medium" ? 0.7 : 0.4;
+                      return (
+                        <div
+                          key={i}
+                          className="flex items-center gap-1.5 py-1 px-2.5 rounded-full border border-[var(--color-border)] text-[13px] group"
+                        >
+                          <span
+                            className="w-1.5 h-1.5 rounded-full shrink-0"
+                            style={{ background: "var(--color-accent)", opacity }}
+                            title={`Confidence: ${s.confidence}`}
+                          />
+                          <span className="text-[var(--color-text)]">{s.skill}</span>
+                          <button
+                            onClick={() => removeSoftSkill(i)}
+                            className="bg-transparent border-none cursor-pointer text-[var(--color-text-tertiary)] hover:text-[var(--color-red)] p-0 flex text-[10px] leading-none opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <XIcon />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <input
+                    value={newSkillName}
+                    onChange={(e) => setNewSkillName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSoftSkill(); } }}
+                    placeholder="Add a skill..."
+                    className="flex-1 py-2 px-3 border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
+                  />
+                  <button
+                    onClick={addSoftSkill}
+                    disabled={!newSkillName.trim()}
+                    className="py-2 px-3 border border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[var(--color-accent)] text-[13px] font-medium disabled:opacity-30 hover:bg-[var(--color-hover)] transition-colors"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Tone of Voice */}
-          {!isNew && (
-            <div className="mb-7">
-              <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-1">
-                Tone of Voice
-              </label>
-              <p className="text-[12px] text-[var(--color-text-tertiary)] mb-3">
-                Paste examples of how you communicate — emails, messages, notes — and the agent will learn to match your style.
-              </p>
-
-              {voiceSamples.map((sample, i) => (
-                <div key={i} className="relative mb-2">
-                  <textarea
-                    value={sample}
-                    onChange={(e) => updateVoiceSample(i, e.target.value)}
-                    rows={3}
-                    placeholder={`Sample ${i + 1} — paste an email, message, or note...`}
-                    className="w-full py-3 px-4 pr-9 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-y leading-relaxed focus:border-[var(--color-accent)]"
-                  />
-                  <button
-                    onClick={() => removeVoiceSample(i)}
-                    className="absolute top-2 right-2 bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0.5 flex hover:text-[var(--color-red)]"
-                  >
-                    <XIcon />
-                  </button>
-                </div>
-              ))}
-
-              <div className="flex gap-2 mb-3">
-                {voiceSamples.length < 5 && (
-                  <button
-                    onClick={addVoiceSample}
-                    className="py-2 px-4 flex items-center gap-1.5 border border-dashed border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[var(--color-accent)] text-[13px] font-medium hover:bg-[var(--color-hover)] transition-colors"
-                  >
-                    <PlusIcon /> Add sample
-                  </button>
-                )}
-                {voiceSamples.filter((s) => s.trim()).length > 0 && (
-                  <button
-                    onClick={extractVoice}
-                    disabled={extractingVoice}
-                    className="py-2 px-4 border border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[13px] font-medium disabled:opacity-50 hover:bg-[var(--color-hover)] transition-colors"
-                    style={{ color: "var(--color-accent)" }}
-                  >
-                    {extractingVoice ? "Analysing..." : voiceProfile ? "Re-analyse" : "Analyse style"}
-                  </button>
-                )}
-              </div>
-
-              {voiceProfile && (
-                <div>
-                  <label className="block text-[12px] font-medium text-[var(--color-text-tertiary)] mb-1.5">
-                    Voice profile {voiceProfileEdited && <span className="text-[var(--color-accent)]">(edited)</span>}
-                  </label>
-                  <textarea
-                    value={voiceProfile}
-                    onChange={(e) => { setVoiceProfile(e.target.value); setVoiceProfileEdited(true); }}
-                    rows={3}
-                    className="w-full py-3 px-4 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-y leading-relaxed focus:border-[var(--color-accent)]"
-                  />
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Soft Skills */}
-          {!isNew && (
-            <div className="mb-7">
-              <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-1">
-                Soft Skills
-              </label>
-              <p className="text-[12px] text-[var(--color-text-tertiary)] mb-3">
-                Skills this agent leans into when responding. Add them here or ask the agent &quot;what are your soft skills?&quot; in chat.
-              </p>
-
-              {softSkills.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-3">
-                  {softSkills.map((s, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center gap-1 py-1 px-2.5 rounded-full border border-[var(--color-border)] text-[13px]"
-                    >
-                      <span className="text-[var(--color-text)]">{s.skill}</span>
-                      <button
-                        onClick={() => cycleConfidence(i)}
-                        className="bg-transparent border-none cursor-pointer text-[11px] font-medium px-1 rounded"
-                        style={{
-                          color: s.confidence === "high" ? "var(--color-green)" : s.confidence === "medium" ? "var(--color-accent)" : "var(--color-text-tertiary)",
-                        }}
-                        title={`Confidence: ${s.confidence} (click to cycle)`}
-                      >
-                        {s.confidence}
-                      </button>
-                      <button
-                        onClick={() => removeSoftSkill(i)}
-                        className="bg-transparent border-none cursor-pointer text-[var(--color-text-tertiary)] hover:text-[var(--color-red)] p-0 flex text-[10px] leading-none"
-                      >
-                        <XIcon />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="flex gap-2">
-                <input
-                  value={newSkillName}
-                  onChange={(e) => setNewSkillName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSoftSkill(); } }}
-                  placeholder="Add a skill..."
-                  className="flex-1 py-2 px-3 border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
-                />
-                <button
-                  onClick={addSoftSkill}
-                  disabled={!newSkillName.trim()}
-                  className="py-2 px-3 border border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[var(--color-accent)] text-[13px] font-medium disabled:opacity-30 hover:bg-[var(--color-hover)] transition-colors"
-                >
-                  Add
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Documents */}
+          {/* Communication Style */}
           <div className="mb-7">
-            <div className="flex items-baseline justify-between mb-2.5">
+            <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-1">
+              Communication Style
+            </label>
+            <p className="text-[12px] text-[var(--color-text-tertiary)] mb-3">
+              How this agent communicates.
+            </p>
+            <div className="flex flex-wrap gap-2 mb-5">
+              {COMMUNICATION_STYLES.map((style) => {
+                const selected = communicationStyle.includes(style.id);
+                return (
+                  <button
+                    key={style.id}
+                    onClick={() => toggleCommunicationStyle(style.id)}
+                    className="py-2 px-3.5 rounded-lg text-[13px] font-medium border cursor-pointer transition-all"
+                    style={{
+                      background: selected ? "var(--color-accent-soft)" : "transparent",
+                      borderColor: selected ? "var(--color-accent)" : "var(--color-border)",
+                      color: selected ? "var(--color-accent)" : "var(--color-text-secondary)",
+                    }}
+                    title={style.description}
+                  >
+                    {style.id}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Tone of Voice (nested) */}
+            {!isNew && (
+              <div className="pl-0">
+                <label className="block text-[12px] font-semibold text-[var(--color-text-tertiary)] mb-1">
+                  Voice samples <span className="font-normal">(optional)</span>
+                </label>
+                <p className="text-[11px] text-[var(--color-text-tertiary)] mb-2.5">
+                  Paste examples of how you communicate and the agent will match your style.
+                </p>
+
+                {voiceSamples.map((sample, i) => (
+                  <div key={i} className="relative mb-2">
+                    <textarea
+                      value={sample}
+                      onChange={(e) => updateVoiceSample(i, e.target.value)}
+                      rows={3}
+                      placeholder={`Sample ${i + 1} — paste an email, message, or note...`}
+                      className="w-full py-3 px-4 pr-9 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-y leading-relaxed focus:border-[var(--color-accent)]"
+                    />
+                    <button
+                      onClick={() => removeVoiceSample(i)}
+                      className="absolute top-2 right-2 bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0.5 flex hover:text-[var(--color-red)]"
+                    >
+                      <XIcon />
+                    </button>
+                  </div>
+                ))}
+
+                <div className="flex gap-2 mb-3">
+                  {voiceSamples.length < 5 && (
+                    <button
+                      onClick={addVoiceSample}
+                      className="py-2 px-4 flex items-center gap-1.5 border border-dashed border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[var(--color-accent)] text-[13px] font-medium hover:bg-[var(--color-hover)] transition-colors"
+                    >
+                      <PlusIcon /> Add sample
+                    </button>
+                  )}
+                  {voiceSamples.filter((s) => s.trim()).length > 0 && (
+                    <button
+                      onClick={extractVoice}
+                      disabled={extractingVoice}
+                      className="py-2 px-4 border border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[13px] font-medium disabled:opacity-50 hover:bg-[var(--color-hover)] transition-colors"
+                      style={{ color: "var(--color-accent)" }}
+                    >
+                      {extractingVoice ? "Analysing..." : voiceProfile ? "Re-analyse" : "Analyse style"}
+                    </button>
+                  )}
+                </div>
+
+                {voiceProfile && (
+                  <div>
+                    <label className="block text-[12px] font-medium text-[var(--color-text-tertiary)] mb-1.5">
+                      Voice profile {voiceProfileEdited && <span className="text-[var(--color-accent)]">(edited)</span>}
+                    </label>
+                    <textarea
+                      value={voiceProfile}
+                      onChange={(e) => { setVoiceProfile(e.target.value); setVoiceProfileEdited(true); }}
+                      rows={3}
+                      className="w-full py-3 px-4 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-y leading-relaxed focus:border-[var(--color-accent)]"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Knowledge (Documents) */}
+          <div className="mb-7">
+            <div className="flex items-baseline justify-between mb-1">
               <label className="text-[13px] font-semibold text-[var(--color-text-secondary)]">
-                Documents
+                Knowledge
               </label>
               {docs.length > 0 && (
                 <span className="text-[12px] text-[var(--color-text-tertiary)]">
@@ -553,6 +621,9 @@ export default function AgentEditorPage() {
                 </span>
               )}
             </div>
+            <p className="text-[12px] text-[var(--color-text-tertiary)] mb-2.5">
+              Upload documents the agent can reference when responding.
+            </p>
 
             {/* Grid of document tiles */}
             {(uploads.length > 0 || docs.length > 0) && (
@@ -731,45 +802,6 @@ export default function AgentEditorPage() {
             )}
           </div>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function TraitSlider({
-  label,
-  lowLabel,
-  highLabel,
-  value,
-  onChange,
-}: {
-  label: string;
-  lowLabel: string;
-  highLabel: string;
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1.5">
-        <span className="text-[13px] text-[var(--color-text)]">{label}</span>
-        <span className="text-[12px] text-[var(--color-text-tertiary)] tabular-nums w-4 text-right">{value}</span>
-      </div>
-      <div className="flex items-center gap-2.5">
-        <span className="text-[11px] text-[var(--color-text-tertiary)] w-20 text-right shrink-0">{lowLabel}</span>
-        <input
-          type="range"
-          min={1}
-          max={5}
-          step={1}
-          value={value}
-          onChange={(e) => onChange(Number(e.target.value))}
-          className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
-          style={{
-            background: `linear-gradient(to right, var(--color-accent) 0%, var(--color-accent) ${(value - 1) * 25}%, var(--color-border) ${(value - 1) * 25}%, var(--color-border) 100%)`,
-          }}
-        />
-        <span className="text-[11px] text-[var(--color-text-tertiary)] w-20 shrink-0">{highLabel}</span>
       </div>
     </div>
   );

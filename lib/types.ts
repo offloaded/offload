@@ -2,15 +2,14 @@ export interface Agent {
   id: string;
   user_id: string;
   name: string;
+  role: string | null;
   purpose: string;
   color: string;
   web_search_enabled: boolean;
-  // Personality traits (1–5, default 3)
-  verbosity: number;
-  initiative: number;
-  reactivity: number;
-  repetition_tolerance: number;
-  warmth: number;
+  // Working style tags
+  working_style: string[] | null;
+  // Communication style tags
+  communication_style: string[] | null;
   // Tone of voice
   voice_samples: string[] | null;
   voice_profile: string | null;
