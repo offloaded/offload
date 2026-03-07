@@ -168,14 +168,63 @@ export async function POST(request: Request) {
       const send = (data: Record<string, unknown>) =>
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
 
+      // Delays (ms) before each agent starts generating, by urgency.
+      // Generation runs concurrently with the delay so the user sees the
+      // typing indicator immediately, and the response appears once both
+      // the minimum wait AND generation complete.
+      const DELAY_RANGES: Record<string, [number, number]> = {
+        high:   [1000,  3000],
+        medium: [3000,  8000],
+        low:    [8000, 14000],
+      };
+
+      const teamMemberNames = agents.map((a) => a.name);
+      const scheduleInstructions = intent === "action" ? buildScheduleInstructions() : undefined;
+
       try {
         send({ type: "conversation_id", conversation_id: convId });
 
-        let combined = "";
+        // Ordered list of agent responses accumulated for DB save and prior-context
+        const allResponses: string[] = [];
+        let schedulePayload: Record<string, unknown> | null = null;
 
-        // ── CASUAL SHORTCUT ────────────────────────────────────────────────
-        // For clearly casual messages with no @mentions: skip evaluate phase,
-        // pick 1-2 agents by relevance, use Haiku, no RAG.
+        // ── Helper: run one agent sequentially ─────────────────────────
+        const runAgent = async (
+          agent: typeof agents[0],
+          urgency: "high" | "medium" | "low",
+          weight: "full" | "brief",
+          priorResponses: string
+        ) => {
+          const [minD, maxD] = DELAY_RANGES[urgency];
+          const targetDelay = minD + Math.floor(Math.random() * (maxD - minD));
+
+          send({ type: "agent_typing", agent_id: agent.id, agent_name: agent.name, agent_color: agent.color });
+
+          // Generate response and enforce minimum delay simultaneously
+          const [rawText] = await Promise.all([
+            generateAgentResponse(
+              anthropic, supabase, agent, messages, message.trim(),
+              docsByAgent, teamMemberNames, scheduleInstructions, priorResponses, weight
+            ),
+            new Promise<void>((r) => setTimeout(r, targetDelay)),
+          ]);
+
+          const text = cleanResponse(rawText.replace(/YOUR_AGENT_ID/g, agent.id));
+
+          // Capture schedule block from raw text before cleaning
+          if (!schedulePayload) {
+            const m = rawText.match(/```schedule_request\s*\n([\s\S]*?)\n```/);
+            if (m) {
+              try { schedulePayload = JSON.parse(m[1]); } catch { /* ignore */ }
+            }
+          }
+
+          send({ type: "agent_text", agent_id: agent.id, agent_name: agent.name, agent_color: agent.color, text });
+          allResponses.push(`[${agent.name}] ${text}`);
+          console.log(`${LOG} ${agent.name} (${urgency}/${weight}): ${text.slice(0, 80)}`);
+        };
+
+        // ── CASUAL SHORTCUT ────────────────────────────────────────────
         if (effectiveIntent === "casual" && allMentionedIds.length === 0) {
           console.log(`${LOG} Casual shortcut`);
 
@@ -184,32 +233,31 @@ export async function POST(request: Request) {
             .sort((a, b) => b.score - a.score);
           const casualAgents = scored.slice(0, Math.min(2, scored.length)).map((s) => s.agent);
 
-          const casualResponses = await Promise.all(
-            casualAgents.map(async (agent) => {
-              const systemPrompt = `You are ${agent.name}, a member of a team group chat.\nYour role: ${agent.purpose}\n\nWrite a brief, natural response (1-2 sentences). Plain text only, no markdown. Do NOT start with your name.`;
-              const response = await anthropic.messages.create({
+          let priorResponses = "";
+          for (let i = 0; i < casualAgents.length; i++) {
+            const agent = casualAgents[i];
+            const delay = i === 0 ? 500 + Math.random() * 1000 : 1000 + Math.random() * 1500;
+            send({ type: "agent_typing", agent_id: agent.id, agent_name: agent.name, agent_color: agent.color });
+            const systemPrompt = `You are ${agent.name}, a member of a team group chat.\nYour role: ${agent.purpose}\n\nWrite a brief, natural response (1-2 sentences). Plain text only, no markdown. Do NOT start with your name.${priorResponses ? `\n\nColleagues already said:\n${priorResponses}\nDon't repeat them.` : ""}`;
+            const [response] = await Promise.all([
+              anthropic.messages.create({
                 model: "claude-haiku-4-5-20251001",
                 max_tokens: 150,
                 system: systemPrompt,
                 messages,
-              });
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const text = response.content
-                .filter((b: any) => b.type === "text")
-                .map((b: any) => b.text as string)
-                .join("")
-                .trim();
-              return `[${agent.name}] ${cleanResponse(text)}`;
-            })
-          );
+              }),
+              new Promise<void>((r) => setTimeout(r, delay)),
+            ]);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const text = cleanResponse(response.content.filter((b: any) => b.type === "text").map((b: any) => b.text as string).join("").trim());
+            send({ type: "agent_text", agent_id: agent.id, agent_name: agent.name, agent_color: agent.color, text });
+            allResponses.push(`[${agent.name}] ${text}`);
+            priorResponses += `[${agent.name}]: ${text}\n`;
+          }
+          console.log(`${LOG} Casual: ${casualAgents.length} agent(s)`);
 
-          combined = casualResponses.filter((r) => r.trim()).join("\n");
-          console.log(`${LOG} Casual: ${casualAgents.length} agent(s) → ${combined.length} chars`);
         } else {
-          // ── EVALUATE PHASE ───────────────────────────────────────────────
-          // Parallel cheap Haiku calls to decide who should respond.
-          // @mentioned agents bypass evaluation and always respond.
-
+          // ── EVALUATE PHASE (parallel) ──────────────────────────────────
           const recentForEval = messages.slice(-4).map(
             (m) => `${m.role === "user" ? "User" : "Team"}: ${m.content.slice(0, 150)}`
           );
@@ -217,36 +265,33 @@ export async function POST(request: Request) {
           let evalResults: Awaited<ReturnType<typeof evaluateAgents>> = [];
 
           if (isTeamWide) {
-            // All agents respond — skip eval
             evalResults = nonMentionedAgents.map((a) => ({
-              agentId: a.id,
-              respond: true,
-              reason: "team-wide message",
+              agentId: a.id, respond: true, urgency: "medium" as const, weight: "full" as const, reason: "team-wide",
             }));
             console.log(`${LOG} Team-wide: all ${agents.length} agents respond`);
           } else if (nonMentionedAgents.length > 0) {
             console.log(`${LOG} Evaluating ${nonMentionedAgents.length} agent(s)...`);
-            evalResults = await evaluateAgents(
-              anthropic,
-              nonMentionedAgents,
-              recentForEval,
-              message.trim()
-            );
+            evalResults = await evaluateAgents(anthropic, nonMentionedAgents, recentForEval, message.trim());
             for (const r of evalResults) {
               const name = agents.find((a) => a.id === r.agentId)?.name ?? r.agentId;
-              console.log(`${LOG}   ${name} → ${r.respond ? "YES" : "NO"} (${r.reason})`);
+              console.log(`${LOG}   ${name} → ${r.respond ? "YES" : "NO"} urgency=${r.urgency} weight=${r.weight} (${r.reason})`);
             }
           }
 
-          // ── RESPOND PHASE ─────────────────────────────────────────────
-          // Mentioned agents always respond; self-selected agents also respond.
-          // Run full pipeline (RAG + individual system prompt) in parallel.
+          // Build ordered list: @mentioned (high urgency) first, then eval results sorted by urgency
+          const urgencyOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
+          const getUrgency = (id: string): "high" | "medium" | "low" =>
+            allMentionedIds.includes(id) ? "high" : (evalResults.find((r) => r.agentId === id)?.urgency ?? "medium");
+          const getWeight = (id: string): "full" | "brief" =>
+            allMentionedIds.includes(id) ? "full" : (evalResults.find((r) => r.agentId === id)?.weight ?? "full");
 
           const respondingIds = new Set<string>([
             ...mentionedAgents.map((a) => a.id),
             ...evalResults.filter((r) => r.respond).map((r) => r.agentId),
           ]);
-          const respondingAgents = agents.filter((a) => respondingIds.has(a.id));
+          const respondingAgents = agents
+            .filter((a) => respondingIds.has(a.id))
+            .sort((a, b) => urgencyOrder[getUrgency(a.id)] - urgencyOrder[getUrgency(b.id)]);
 
           console.log(`${LOG} Responding: [${respondingAgents.map((a) => a.name).join(", ") || "none"}]`);
 
@@ -256,72 +301,38 @@ export async function POST(request: Request) {
             return;
           }
 
-          const scheduleInstructions = intent === "action" ? buildScheduleInstructions() : undefined;
-
-          const teamMemberNames = agents.map((a) => a.name);
-          const agentResponses = await Promise.all(
-            respondingAgents.map(async (agent) => {
-              const text = await generateAgentResponse(
-                anthropic,
-                supabase,
-                agent,
-                messages,
-                message.trim(),
-                docsByAgent,
-                teamMemberNames,
-                scheduleInstructions
-              );
-              // Replace placeholder agent_id with real id in any schedule_request block
-              return `[${agent.name}] ${text.replace(/YOUR_AGENT_ID/g, agent.id)}`;
-            })
-          );
-
-          combined = agentResponses.filter((r) => r.trim()).join("\n");
-          console.log(`${LOG} Respond phase: ${respondingAgents.length} agent(s) → ${combined.length} chars`);
+          // ── RESPOND PHASE (sequential) ─────────────────────────────────
+          let priorResponses = "";
+          for (const agent of respondingAgents) {
+            await runAgent(agent, getUrgency(agent.id), getWeight(agent.id), priorResponses);
+            priorResponses += `[${agent.name}]: ${allResponses[allResponses.length - 1].replace(/^\[[^\]]+\] /, "")}\n`;
+          }
         }
 
-        if (!combined) {
+        if (allResponses.length === 0) {
           send({ type: "done" });
           controller.close();
           return;
         }
 
-        // Detect schedule_request block before stripping (for action intent)
-        const scheduleMatch = combined.match(/```schedule_request\s*\n([\s\S]*?)\n```/);
-
-        // Clean the combined response
-        const cleaned = cleanResponse(combined);
-        console.log(`${LOG} Cleaned: ${cleaned.length} chars`);
-
-        // Stream the assembled response
-        send({ type: "text", text: cleaned });
-
-        // Save to DB
+        // Save combined to DB
+        const combined = allResponses.join("\n");
         const { error: saveMsgError } = await supabase.from("messages").insert({
           conversation_id: convId,
           role: "assistant",
-          content: cleaned,
+          content: combined,
         });
         if (saveMsgError) {
-          console.log(`${LOG} ✗ Failed to save assistant message:`, saveMsgError);
+          console.log(`${LOG} ✗ Failed to save to DB:`, saveMsgError);
         } else {
-          console.log(`${LOG} ✓ Saved to DB`);
+          console.log(`${LOG} ✓ Saved ${allResponses.length} response(s) to DB`);
         }
+        await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
 
-        // If cleaning modified the text, send a replace event so the client shows the clean version
-        if (cleaned !== combined) {
-          send({ type: "replace", text: cleaned });
-        }
-
-        // Forward schedule_request if detected
-        if (scheduleMatch) {
-          try {
-            const schedule = JSON.parse(scheduleMatch[1]);
-            console.log(`${LOG} Schedule request: ${JSON.stringify(schedule)}`);
-            send({ type: "schedule_request", ...schedule });
-          } catch {
-            console.log(`${LOG} ⚠ Failed to parse schedule_request JSON`);
-          }
+        // Forward schedule_request if any agent included one
+        if (schedulePayload) {
+          console.log(`${LOG} Schedule request: ${JSON.stringify(schedulePayload)}`);
+          send({ type: "schedule_request", ...(schedulePayload as Record<string, unknown>) });
         }
 
         send({ type: "done" });

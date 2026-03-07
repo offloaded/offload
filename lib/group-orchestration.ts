@@ -213,7 +213,9 @@ function buildGroupAgentSystemPrompt(
   context: ContextChunk[],
   teamMemberNames: string[],
   docNames?: string[],
-  scheduleInstructions?: string
+  scheduleInstructions?: string,
+  priorResponses?: string,
+  weight?: "full" | "brief"
 ): string {
   const otherMembers = teamMemberNames.filter((n) => n !== agent.name);
   const teamList = otherMembers.length > 0 ? otherMembers.join(", ") : "no other members";
@@ -246,6 +248,14 @@ CRITICAL: If you are asked a question, answer it directly from your own perspect
     prompt += `\n\nReference relevant information from your knowledge base when applicable.`;
   }
 
+  if (priorResponses) {
+    prompt += `\n\nYour colleagues have already said:\n${priorResponses}\nDon't repeat what's been covered. If they answered well, a brief acknowledgement is fine. Focus on what only you can uniquely add from your role.`;
+  }
+
+  if (weight === "brief") {
+    prompt += `\n\nKeep your response to 1 short sentence only — brief acknowledgement or small addition.`;
+  }
+
   if (scheduleInstructions) {
     prompt += `\n\n${scheduleInstructions}`;
   }
@@ -258,6 +268,8 @@ CRITICAL: If you are asked a question, answer it directly from your own perspect
 export type EvalResult = {
   agentId: string;
   respond: boolean;
+  urgency: "high" | "medium" | "low";
+  weight: "full" | "brief";
   reason: string;
 };
 
@@ -276,15 +288,18 @@ export async function evaluateAgents(
       try {
         const response = await anthropic.messages.create({
           model: "claude-haiku-4-5-20251001",
-          max_tokens: 100,
-          system: `You are a relevance classifier. Reply with JSON only: {"respond": true/false, "reason": "brief reason"}`,
+          max_tokens: 120,
+          system: `You are a relevance classifier for a group chat. Reply with JSON only, no extra text:
+{"respond": true/false, "urgency": "high|medium|low", "weight": "full|brief", "reason": "brief reason"}
+urgency: high=core to their expertise/critical to answer, medium=useful contribution, low=tangential
+weight: full=substantive response needed, brief=1 sentence acknowledgment only`,
           messages: [{
             role: "user",
             content: `You are ${agent.name}. Your role: ${agent.purpose.slice(0, 200)}.
 
 ${contextText}New message: "${newMessage}"
 
-Should you respond based on your role and expertise? If the message asks for your perspective or input, respond true.`,
+Should you respond? How urgently, and how much?`,
           }],
         });
 
@@ -292,16 +307,20 @@ Should you respond based on your role and expertise? If the message asks for you
         const jsonMatch = text.match(/\{[\s\S]*?\}/);
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
+          const urgency = (["high", "medium", "low"].includes(parsed.urgency) ? parsed.urgency : "medium") as "high" | "medium" | "low";
+          const weight = (parsed.weight === "brief" ? "brief" : "full") as "full" | "brief";
           return {
             agentId: agent.id,
             respond: Boolean(parsed.respond),
+            urgency,
+            weight,
             reason: String(parsed.reason || ""),
           };
         }
       } catch (err) {
         console.error(`[Evaluate] ${agent.name}:`, err);
       }
-      return { agentId: agent.id, respond: false, reason: "evaluation error" };
+      return { agentId: agent.id, respond: false, urgency: "low", weight: "full", reason: "evaluation error" };
     })
   );
 }
@@ -317,7 +336,9 @@ export async function generateAgentResponse(
   plainMessage: string,
   docsByAgent: Map<string, string[]>,
   teamMemberNames: string[],
-  scheduleInstructions?: string
+  scheduleInstructions?: string,
+  priorResponses?: string,
+  weight?: "full" | "brief"
 ): Promise<string> {
   let context: ContextChunk[] = [];
   if (docsByAgent.has(agent.id)) {
@@ -331,7 +352,9 @@ export async function generateAgentResponse(
     context,
     teamMemberNames,
     docsByAgent.get(agent.id),
-    scheduleInstructions
+    scheduleInstructions,
+    priorResponses,
+    weight
   );
 
   const response = await anthropic.messages.create({
@@ -543,7 +566,7 @@ export async function runGroupOrchestration(
     if (nonMentionedAgents.length > 0) {
       if (isTeamWide) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        evalResults = nonMentionedAgents.map((a: any) => ({ agentId: a.id, respond: true, reason: "team-wide message" }));
+        evalResults = nonMentionedAgents.map((a: any) => ({ agentId: a.id, respond: true, urgency: "medium" as const, weight: "full" as const, reason: "team-wide message" }));
         console.log(`${LOG} Team-wide: all ${agents.length} agents respond`);
       } else {
         evalResults = await evaluateAgents(anthropic, nonMentionedAgents, recentForEval, plainText);

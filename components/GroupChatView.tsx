@@ -240,14 +240,16 @@ const GroupMessageList = memo(function GroupMessageList({
   loading,
   loadingMore,
   streaming,
-  streamText,
+  typingAgentName,
+  typingAgentColor,
 }: {
   messages: ChatMessage[];
   agents: Agent[];
   loading: boolean;
   loadingMore: boolean;
   streaming: boolean;
-  streamText: string;
+  typingAgentName: string | null;
+  typingAgentColor: string | null;
 }) {
   const renderMessage = (msg: ChatMessage, idx: number) => {
     if (msg.role === "user") {
@@ -286,43 +288,44 @@ const GroupMessageList = memo(function GroupMessageList({
     );
   };
 
-  const renderStreamingBubbles = () => {
-    if (!streamText) {
+  const renderTypingIndicator = () => {
+    const name = typingAgentName;
+    const color = typingAgentColor ?? "var(--color-text-tertiary)";
+    if (name) {
+      // Named per-agent typing indicator
       return (
         <div className="px-4 py-2 md:px-6">
-          <div className="flex items-center gap-1 pt-2.5">
-            {[0, 1, 2].map((d) => (
-              <div
-                key={d}
-                className="w-[6px] h-[6px] rounded-full bg-[var(--color-text-tertiary)]"
-                style={{
-                  animation: `typing-dot 1.2s ease-in-out ${d * 0.15}s infinite`,
-                }}
-              />
-            ))}
+          <div className="flex max-w-[720px] gap-2.5 md:gap-3">
+            <Avatar name={name} color={color} size={36} />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline gap-2 mb-0.5">
+                <span className="text-[15px] font-semibold" style={{ color }}>{name}</span>
+              </div>
+              <div className="flex items-center gap-1 pt-1">
+                {[0, 1, 2].map((d) => (
+                  <div
+                    key={d}
+                    className="w-[6px] h-[6px] rounded-full"
+                    style={{ background: color, animation: `typing-dot 1.2s ease-in-out ${d * 0.15}s infinite` }}
+                  />
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       );
     }
-
-    const parsed = parseGroupResponse(streamText, agents);
-    if (parsed.length > 0) {
-      return parsed.map((p, j) => (
-        <AgentMessage
-          key={`stream-${j}`}
-          agent={p.agent}
-          text={p.text}
-          time={formatTime(new Date().toISOString())}
-          agents={agents}
-        />
-      ));
-    }
-
+    // Generic dots while waiting for first agent_typing event
     return (
       <div className="px-4 py-2 md:px-6">
-        <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words max-w-[720px]">
-          {streamText}
-          <span className="inline-block w-0.5 h-4 bg-[var(--color-text-tertiary)] ml-0.5 align-middle animate-[typing-dot_1s_steps(2)_infinite]" />
+        <div className="flex items-center gap-1 pt-2.5">
+          {[0, 1, 2].map((d) => (
+            <div
+              key={d}
+              className="w-[6px] h-[6px] rounded-full bg-[var(--color-text-tertiary)]"
+              style={{ animation: `typing-dot 1.2s ease-in-out ${d * 0.15}s infinite` }}
+            />
+          ))}
         </div>
       </div>
     );
@@ -361,7 +364,7 @@ const GroupMessageList = memo(function GroupMessageList({
 
       {messages.map((m, i) => renderMessage(m, i))}
 
-      {streaming && renderStreamingBubbles()}
+      {streaming && renderTypingIndicator()}
     </>
   );
 });
@@ -553,9 +556,14 @@ export function GroupChatView({
   }
   const cached = getCached(CHAT_ID);
 
-  const [messages, setMessages] = useState<ChatMessage[]>(cached?.messages || []);
+  const [messages, setMessages] = useState<ChatMessage[]>(
+    inflight.streaming && inflight.streamMessages.length > 0
+      ? [...(cached?.messages || []), ...inflight.streamMessages]
+      : (cached?.messages || [])
+  );
   const [streaming, setStreaming] = useState(inflight.streaming);
-  const [streamText, setStreamText] = useState(inflight.streamText);
+  const [typingAgentName, setTypingAgentName] = useState<string | null>(inflight.typingAgentName);
+  const [typingAgentColor, setTypingAgentColor] = useState<string | null>(inflight.typingAgentColor);
   const [conversationId, setConversationId] = useState<string | null>(
     inflight.conversationId || (cached?.conversationId ?? initialConversationId ?? null)
   );
@@ -581,7 +589,8 @@ export function GroupChatView({
   useEffect(() => {
     return subscribe(CHAT_ID, (state) => {
       setStreaming(state.streaming);
-      setStreamText(state.streamText);
+      setTypingAgentName(state.typingAgentName ?? null);
+      setTypingAgentColor(state.typingAgentColor ?? null);
       if (state.conversationId) {
         setConversationId(state.conversationId);
       }
@@ -589,10 +598,14 @@ export function GroupChatView({
         setScheduleRequest(state.scheduleRequest);
       }
       const c = getCached(CHAT_ID);
-      if (c) {
-        setMessages(c.messages);
+      const cached = c?.messages ?? [];
+      // During streaming, merge committed cache messages with in-progress stream messages
+      if (state.streaming && state.streamMessages.length > 0) {
+        setMessages([...cached, ...state.streamMessages]);
+      } else {
+        setMessages(cached);
       }
-      // Mark read when streaming finishes so new message doesn't count as unread
+      // Mark read when streaming finishes so new messages don't count as unread
       if (!state.streaming && conversationIdRef.current) {
         markRead(conversationIdRef.current);
       }
@@ -651,7 +664,7 @@ export function GroupChatView({
     } else {
       endRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, streamText]);
+  }, [messages, streaming]);
 
   // Poll for new messages every 12 seconds (catches scheduled task responses)
   useEffect(() => {
@@ -844,7 +857,8 @@ export function GroupChatView({
           loading={loading}
           loadingMore={loadingMore}
           streaming={streaming}
-          streamText={streamText}
+          typingAgentName={typingAgentName}
+          typingAgentColor={typingAgentColor}
         />
 
         {/* Schedule request banner */}
