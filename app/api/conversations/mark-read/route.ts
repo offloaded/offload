@@ -1,4 +1,4 @@
-import { createServerSupabase } from "@/lib/supabase-server";
+import { createServerSupabase, createServiceSupabase } from "@/lib/supabase-server";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
@@ -20,7 +20,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const { error } = await supabase
+  // Use service role to bypass RLS for the update
+  const service = createServiceSupabase();
+  const { error } = await service
     .from("conversations")
     .update({ last_read_at: new Date().toISOString() })
     .eq("id", conversation_id)
