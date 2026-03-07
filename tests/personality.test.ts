@@ -1,72 +1,87 @@
 import { describe, it, expect } from "vitest";
-import { buildPersonalityInstructions, buildSystemPrompt } from "@/lib/anthropic";
+import { buildStyleInstructions, buildSystemPrompt } from "@/lib/anthropic";
 
-describe("buildPersonalityInstructions", () => {
-  it("returns empty-ish output for default traits (3)", () => {
-    const result = buildPersonalityInstructions({
-      verbosity: 3,
-      initiative: 3,
-      reactivity: 3,
-      repetition_tolerance: 3,
-      warmth: 3,
-    });
-    // Level 3 has no specific instructions, only the universal re-engagement rule
+describe("buildStyleInstructions", () => {
+  it("returns only re-engagement rule when no styles selected", () => {
+    const result = buildStyleInstructions({});
     expect(result).toContain("CRITICAL: Never repeat a point");
-    // Should NOT contain instructions for levels 1,2,4,5
-    expect(result).not.toContain("Short, direct");
-    expect(result).not.toContain("Be thorough");
+    expect(result).not.toContain("Take initiative");
+    expect(result).not.toContain("data-driven");
+    expect(result).not.toContain("brief");
   });
 
-  it("includes verbose instructions for high verbosity", () => {
-    const result = buildPersonalityInstructions({ verbosity: 5 });
-    expect(result).toContain("detailed");
-    expect(result).toContain("comprehensive");
+  it("includes Proactive instructions when selected", () => {
+    const result = buildStyleInstructions({ working_style: ["Proactive"] });
+    expect(result).toContain("Take initiative");
+    expect(result).toContain("Flag potential issues");
   });
 
-  it("includes terse instructions for low verbosity", () => {
-    const result = buildPersonalityInstructions({ verbosity: 1 });
-    expect(result).toContain("Short, direct");
+  it("includes Analytical instructions when selected", () => {
+    const result = buildStyleInstructions({ working_style: ["Analytical"] });
+    expect(result).toContain("data-driven");
+    expect(result).toContain("evidence-based");
   });
 
-  it("includes warmth instructions", () => {
-    const warm = buildPersonalityInstructions({ warmth: 5 });
-    expect(warm).toContain("casual");
-    expect(warm).toContain("emoji");
-
-    const cold = buildPersonalityInstructions({ warmth: 1 });
-    expect(cold).toContain("professional");
-    expect(cold).toContain("No small talk");
+  it("includes Collaborative instructions when selected", () => {
+    const result = buildStyleInstructions({ working_style: ["Collaborative"] });
+    expect(result).toContain("Build on what others say");
+    expect(result).toContain("colleagues");
   });
 
-  it("includes initiative instructions", () => {
-    const high = buildPersonalityInstructions({ initiative: 5 });
-    expect(high).toContain("proactive");
-
-    const low = buildPersonalityInstructions({ initiative: 1 });
-    expect(low).toContain("stay quiet");
+  it("includes Concise instructions when selected", () => {
+    const result = buildStyleInstructions({ communication_style: ["Concise"] });
+    expect(result).toContain("brief");
+    expect(result).toContain("to the point");
   });
 
-  it("includes reactivity instructions", () => {
-    const high = buildPersonalityInstructions({ reactivity: 5 });
-    expect(high).toContain("collaborate");
-
-    const low = buildPersonalityInstructions({ reactivity: 1 });
-    expect(low).toContain("independent");
+  it("includes Professional instructions when selected", () => {
+    const result = buildStyleInstructions({ communication_style: ["Professional"] });
+    expect(result).toContain("formal");
+    expect(result).toContain("terminology");
   });
 
-  it("includes repetition tolerance instructions", () => {
-    const high = buildPersonalityInstructions({ repetition_tolerance: 5 });
-    expect(high).toContain("Re-engage");
+  it("includes Supportive instructions when selected", () => {
+    const result = buildStyleInstructions({ communication_style: ["Supportive"] });
+    expect(result).toContain("encouraging");
+    expect(result).toContain("warm");
+  });
 
-    const low = buildPersonalityInstructions({ repetition_tolerance: 1 });
-    expect(low).toContain("one contribution");
+  it("combines multiple working and communication styles", () => {
+    const result = buildStyleInstructions({
+      working_style: ["Proactive", "Analytical"],
+      communication_style: ["Concise"],
+    });
+    expect(result).toContain("Take initiative");
+    expect(result).toContain("data-driven");
+    expect(result).toContain("brief");
   });
 
   it("always includes the universal re-engagement rule", () => {
-    const result = buildPersonalityInstructions({});
+    const result = buildStyleInstructions({
+      working_style: ["Proactive"],
+      communication_style: ["Supportive"],
+    });
     expect(result).toContain("CRITICAL: Never repeat");
     expect(result).toContain("@mentioned");
     expect(result).toContain("genuinely NEW");
+  });
+
+  it("handles null working_style and communication_style", () => {
+    const result = buildStyleInstructions({
+      working_style: null,
+      communication_style: null,
+    });
+    expect(result).toContain("CRITICAL: Never repeat");
+  });
+
+  it("ignores unknown style tags", () => {
+    const result = buildStyleInstructions({
+      working_style: ["Unknown"],
+      communication_style: ["Nonexistent"],
+    });
+    // Should still have the re-engagement rule but no style instructions
+    expect(result).toContain("CRITICAL");
+    expect(result).not.toContain("Take initiative");
   });
 });
 
@@ -166,5 +181,25 @@ describe("buildSystemPrompt - voice and skills", () => {
     const prompt = buildSystemPrompt({ name: "Agent", purpose: "Testing" });
     expect(prompt).toContain("SKILLS SELF-ASSESSMENT");
     expect(prompt).toContain("skills_update");
+  });
+
+  it("includes working style instructions in system prompt", () => {
+    const prompt = buildSystemPrompt({
+      name: "Agent",
+      purpose: "Testing",
+      working_style: ["Proactive", "Analytical"],
+    });
+    expect(prompt).toContain("Take initiative");
+    expect(prompt).toContain("data-driven");
+  });
+
+  it("includes communication style instructions in system prompt", () => {
+    const prompt = buildSystemPrompt({
+      name: "Agent",
+      purpose: "Testing",
+      communication_style: ["Concise", "Professional"],
+    });
+    expect(prompt).toContain("brief");
+    expect(prompt).toContain("formal");
   });
 });

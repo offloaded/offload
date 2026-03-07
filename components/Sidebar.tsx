@@ -147,7 +147,12 @@ export function SidebarContent({
                       opacity: pathname === `/agent/${a.id}` ? 1 : 0.5,
                     }}
                   />
-                  <span className="flex-1">{a.name}</span>
+                  <span className="flex-1 truncate">
+                    {a.name}
+                    {a.role && (
+                      <span className="text-[11px] text-[var(--color-text-tertiary)] font-normal ml-1.5">{a.role}</span>
+                    )}
+                  </span>
                   {unread > 0 && (
                     <span
                       className="text-[11px] font-semibold text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none"
