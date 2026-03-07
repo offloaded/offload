@@ -23,7 +23,7 @@ export function classifyIntent(text: string): MessageIntent {
   ];
   if (wordCount <= 12 && casualPatterns.some((p) => p.test(lower))) return "casual";
 
-  if (/\b(latest|current (news|events?|status)|today'?s?|this (morning|week|month)|breaking|just (happened|announced|released)|news about|search (for|the)|look up|google|check online)\b/.test(lower)) {
+  if (/\b(latest (news|events?|updates?)|current (news|events?)|today'?s? (news|events?|updates?|headlines?|market|prices?|scores?)|this (morning|week|month)'?s? (news|updates?|headlines?)|breaking( news)?|just (happened|announced|released)|news about|search (for|the) (?!web)|look up|google|check online)\b/.test(lower)) {
     return "search";
   }
 
@@ -97,31 +97,110 @@ export function detectMessageAddressing(
   return { isTeamWide, mentionedAgentIds };
 }
 
-/**
- * After a round of responses, check whether any response directly addresses
- * another agent (via @mention or "Name," pattern), returning the IDs of agents
- * who were addressed but haven't responded yet in this message.
- */
-function findAddressedInResponses(
-  responseText: string,
-  agents: { id: string; name: string }[],
-  alreadyRespondedIds: string[]
-): string[] {
-  const addressed: string[] = [];
-  for (const agent of agents) {
-    if (alreadyRespondedIds.includes(agent.id)) continue;
-    const n = agent.name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const lower = responseText.toLowerCase();
-    const patterns = [
-      new RegExp(`@${n}\\b`),
-      new RegExp(`\\b${n},`),
-      new RegExp(`\\b${n}\\?`),
-      new RegExp(`how about you,?\\s+${n}\\b`),
-      new RegExp(`${n}[,.]?\\s+(what|how|do|can|are|have|did)\\b`),
-    ];
-    if (patterns.some((p) => p.test(lower))) addressed.push(agent.id);
+/** Split a multi-agent response into individual [AgentName] content blocks. */
+function parseAgentBlocks(text: string): { name: string; content: string }[] {
+  const blocks: { name: string; content: string }[] = [];
+  for (const line of text.split("\n")) {
+    const m = line.match(/^\[([^\]]+)\]\s*(.*)/);
+    if (m) {
+      blocks.push({ name: m[1], content: m[2] });
+    } else if (blocks.length > 0) {
+      blocks[blocks.length - 1].content += " " + line.trim();
+    }
   }
-  return addressed;
+  return blocks.filter((b) => b.content.trim());
+}
+
+interface FollowUpTrigger {
+  /** Agents who should be invited to respond in the next round. */
+  targetAgentIds: string[];
+  /** The agent(s) who asked — excluded from responding to their own questions. */
+  askerAgentIds: string[];
+  reason: string;
+}
+
+/**
+ * Parse the batch of agent responses and determine if any follow-up is needed.
+ *
+ * Key differences from the old version:
+ * - Does NOT filter by "already responded" — Bob can reply even if he spoke earlier
+ * - Detects ambiguous "you" / "how about you" / "what do you think" patterns
+ *   and targets every available agent when no name is specified
+ * - Only the ASKING agent is excluded from the follow-up (not all responders)
+ */
+function detectFollowUpTriggers(
+  responseText: string,
+  allAgents: { id: string; name: string }[],
+  alwaysExcludeIds: Set<string>,  // original poster(s) — never respond
+): FollowUpTrigger | null {
+  const blocks = parseAgentBlocks(responseText);
+  if (blocks.length === 0) return null;
+
+  const targetIds = new Set<string>();
+  const askerIds = new Set<string>();
+  const reasons: string[] = [];
+
+  for (const block of blocks) {
+    if (!block.content.includes("?")) continue;       // no question, skip
+    const lower = block.content.toLowerCase();
+
+    const asker = allAgents.find((a) => a.name === block.name);
+    if (asker) askerIds.add(asker.id);
+
+    // 1. Specific agent named in the question
+    let foundSpecific = false;
+    for (const agent of allAgents) {
+      if (alwaysExcludeIds.has(agent.id)) continue;
+      if (asker && agent.id === asker.id) continue;   // don't target yourself
+      const n = agent.name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const specific = [
+        new RegExp(`@${n}\\b`),
+        new RegExp(`\\b${n}[,?!]`),
+        new RegExp(`\\b${n}[,.]?\\s+(what|how|do|can|are|have|did|is|any|got)\\b`),
+        new RegExp(`(how about|what about|anything from),?\\s*${n}\\b`),
+      ];
+      if (specific.some((p) => p.test(lower))) {
+        targetIds.add(agent.id);
+        foundSpecific = true;
+        reasons.push(`${block.name} → @${agent.name}`);
+      }
+    }
+
+    // 2. Ambiguous "you" or team-wide — address every available agent when no name was found
+    if (!foundSpecific) {
+      const ambiguous = [
+        /\bhow about you\b/,
+        /\bwhat (do|about) you (think|say|reckon)\b/,
+        /\banything (from your end|from you|on your end)\b/,
+        /\byour (thoughts|take|view|perspective)\b/,
+        /\bwhat'?s? your\b/,
+        /\bhow (is|are|about) you\b/,
+        /\bwhat about you\b/,
+        /\bwith you\b/,
+        /\byou[?!]\s*$/,             // ends "...with you?" or "...you!"
+        /\byou (think|feel|know|see|reckon)\b/,
+        /\bhow'?s? (it going|everything going|things going) (with|for) you\b/,
+        // Team-wide follow-up patterns
+        /\bhow (is|are|'?s) (everyone|the team|you all|you guys|we all)\b/,
+        /\bwhat (do|does|did) everyone\b/,
+        /\bwhat about (everyone|the team|you all|you guys)\b/,
+        /\banyone (else|have|know|want|need)\b/,
+        /\bany (thoughts|updates?|reactions?|questions?|feedback)\b/,
+        /\blet me know if (anyone|anyone's)\b/,
+      ];
+      if (ambiguous.some((p) => p.test(lower))) {
+        for (const agent of allAgents) {
+          if (alwaysExcludeIds.has(agent.id)) continue;
+          if (asker && agent.id === asker.id) continue;
+          targetIds.add(agent.id);
+        }
+        reasons.push(`${block.name} → ambiguous "you" (all agents)`);
+      }
+    }
+  }
+
+  if (targetIds.size === 0) return null;
+  return { targetAgentIds: [...targetIds], askerAgentIds: [...askerIds], reason: reasons.join("; ") };
 }
 
 // ─── Main orchestration function ──────────────────────────────────────────
@@ -183,46 +262,63 @@ export async function runGroupOrchestration(
   const { isTeamWide, mentionedAgentIds } = detectMessageAddressing(plainText, allAgents);
   const intent = classifyIntent(plainText);
 
-  // Team-wide questions override the casual fast-path so ALL agents respond
-  const effectiveIntent = isTeamWide && intent === "casual" ? "knowledge" : intent;
+  // Team-wide questions override casual fast-path so ALL agents respond.
+  // Search intent degrades to knowledge since orchestration has no web search.
+  const effectiveIntent = intent === "casual" && isTeamWide ? "knowledge"
+    : intent === "search" ? "knowledge"
+    : intent;
 
   console.log(`${LOG} intent=${intent} effectiveIntent=${effectiveIntent} isTeamWide=${isTeamWide} mentioned=${mentionedAgentIds.length}`);
 
-  // 4. Load recent conversation history and normalise for Claude's API
-  const { data: history } = await supabase
-    .from("messages")
-    .select("role, content")
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: false })
-    .limit(20);
-
-  if (history) history.reverse();
-
+  // 4. Build messages array for Claude's API
   // Claude requires alternating roles starting with "user".
-  // Group chats are all-assistant, so we normalise: prepend a stub user turn
-  // and merge any remaining consecutive same-role messages.
-  const rawMessages = (history || []).map(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (m: any) => ({ role: m.role as "user" | "assistant", content: m.content as string })
-  );
+  //
+  // For round 0: load DB history (all-assistant), prepend a "[group chat]" user stub,
+  //   merge consecutive same-role messages. This gives Claude full context.
+  //
+  // For follow-up rounds (_round > 0): the DB history is "complete" — every agent
+  //   already responded in the prior round. If we send it all as one giant assistant
+  //   turn, Claude sees nothing to respond to and returns empty. Instead, present the
+  //   triggerMessage (the prior round's responses, which contain the follow-up question)
+  //   as the user turn so Claude has a clear question to answer.
+  let messages: { role: "user" | "assistant"; content: string }[];
 
-  const messages: { role: "user" | "assistant"; content: string }[] = [];
-  for (const msg of rawMessages) {
-    if (messages.length === 0) {
-      if (msg.role === "assistant") messages.push({ role: "user", content: "[group chat]" });
-      messages.push(msg);
-    } else {
-      const last = messages[messages.length - 1];
-      if (last.role === msg.role) {
-        last.content += "\n" + msg.content;
-      } else {
+  if (_round > 0) {
+    // Follow-up round: just the trigger as the question to respond to
+    messages = [{ role: "user", content: triggerMessage }];
+  } else {
+    const { data: history } = await supabase
+      .from("messages")
+      .select("role, content")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    if (history) history.reverse();
+
+    const rawMessages = (history || []).map(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (m: any) => ({ role: m.role as "user" | "assistant", content: m.content as string })
+    );
+
+    messages = [];
+    for (const msg of rawMessages) {
+      if (messages.length === 0) {
+        if (msg.role === "assistant") messages.push({ role: "user", content: "[group chat]" });
         messages.push(msg);
+      } else {
+        const last = messages[messages.length - 1];
+        if (last.role === msg.role) {
+          last.content += "\n" + msg.content;
+        } else {
+          messages.push(msg);
+        }
       }
     }
-  }
-  if (messages.length === 0) {
-    messages.push({ role: "user", content: "[group chat]" });
-    messages.push({ role: "assistant", content: triggerMessage });
+    if (messages.length === 0) {
+      messages.push({ role: "user", content: "[group chat]" });
+      messages.push({ role: "assistant", content: triggerMessage });
+    }
   }
 
   console.log(`${LOG} messages=${messages.length} first_role=${messages[0]?.role}`);
@@ -361,22 +457,26 @@ FORMAT RULES (strictly enforced):
 
   console.log(`${LOG} responses saved to conv=${conversationId}`);
 
-  // 9. Multi-round: if any response directly addresses an agent who hasn't
-  //    spoken yet, trigger one more round (capped at round 2 total).
+  // 9. Multi-round follow-up — cap at 2 extra rounds total.
   if (_round < 2) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const justRespondedIds = allAgents.filter((a: any) => cleaned.includes(`[${a.name}]`)).map((a: any) => a.id as string);
-    const addressedIds = findAddressedInResponses(cleaned, allAgents, [...excludeIds, ...justRespondedIds]);
+    console.log(`${LOG} Checking for follow-up triggers in agent responses...`);
+    const followUp = detectFollowUpTriggers(cleaned, allAgents, excludeIds);
 
-    if (addressedIds.length > 0) {
+    if (followUp) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const addressedNames = allAgents.filter((a: any) => addressedIds.includes(a.id)).map((a: any) => a.name).join(", ");
-      console.log(`${LOG} round ${_round + 1} triggered — addressed agents: ${addressedNames}`);
-      // Exclude everyone who just responded so they don't reply to their own prompts
-      const nextExclude = [...excludeIds, ...justRespondedIds];
+      const targetNames = allAgents.filter((a: any) => followUp.targetAgentIds.includes(a.id)).map((a: any) => a.name).join(", ");
+      console.log(`${LOG} Follow-up triggered — targets: [${targetNames}] reason: ${followUp.reason}`);
+
+      // Exclude everyone EXCEPT targeted agents (so only they can respond).
+      // Also exclude the askers so they don't answer their own questions.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const nextExclude = allAgents
+        .filter((a: any) => !followUp.targetAgentIds.includes(a.id))
+        .map((a: any) => a.id as string);
+
       await runGroupOrchestration(supabase, userId, conversationId, cleaned, nextExclude, _round + 1);
     } else {
-      console.log(`${LOG} no follow-up addresses found — conversation complete`);
+      console.log(`${LOG} No follow-up triggers found — conversation complete`);
     }
   }
 }
