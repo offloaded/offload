@@ -2,17 +2,82 @@ import { createServerSupabase } from "@/lib/supabase-server";
 import { getAnthropicClient, cleanResponse } from "@/lib/anthropic";
 import { retrieveContext } from "@/lib/rag";
 
+// ─── Pipeline helpers ──────────────────────────────────────────────────────
+
+type MessageIntent = "casual" | "knowledge" | "action" | "search";
+
+/**
+ * Fast rule-based intent classifier.
+ * Determines how the pipeline should respond — no LLM call required.
+ */
+function classifyIntent(text: string): MessageIntent {
+  const lower = text.toLowerCase().trim();
+  const wordCount = lower.split(/\s+/).length;
+
+  // Casual: short greetings, acknowledgements, small talk
+  const casualPatterns = [
+    /^(hi|hello|hey|howdy|yo|morning|evening|afternoon)\b/,
+    /^good (morning|afternoon|evening|day|night)\b/,
+    /^(thanks|thank you|ty|cheers|thx|appreciate it)\b/,
+    /^(bye|goodbye|see ya|cya|later|see you)\b/,
+    /^(ok|okay|got it|noted|sure|sounds good|perfect|great|cool|nice|awesome|brilliant|yep|yup|nope|roger)\b/,
+    /^(no worries|np|all good|no problem)\b/,
+    /^how are (you|everyone|the team|things)\b/,
+    /^how'?s? (everyone|it going|the team|things)\b/,
+    /^what'?s? up\b/,
+    /^(lol|haha|nice one)\b/,
+  ];
+  if (wordCount <= 12 && casualPatterns.some((p) => p.test(lower))) return "casual";
+
+  // Search: real-time or external info (web search territory)
+  if (/\b(latest|current (news|events?|status)|today'?s?|this (morning|week|month)|breaking|just (happened|announced|released)|news about|search (for|the)|look up|google|check online)\b/.test(lower)) {
+    return "search";
+  }
+
+  // Action: scheduling, task creation, imperative requests
+  if (/\b(schedule|remind\b|set (a |an )?(reminder|alarm|meeting|appointment)|draft|write (a |an |me )|send (a |an )?|book|set up|organi[sz]e|arrang[e]|cancel|reschedul|every (day|morning|evening|week|month|hour)|daily|weekly|monthly|at \d|tomorrow|next (monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|month)|in \d+ (minute|hour|day|week)s?)\b/.test(lower)) {
+    return "action";
+  }
+
+  return "knowledge";
+}
+
+/**
+ * Score how relevant an agent is to a message using word overlap.
+ * Returns 0 if the agent has no relevance.
+ */
+function scoreAgentRelevance(message: string, agent: { name: string; purpose: string }): number {
+  const msgWords = new Set(
+    message.toLowerCase().replace(/[^\w\s]/g, " ").split(/\s+/).filter((w) => w.length > 3)
+  );
+  if (msgWords.size === 0) return 0;
+
+  let score = 0;
+  const agentText = `${agent.name} ${agent.purpose}`.toLowerCase().replace(/[^\w\s]/g, " ");
+  for (const w of agentText.split(/\s+/)) {
+    if (w.length > 3 && msgWords.has(w)) score++;
+  }
+  // Direct name mention is a strong signal
+  if (message.toLowerCase().includes(agent.name.toLowerCase())) score += 5;
+  return score;
+}
+
 export async function POST(request: Request) {
+  const LOG = "[Group Chat]";
+  console.log(`${LOG} ─── Request received ───`);
+
   const supabase = await createServerSupabase();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
+    console.log(`${LOG} ✗ Unauthorized — no user session`);
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
     });
   }
+  console.log(`${LOG} ✓ User authenticated: ${user.id}`);
 
   const body = await request.json();
   const { message, conversation_id, mentions } = body as {
@@ -21,7 +86,12 @@ export async function POST(request: Request) {
     mentions?: string[];
   };
 
+  console.log(`${LOG} Message: "${message?.slice(0, 100)}${message?.length > 100 ? "..." : ""}"`);
+  console.log(`${LOG} conversation_id: ${conversation_id ?? "(none — new conversation)"}`);
+  console.log(`${LOG} mentions: ${mentions?.length ? mentions.join(", ") : "(none)"}`);
+
   if (!message?.trim()) {
+    console.log(`${LOG} ✗ Empty message rejected`);
     return new Response(
       JSON.stringify({ error: "message is required" }),
       { status: 400 }
@@ -35,12 +105,25 @@ export async function POST(request: Request) {
     .eq("user_id", user.id)
     .order("created_at", { ascending: true });
 
-  if (agentsError || !agents || agents.length === 0) {
+  if (agentsError) {
+    console.log(`${LOG} ✗ DB error loading agents:`, agentsError);
     return new Response(
       JSON.stringify({ error: "No agents found. Create agents first." }),
       { status: 400 }
     );
   }
+  if (!agents || agents.length === 0) {
+    console.log(`${LOG} ✗ No agents found for user ${user.id}`);
+    return new Response(
+      JSON.stringify({ error: "No agents found. Create agents first." }),
+      { status: 400 }
+    );
+  }
+  console.log(`${LOG} ✓ Loaded ${agents.length} agent(s): ${agents.map((a) => `"${a.name}" (${a.id})`).join(", ")}`);
+
+  // Classify intent to determine pipeline depth
+  const intent = classifyIntent(message.trim());
+  console.log(`${LOG} ✓ Intent: ${intent}`);
 
   // Use existing conversation or create a new one
   let convId = conversation_id;
@@ -53,11 +136,13 @@ export async function POST(request: Request) {
       .eq("user_id", user.id)
       .single();
     if (!existingConv) {
+      console.log(`${LOG} ✗ Conversation ${convId} not found or doesn't belong to user`);
       return new Response(
         JSON.stringify({ error: "Conversation not found" }),
         { status: 404 }
       );
     }
+    console.log(`${LOG} ✓ Using existing conversation: ${convId}`);
   } else {
     const { data: newConv, error: convError } = await supabase
       .from("conversations")
@@ -66,33 +151,45 @@ export async function POST(request: Request) {
       .single();
 
     if (convError || !newConv) {
+      console.log(`${LOG} ✗ Failed to create conversation:`, convError);
       return new Response(
         JSON.stringify({ error: "Failed to create conversation" }),
         { status: 500 }
       );
     }
     convId = newConv.id;
+    console.log(`${LOG} ✓ Created new conversation: ${convId}`);
   }
 
   // Save the user message
-  await supabase.from("messages").insert({
+  const { error: userMsgError } = await supabase.from("messages").insert({
     conversation_id: convId,
     role: "user",
     content: message.trim(),
   });
+  if (userMsgError) {
+    console.log(`${LOG} ✗ Failed to save user message:`, userMsgError);
+  } else {
+    console.log(`${LOG} ✓ User message saved`);
+  }
 
   await supabase
     .from("conversations")
     .update({ updated_at: new Date().toISOString() })
     .eq("id", convId);
 
-  // Load message history
-  const { data: history } = await supabase
+  // Load message history — casual messages only need a short window
+  const historyLimit = intent === "casual" ? 6 : 20;
+  const { data: history, error: historyError } = await supabase
     .from("messages")
     .select("role, content")
     .eq("conversation_id", convId)
     .order("created_at", { ascending: false })
-    .limit(20);
+    .limit(historyLimit);
+
+  if (historyError) {
+    console.log(`${LOG} ✗ Failed to load history:`, historyError);
+  }
 
   // Re-sort ascending for the LLM (we fetched newest-first for the limit)
   if (history) history.reverse();
@@ -101,6 +198,17 @@ export async function POST(request: Request) {
     role: m.role as "user" | "assistant",
     content: m.content,
   }));
+
+  console.log(`${LOG} ✓ History: ${messages.length} message(s) — roles: [${messages.map((m) => m.role).join(", ")}]`);
+  // Check for invalid consecutive same-role messages (would cause Claude API 400)
+  for (let i = 1; i < messages.length; i++) {
+    if (messages[i].role === messages[i - 1].role) {
+      console.log(`${LOG} ⚠ CONSECUTIVE ${messages[i].role.toUpperCase()} MESSAGES at index ${i - 1} and ${i} — Claude API will reject this!`);
+    }
+  }
+  if (messages.length > 0) {
+    console.log(`${LOG}   First message role: ${messages[0].role}, Last message role: ${messages[messages.length - 1].role}`);
+  }
 
   // RAG: retrieve document context for each agent that has ready documents
   const { data: allDocs } = await supabase
@@ -116,46 +224,51 @@ export async function POST(request: Request) {
     list.push(doc.file_name);
     docsByAgent.set(doc.agent_id, list);
   }
+  console.log(`${LOG} ✓ RAG docs: ${allDocs?.length ?? 0} ready doc(s) across ${docsByAgent.size} agent(s)`);
 
-  // Retrieve context for all agents with documents in parallel
+  // Determine which agents need RAG based on intent + relevance
+  // casual/search → skip RAG entirely
+  // knowledge/action → only retrieve for agents whose purpose overlaps the message
   const agentContextMap = new Map<string, { content: string; fileName: string; metadata?: { document_date?: string | null; section_heading?: string | null } }[]>();
-  const retrievalPromises = agents
-    .filter((a) => docsByAgent.has(a.id))
-    .map(async (a) => {
-      const topK = 5; // Cap at 5 per agent in group chat to control token usage
+
+  if (intent === "knowledge" || intent === "action") {
+    const agentsWithDocs = agents.filter((a) => docsByAgent.has(a.id));
+
+    // Score relevance and select agents to retrieve for
+    let agentsToRetrieve = agentsWithDocs;
+    if (agentsWithDocs.length > 0) {
+      const scored = agentsWithDocs
+        .map((a) => ({ agent: a, score: scoreAgentRelevance(message.trim(), a) }))
+        .sort((a, b) => b.score - a.score);
+      const relevant = scored.filter((s) => s.score > 0);
+      // If relevance scoring finds matches, use those. Otherwise fall back to all agents with docs
+      // (avoids missing context when message uses synonyms not in the purpose text)
+      agentsToRetrieve = relevant.length > 0 ? relevant.map((s) => s.agent) : agentsWithDocs;
+      console.log(
+        `${LOG}   RAG selection: ${agentsToRetrieve.map((a) => {
+          const s = scored.find((x) => x.agent.id === a.id);
+          return `"${a.name}"(${s?.score ?? 0})`;
+        }).join(", ")}`
+      );
+    }
+
+    const retrievalPromises = agentsToRetrieve.map(async (a) => {
+      const topK = 5;
       try {
         const ctx = await retrieveContext(supabase, a.id, message.trim(), topK);
         if (ctx.length > 0) {
           agentContextMap.set(a.id, ctx);
+          console.log(`${LOG}   RAG: ${ctx.length} chunk(s) retrieved for "${a.name}"`);
         }
       } catch (err) {
-        console.error(`[Group RAG] Retrieval failed for ${a.name}:`, err);
+        console.error(`${LOG} ✗ RAG retrieval failed for "${a.name}":`, err);
       }
     });
 
-  await Promise.all(retrievalPromises);
-
-  // Build system prompt with per-agent document context
-  const agentDescriptions = agents.map((a) => {
-    // Truncate purpose to first 120 chars to reduce token usage in group chat
-    const shortPurpose = a.purpose.length > 120 ? a.purpose.slice(0, 120).trimEnd() + "..." : a.purpose;
-    let desc = `- ${a.name} (id: ${a.id}, color: ${a.color}): ${shortPurpose}`;
-    const docNames = docsByAgent.get(a.id);
-    if (docNames && docNames.length > 0) {
-      desc += `\n  Documents: ${docNames.join(", ")}`;
-    }
-    const ctx = agentContextMap.get(a.id);
-    if (ctx && ctx.length > 0) {
-      desc += `\n  Relevant knowledge base excerpts for ${a.name}:`;
-      ctx.forEach((c, i) => {
-        let header = `From "${c.fileName}"`;
-        if (c.metadata?.document_date) header += ` (${c.metadata.document_date})`;
-        if (c.metadata?.section_heading) header += ` — ${c.metadata.section_heading}`;
-        desc += `\n  [${i + 1}] ${header}: ${c.content}`;
-      });
-    }
-    return desc;
-  }).join("\n\n");
+    await Promise.all(retrievalPromises);
+  } else {
+    console.log(`${LOG}   Skipping RAG for intent="${intent}"`);
+  }
 
   // Build mention instruction if user @mentioned specific agents
   const mentionedAgents = (mentions || [])
@@ -168,7 +281,50 @@ export async function POST(request: Request) {
     mentionInstruction = `\n\nThe user has specifically @mentioned: ${names}. These agents MUST respond first and directly address the user's question. Other agents may still chime in briefly if they have relevant input.`;
   }
 
-  const systemPrompt = `You are the Operations Manager for a team of AI agents. Your job is to route the user's message to the most relevant agent(s) and respond as them.
+  // ── System prompt ──────────────────────────────────────────────────────────
+  // Casual messages get a lean prompt — no doc context, no heavy instructions.
+  // All other intents get the full prompt with RAG chunks and scheduling rules.
+  const agentList = agents
+    .map((a) => `- ${a.name} (id: ${a.id}, color: ${a.color}): ${a.purpose}`)
+    .join("\n");
+
+  let systemPrompt: string;
+
+  if (intent === "casual") {
+    systemPrompt = `You are managing a friendly team of ${agents.length} AI agents in a group chat. This is casual conversation — respond warmly and briefly.
+
+Your team:
+${agentList}
+
+RULES:
+1. For team-wide greetings ("hello team", "good morning", "how's everyone", "hi all") — ALL ${agents.length} agents MUST respond, each with exactly 1 short sentence. Do not skip any agent.
+2. For personal acknowledgements ("thanks", "ok", "sounds good") — 1-2 agents respond.
+3. Format every response as: [Agent Name] their message
+4. Every line must start with [Agent Name].
+5. No markdown. Plain conversational text only.${mentionInstruction}`;
+  } else {
+    // Full prompt with RAG context and scheduling support
+    const agentDescriptions = agents.map((a) => {
+      const shortPurpose = a.purpose.length > 120 ? a.purpose.slice(0, 120).trimEnd() + "..." : a.purpose;
+      let desc = `- ${a.name} (id: ${a.id}, color: ${a.color}): ${shortPurpose}`;
+      const docNames = docsByAgent.get(a.id);
+      if (docNames && docNames.length > 0) {
+        desc += `\n  Documents: ${docNames.join(", ")}`;
+      }
+      const ctx = agentContextMap.get(a.id);
+      if (ctx && ctx.length > 0) {
+        desc += `\n  Relevant knowledge base excerpts for ${a.name}:`;
+        ctx.forEach((c, i) => {
+          let header = `From "${c.fileName}"`;
+          if (c.metadata?.document_date) header += ` (${c.metadata.document_date})`;
+          if (c.metadata?.section_heading) header += ` — ${c.metadata.section_heading}`;
+          desc += `\n  [${i + 1}] ${header}: ${c.content}`;
+        });
+      }
+      return desc;
+    }).join("\n\n");
+
+    systemPrompt = `You are the Operations Manager for a team of AI agents. Your job is to route the user's message to the most relevant agent(s) and respond as them.
 
 Your team:
 ${agentDescriptions}
@@ -200,40 +356,30 @@ If the user asks to schedule, remind, or delay something (e.g. "every morning", 
 \`\`\`
 
 Use standard 5-field cron (minute hour day-of-month month day-of-week). Set "recurring": true for repeating tasks, false for one-off. The current date/time is ${new Date().toISOString()}. For one-off tasks, compute the specific cron for that date/time. Set "destination" to "group" if the user wants the response in the group chat, or "dm" if they want a direct message. Default to "group" since the user is in the group chat. Only include this block when the user is explicitly requesting a scheduled or delayed task.`;
-
-  // Stream response from Claude with retry on rate limit
-  const anthropic = getAnthropicClient();
-
-  const MAX_RETRIES = 3;
-  let stream: ReturnType<typeof anthropic.messages.stream> | null = null;
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      stream = anthropic.messages.stream({
-        model: "claude-sonnet-4-5-20250929",
-        max_tokens: 4096,
-        system: systemPrompt,
-        messages,
-      });
-      // Await the first event to detect 429 errors before streaming starts
-      await stream.ensureResponse();
-      break;
-    } catch (err: unknown) {
-      const status = (err as { status?: number }).status;
-      if (status === 429 && attempt < MAX_RETRIES) {
-        const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
-        console.warn(`[Group Chat] Rate limited (429), retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
-        await new Promise((r) => setTimeout(r, delay));
-        continue;
-      }
-      throw err;
-    }
   }
+
+  console.log(`${LOG} ✓ System prompt built: ${systemPrompt.length} chars`);
+  console.log(`${LOG} ─── Calling Claude API ───`);
+  console.log(`${LOG}   model: claude-sonnet-4-5-20250929`);
+  console.log(`${LOG}   messages: ${messages.length}`);
+  console.log(`${LOG}   system prompt preview: ${systemPrompt.slice(0, 200).replace(/\n/g, "↵")}...`);
+
+  const anthropic = getAnthropicClient();
+  const stream = anthropic.messages.stream({
+    model: "claude-sonnet-4-5-20250929",
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages,
+  });
+  console.log(`${LOG} ✓ Claude stream created`);
 
   const encoder = new TextEncoder();
   let fullResponse = "";
+  let chunkCount = 0;
 
   const readable = new ReadableStream({
     async start(controller) {
+      console.log(`${LOG} ─── Stream started ───`);
       try {
         controller.enqueue(
           encoder.encode(
@@ -241,13 +387,14 @@ Use standard 5-field cron (minute hour day-of-month month day-of-week). Set "rec
           )
         );
 
-        for await (const event of stream!) {
+        for await (const event of stream) {
           if (
             event.type === "content_block_delta" &&
             event.delta.type === "text_delta"
           ) {
             const text = event.delta.text;
             fullResponse += text;
+            chunkCount++;
             controller.enqueue(
               encoder.encode(
                 `data: ${JSON.stringify({ type: "text", text })}\n\n`
@@ -255,6 +402,9 @@ Use standard 5-field cron (minute hour day-of-month month day-of-week). Set "rec
             );
           }
         }
+
+        console.log(`${LOG} ✓ Stream complete: ${chunkCount} chunk(s), ${fullResponse.length} chars total`);
+        console.log(`${LOG}   Raw response preview: "${fullResponse.slice(0, 300).replace(/\n/g, "↵")}"`);
 
         // Detect schedule_request before cleaning
         const scheduleMatch = fullResponse.match(
@@ -264,12 +414,30 @@ Use standard 5-field cron (minute hour day-of-month month day-of-week). Set "rec
         // Clean the response: strip any <search> blocks or tool markup
         const cleaned = cleanResponse(fullResponse);
 
+        console.log(`${LOG}   Cleaned response length: ${cleaned.length} chars (was ${fullResponse.length})`);
+        if (cleaned.length === 0 && fullResponse.length > 0) {
+          console.log(`${LOG} ⚠ ENTIRE RESPONSE WAS STRIPPED by cleanResponse! Raw was:\n${fullResponse}`);
+        }
+
+        // Parse agent responses to check formatting
+        const agentLines = cleaned.split("\n").filter((l) => l.trim());
+        const parsedLines = agentLines.filter((l) => /^\[.+\]/.test(l));
+        console.log(`${LOG}   Agent-tagged lines: ${parsedLines.length}/${agentLines.length} total lines`);
+        if (parsedLines.length === 0 && cleaned.length > 0) {
+          console.log(`${LOG} ⚠ No [Agent Name] tags found — response won't parse into agent bubbles. Content:\n${cleaned.slice(0, 500)}`);
+        }
+
         // Save the cleaned response
-        await supabase.from("messages").insert({
+        const { error: saveMsgError } = await supabase.from("messages").insert({
           conversation_id: convId,
           role: "assistant",
           content: cleaned,
         });
+        if (saveMsgError) {
+          console.log(`${LOG} ✗ Failed to save assistant message:`, saveMsgError);
+        } else {
+          console.log(`${LOG} ✓ Assistant message saved to DB`);
+        }
 
         // If cleaning changed the text, send a replace event
         if (cleaned !== fullResponse) {
@@ -283,23 +451,26 @@ Use standard 5-field cron (minute hour day-of-month month day-of-week). Set "rec
         if (scheduleMatch) {
           try {
             const schedule = JSON.parse(scheduleMatch[1]);
+            console.log(`${LOG}   Schedule request detected: ${JSON.stringify(schedule)}`);
             controller.enqueue(
               encoder.encode(
                 `data: ${JSON.stringify({ type: "schedule_request", ...schedule })}\n\n`
               )
             );
           } catch {
-            // Invalid JSON in schedule block — ignore
+            console.log(`${LOG} ⚠ Failed to parse schedule_request JSON`);
           }
         }
 
         controller.enqueue(
           encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`)
         );
+        console.log(`${LOG} ✓ Done event sent`);
         controller.close();
       } catch (err) {
         const errorMsg =
           err instanceof Error ? err.message : "Stream error";
+        console.log(`${LOG} ✗ Stream error: ${errorMsg}`, err);
         controller.enqueue(
           encoder.encode(
             `data: ${JSON.stringify({ type: "error", error: errorMsg })}\n\n`
