@@ -68,10 +68,15 @@ RECURRING tasks: phrases like "every morning", "daily at 5pm", "every Monday", "
 
 ONE-OFF tasks: phrases like "in 5 minutes", "at 3pm today", "tomorrow morning", "next Tuesday at noon", "in an hour". Set "recurring": false. For these, calculate the cron expression for that specific date/time. The current date and time is ${new Date().toISOString()}.
 
+Also infer where to deliver the result:
+- "message me", "send me", "remind me", "DM me", "let me know" → "destination": "dm" (direct message with this agent)
+- "message the group", "tell the team", "post in the group chat", "notify the channel" → "destination": "group"
+- If ambiguous or unspecified, default to "dm"
+
 Include a JSON block at the END of your response in exactly this format:
 
 \`\`\`schedule_request
-{"instruction": "the task to perform", "cron": "0 9 * * *", "timezone": "Pacific/Auckland", "recurring": true}
+{"instruction": "the task to perform", "cron": "0 9 * * *", "timezone": "Pacific/Auckland", "recurring": true, "destination": "dm"}
 \`\`\`
 
 Use standard 5-field cron expressions (minute hour day-of-month month day-of-week). For one-off tasks, use the specific minute, hour, day-of-month, month, and day-of-week that matches the requested time (e.g. "30 14 7 3 *" for 2:30 PM on March 7). Infer timezone from context or default to the user's likely timezone. Only include this block when the user is explicitly requesting a scheduled or delayed task.`;
@@ -111,8 +116,8 @@ Never output any XML tags, tool calls, or search markup in your response. Your r
  */
 export function cleanResponse(text: string, streaming = false): string {
   let cleaned = text;
-  // Remove complete <tag>...</tag> blocks (search, tool_call, function_call, tool_use, invoke, antThinking)
-  cleaned = cleaned.replace(/<(?:search|tool_call|function_call|tool_use|invoke|antThinking)[^>]*>[\s\S]*?<\/(?:search|tool_call|function_call|tool_use|invoke|antThinking)>/gi, "");
+  // Remove complete <tag>...</tag> blocks (search, tool_call, function_call, tool_use, invoke, antThinking, send_message, message, action)
+  cleaned = cleaned.replace(/<(?:search|tool_call|function_call|tool_use|invoke|antThinking|send_message|message|action|delivery)[^>]*>[\s\S]*?<\/(?:search|tool_call|function_call|tool_use|invoke|antThinking|send_message|message|action|delivery)>/gi, "");
   // Remove ```schedule_request and ```feature_request blocks (we handle these separately via SSE events)
   cleaned = cleaned.replace(/```schedule_request\s*\n[\s\S]*?\n```/g, "");
   cleaned = cleaned.replace(/```feature_request\s*\n[\s\S]*?\n```/g, "");
@@ -120,7 +125,7 @@ export function cleanResponse(text: string, streaming = false): string {
   if (streaming) {
     // Remove incomplete opening tags whose closing tag hasn't arrived yet.
     // e.g. "<search><provider>brave</provider><query>test" mid-stream
-    cleaned = cleaned.replace(/<(?:search|tool_call|function_call|tool_use|invoke|antThinking)[^>]*>[\s\S]*$/gi, "");
+    cleaned = cleaned.replace(/<(?:search|tool_call|function_call|tool_use|invoke|antThinking|send_message|message|action|delivery)[^>]*>[\s\S]*$/gi, "");
     // Remove incomplete ```schedule_request or ```feature_request that hasn't closed
     cleaned = cleaned.replace(/```schedule_request[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```feature_request[\s\S]*$/g, "");
