@@ -1,9 +1,10 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient, cleanResponse } from "./anthropic";
 import { retrieveContext } from "./rag";
 
 type MessageIntent = "casual" | "knowledge" | "action" | "search";
 
-// ─── Exported helpers (also used by the streaming group chat route) ────────
+// ─── Exported helpers ──────────────────────────────────────────────────────
 
 export function classifyIntent(text: string): MessageIntent {
   const lower = text.toLowerCase().trim();
@@ -54,13 +55,6 @@ export function scoreAgentRelevance(
 
 // ─── Addressing detection ──────────────────────────────────────────────────
 
-/**
- * Exported for use in the streaming group chat route.
- * Analyse a message to determine:
- *   - isTeamWide: whether the message is addressed to everyone (standup,
- *     "hey team", "what are you all working on", etc.)
- *   - mentionedAgentIds: agents explicitly named or @mentioned in the message
- */
 export function detectMessageAddressing(
   text: string,
   agents: { id: string; name: string }[]
@@ -81,13 +75,13 @@ export function detectMessageAddressing(
   for (const agent of agents) {
     const n = agent.name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const patterns = [
-      new RegExp(`@${n}\\b`),                                         // @Name
-      new RegExp(`\\b${n},`),                                         // "Name," direct address
-      new RegExp(`\\b${n}\\?`),                                       // "Name?"
-      new RegExp(`how about you,?\\s+${n}\\b`),                      // "how about you, Name"
-      new RegExp(`what (about|do) you (think|say),?\\s+${n}\\b`),    // "what do you think, Name"
-      new RegExp(`${n}[,.]?\\s+(what|how|do|can|are|have|did)\\b`),  // "Name, what..."
-      new RegExp(`(you|your),?\\s+${n}\\b`),                         // "you, Name" or "your Name"
+      new RegExp(`@${n}\\b`),
+      new RegExp(`\\b${n},`),
+      new RegExp(`\\b${n}\\?`),
+      new RegExp(`how about you,?\\s+${n}\\b`),
+      new RegExp(`what (about|do) you (think|say),?\\s+${n}\\b`),
+      new RegExp(`${n}[,.]?\\s+(what|how|do|can|are|have|did)\\b`),
+      new RegExp(`(you|your),?\\s+${n}\\b`),
     ];
     if (patterns.some((p) => p.test(lower))) {
       mentionedAgentIds.push(agent.id);
@@ -97,7 +91,8 @@ export function detectMessageAddressing(
   return { isTeamWide, mentionedAgentIds };
 }
 
-/** Split a multi-agent response into individual [AgentName] content blocks. */
+// ─── Internal: parse [AgentName] blocks ───────────────────────────────────
+
 function parseAgentBlocks(text: string): { name: string; content: string }[] {
   const blocks: { name: string; content: string }[] = [];
   for (const line of text.split("\n")) {
@@ -111,27 +106,18 @@ function parseAgentBlocks(text: string): { name: string; content: string }[] {
   return blocks.filter((b) => b.content.trim());
 }
 
+// ─── Internal: follow-up detection ────────────────────────────────────────
+
 interface FollowUpTrigger {
-  /** Agents who should be invited to respond in the next round. */
   targetAgentIds: string[];
-  /** The agent(s) who asked — excluded from responding to their own questions. */
   askerAgentIds: string[];
   reason: string;
 }
 
-/**
- * Parse the batch of agent responses and determine if any follow-up is needed.
- *
- * Key differences from the old version:
- * - Does NOT filter by "already responded" — Bob can reply even if he spoke earlier
- * - Detects ambiguous "you" / "how about you" / "what do you think" patterns
- *   and targets every available agent when no name is specified
- * - Only the ASKING agent is excluded from the follow-up (not all responders)
- */
 function detectFollowUpTriggers(
   responseText: string,
   allAgents: { id: string; name: string }[],
-  alwaysExcludeIds: Set<string>,  // original poster(s) — never respond
+  alwaysExcludeIds: Set<string>,
 ): FollowUpTrigger | null {
   const blocks = parseAgentBlocks(responseText);
   if (blocks.length === 0) return null;
@@ -141,17 +127,16 @@ function detectFollowUpTriggers(
   const reasons: string[] = [];
 
   for (const block of blocks) {
-    if (!block.content.includes("?")) continue;       // no question, skip
+    if (!block.content.includes("?")) continue;
     const lower = block.content.toLowerCase();
 
     const asker = allAgents.find((a) => a.name === block.name);
     if (asker) askerIds.add(asker.id);
 
-    // 1. Specific agent named in the question
     let foundSpecific = false;
     for (const agent of allAgents) {
       if (alwaysExcludeIds.has(agent.id)) continue;
-      if (asker && agent.id === asker.id) continue;   // don't target yourself
+      if (asker && agent.id === asker.id) continue;
       const n = agent.name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const specific = [
         new RegExp(`@${n}\\b`),
@@ -166,7 +151,6 @@ function detectFollowUpTriggers(
       }
     }
 
-    // 2. Ambiguous "you" or team-wide — address every available agent when no name was found
     if (!foundSpecific) {
       const ambiguous = [
         /\bhow about you\b/,
@@ -177,10 +161,9 @@ function detectFollowUpTriggers(
         /\bhow (is|are|about) you\b/,
         /\bwhat about you\b/,
         /\bwith you\b/,
-        /\byou[?!]\s*$/,             // ends "...with you?" or "...you!"
+        /\byou[?!]\s*$/,
         /\byou (think|feel|know|see|reckon)\b/,
         /\bhow'?s? (it going|everything going|things going) (with|for) you\b/,
-        // Team-wide follow-up patterns
         /\bhow (is|are|'?s) (everyone|the team|you all|you guys|we all)\b/,
         /\bwhat (do|does|did) everyone\b/,
         /\bwhat about (everyone|the team|you all|you guys)\b/,
@@ -203,21 +186,196 @@ function detectFollowUpTriggers(
   return { targetAgentIds: [...targetIds], askerAgentIds: [...askerIds], reason: reasons.join("; ") };
 }
 
+// ─── Internal: build per-agent group chat system prompt ───────────────────
+
+type ContextChunk = {
+  content: string;
+  fileName: string;
+  metadata?: { document_date?: string | null; section_heading?: string | null };
+};
+
+function buildGroupAgentSystemPrompt(
+  agent: { name: string; purpose: string },
+  context: ContextChunk[],
+  docNames?: string[],
+  scheduleInstructions?: string
+): string {
+  let prompt = `You are ${agent.name}, a member of a team group chat.
+
+Your role: ${agent.purpose}
+
+Write a concise, natural response (1-3 sentences) from your perspective as ${agent.name}.
+Do NOT prefix your response with your name or "[${agent.name}]" — just write the response directly.
+Plain conversational text only. No markdown, no bold, no headers, no bullet lists.
+You are a team colleague — be direct, relevant, and brief.`;
+
+  if (docNames?.length) {
+    prompt += `\n\nYour knowledge base: ${docNames.join(", ")}`;
+  }
+
+  if (context.length > 0) {
+    prompt += `\n\nRelevant excerpts from your knowledge base:\n`;
+    context.forEach((c, i) => {
+      let header = `[${i + 1}] From "${c.fileName}"`;
+      if (c.metadata?.document_date) header += ` (${c.metadata.document_date})`;
+      if (c.metadata?.section_heading) header += ` — ${c.metadata.section_heading}`;
+      prompt += `\n${header}:\n${c.content}`;
+    });
+    prompt += `\n\nReference relevant information from your knowledge base when applicable.`;
+  }
+
+  if (scheduleInstructions) {
+    prompt += `\n\n${scheduleInstructions}`;
+  }
+
+  return prompt;
+}
+
+// ─── Internal: evaluate phase (cheap parallel calls) ──────────────────────
+
+export type EvalResult = {
+  agentId: string;
+  respond: boolean;
+  reason: string;
+};
+
+export async function evaluateAgents(
+  anthropic: Anthropic,
+  agents: { id: string; name: string; purpose: string }[],
+  recentMessages: string[],
+  newMessage: string
+): Promise<EvalResult[]> {
+  const contextText = recentMessages.length > 0
+    ? `Recent conversation:\n${recentMessages.join("\n")}\n\n`
+    : "";
+
+  return Promise.all(
+    agents.map(async (agent): Promise<EvalResult> => {
+      try {
+        const response = await anthropic.messages.create({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 100,
+          system: `You are a relevance classifier. Reply with JSON only: {"respond": true/false, "reason": "brief reason"}`,
+          messages: [{
+            role: "user",
+            content: `You are ${agent.name}. Your role: ${agent.purpose.slice(0, 200)}.
+
+${contextText}New message: "${newMessage}"
+
+Should you respond based on your role and expertise?`,
+          }],
+        });
+
+        const text = response.content[0].type === "text" ? response.content[0].text.trim() : "";
+        const jsonMatch = text.match(/\{[\s\S]*?\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          return {
+            agentId: agent.id,
+            respond: Boolean(parsed.respond),
+            reason: String(parsed.reason || ""),
+          };
+        }
+      } catch (err) {
+        console.error(`[Evaluate] ${agent.name}:`, err);
+      }
+      return { agentId: agent.id, respond: false, reason: "evaluation error" };
+    })
+  );
+}
+
+// ─── Internal: respond phase (full individual pipeline) ───────────────────
+
+export async function generateAgentResponse(
+  anthropic: Anthropic,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  agent: { id: string; name: string; purpose: string },
+  messages: { role: "user" | "assistant"; content: string }[],
+  plainMessage: string,
+  docsByAgent: Map<string, string[]>,
+  scheduleInstructions?: string
+): Promise<string> {
+  let context: ContextChunk[] = [];
+  if (docsByAgent.has(agent.id)) {
+    try {
+      context = await retrieveContext(supabase, agent.id, plainMessage, 5);
+    } catch { /* non-fatal */ }
+  }
+
+  const systemPrompt = buildGroupAgentSystemPrompt(
+    agent,
+    context,
+    docsByAgent.get(agent.id),
+    scheduleInstructions
+  );
+
+  const response = await anthropic.messages.create({
+    model: "claude-sonnet-4-5-20250929",
+    max_tokens: 512,
+    system: systemPrompt,
+    messages,
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const text = response.content
+    .filter((b: any) => b.type === "text")
+    .map((b: any) => b.text as string)
+    .join("")
+    .trim();
+
+  return cleanResponse(text);
+}
+
+// ─── History builder (shared) ─────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function buildHistory(supabase: any, conversationId: string, limit = 20): Promise<{ role: "user" | "assistant"; content: string }[]> {
+  const { data: history } = await supabase
+    .from("messages")
+    .select("role, content")
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (history) history.reverse();
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawMessages = (history || []).map((m: any) => ({
+    role: m.role as "user" | "assistant",
+    content: m.content as string,
+  }));
+
+  const messages: { role: "user" | "assistant"; content: string }[] = [];
+  for (const msg of rawMessages) {
+    if (messages.length === 0) {
+      if (msg.role === "assistant") messages.push({ role: "user", content: "[group chat]" });
+      messages.push(msg);
+    } else {
+      const last = messages[messages.length - 1];
+      if (last.role === msg.role) {
+        last.content += "\n" + msg.content;
+      } else {
+        messages.push(msg);
+      }
+    }
+  }
+
+  return messages;
+}
+
 // ─── Main orchestration function ──────────────────────────────────────────
 
 /**
- * Run the full group chat orchestration after any message lands in a group
- * conversation — whether from a user, a scheduled task, or a cross-posted DM.
- *
- * @param supabase           Supabase client (service or user-auth both work)
- * @param userId             Owner of the conversation
- * @param conversationId     The group chat conversation
- * @param triggerMessage     The message that was just posted (may have [AgentName] prefix)
- * @param excludeAgentId     Agent(s) who posted — skip them as responders
- * @param _round             Internal recursion guard (do not pass from callers)
+ * Self-selection group chat orchestration:
+ * 1. Casual shortcut: cheap fast responses with no RAG for casual messages
+ * 2. Evaluate phase: parallel Haiku calls to each agent for relevance check
+ * 3. Respond phase: parallel Sonnet calls for selected agents with full RAG
+ * 4. Follow-up detection: up to 2 rounds for agent-to-agent questions
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function runGroupOrchestration(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
   userId: string,
   conversationId: string,
@@ -225,17 +383,17 @@ export async function runGroupOrchestration(
   excludeAgentId?: string | string[],
   _round = 0
 ): Promise<void> {
-  const LOG = `[GroupOrchestration r${_round}]`;
-  console.log(`${LOG} triggered — conv=${conversationId} exclude=${JSON.stringify(excludeAgentId ?? "none")} msg="${triggerMessage.slice(0, 80)}"`);
+  const LOG = `[GroupOrch r${_round}]`;
+  console.log(`${LOG} triggered — conv=${conversationId} msg="${triggerMessage.slice(0, 80)}"`);
 
-  // 1. Load all agents, then exclude the poster(s)
+  // 1. Load agents
   const { data: allAgents } = await supabase
     .from("agents")
     .select("*")
     .eq("user_id", userId)
     .order("created_at", { ascending: true });
 
-  if (!allAgents || allAgents.length === 0) {
+  if (!allAgents?.length) {
     console.log(`${LOG} no agents found — aborting`);
     return;
   }
@@ -247,83 +405,23 @@ export async function runGroupOrchestration(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const agents = allAgents.filter((a: any) => !excludeIds.has(a.id));
   if (agents.length === 0) {
-    console.log(`${LOG} no agents remain after exclusion — aborting`);
+    console.log(`${LOG} no agents after exclusion — aborting`);
     return;
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  console.log(`${LOG} ${agents.length} potential responder(s): ${agents.map((a: any) => a.name).join(", ")}`);
 
-  // 2. Extract the poster's name from the [AgentName] prefix, if present
-  const posterMatch = triggerMessage.match(/^\[([^\]]+)\]/);
-  const posterName = posterMatch ? posterMatch[1] : null;
-
-  // 3. Classify intent and detect addressing on the plain text
+  // 2. Parse message
   const plainText = triggerMessage.replace(/^\[[^\]]+\]\s*/, "").trim();
+
+  // 3. Classify
   const { isTeamWide, mentionedAgentIds } = detectMessageAddressing(plainText, allAgents);
   const intent = classifyIntent(plainText);
-
-  // Team-wide questions override casual fast-path so ALL agents respond.
-  // Search intent degrades to knowledge since orchestration has no web search.
-  const effectiveIntent = intent === "casual" && isTeamWide ? "knowledge"
+  const effectiveIntent = isTeamWide && intent === "casual" ? "knowledge"
     : intent === "search" ? "knowledge"
     : intent;
 
-  console.log(`${LOG} intent=${intent} effectiveIntent=${effectiveIntent} isTeamWide=${isTeamWide} mentioned=${mentionedAgentIds.length}`);
+  console.log(`${LOG} intent=${intent} effective=${effectiveIntent} isTeamWide=${isTeamWide} mentioned=${mentionedAgentIds.length}`);
 
-  // 4. Build messages array for Claude's API
-  // Claude requires alternating roles starting with "user".
-  //
-  // For round 0: load DB history (all-assistant), prepend a "[group chat]" user stub,
-  //   merge consecutive same-role messages. This gives Claude full context.
-  //
-  // For follow-up rounds (_round > 0): the DB history is "complete" — every agent
-  //   already responded in the prior round. If we send it all as one giant assistant
-  //   turn, Claude sees nothing to respond to and returns empty. Instead, present the
-  //   triggerMessage (the prior round's responses, which contain the follow-up question)
-  //   as the user turn so Claude has a clear question to answer.
-  let messages: { role: "user" | "assistant"; content: string }[];
-
-  if (_round > 0) {
-    // Follow-up round: just the trigger as the question to respond to
-    messages = [{ role: "user", content: triggerMessage }];
-  } else {
-    const { data: history } = await supabase
-      .from("messages")
-      .select("role, content")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: false })
-      .limit(20);
-
-    if (history) history.reverse();
-
-    const rawMessages = (history || []).map(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (m: any) => ({ role: m.role as "user" | "assistant", content: m.content as string })
-    );
-
-    messages = [];
-    for (const msg of rawMessages) {
-      if (messages.length === 0) {
-        if (msg.role === "assistant") messages.push({ role: "user", content: "[group chat]" });
-        messages.push(msg);
-      } else {
-        const last = messages[messages.length - 1];
-        if (last.role === msg.role) {
-          last.content += "\n" + msg.content;
-        } else {
-          messages.push(msg);
-        }
-      }
-    }
-    if (messages.length === 0) {
-      messages.push({ role: "user", content: "[group chat]" });
-      messages.push({ role: "assistant", content: triggerMessage });
-    }
-  }
-
-  console.log(`${LOG} messages=${messages.length} first_role=${messages[0]?.role}`);
-
-  // 5. RAG retrieval for relevant agents (knowledge/action only)
+  // 4. Load docs
   const { data: allDocs } = await supabase
     .from("documents")
     .select("agent_id, file_name")
@@ -338,145 +436,141 @@ export async function runGroupOrchestration(
     docsByAgent.set(doc.agent_id, list);
   }
 
-  const agentContextMap = new Map<string, { content: string; fileName: string; metadata?: { document_date?: string | null; section_heading?: string | null } }[]>();
-
-  if (effectiveIntent === "knowledge" || effectiveIntent === "action") {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const agentsWithDocs = agents.filter((a: any) => docsByAgent.has(a.id));
-    if (agentsWithDocs.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const scored = agentsWithDocs.map((a: any) => ({ agent: a, score: scoreAgentRelevance(plainText, a) })).sort((a: any, b: any) => b.score - a.score);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const relevant = scored.filter((s: any) => s.score > 0);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const agentsToRetrieve: any[] = relevant.length > 0 ? relevant.map((s: any) => s.agent) : agentsWithDocs;
-      await Promise.all(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        agentsToRetrieve.map(async (a: any) => {
-          try {
-            const ctx = await retrieveContext(supabase, a.id, plainText, 5);
-            if (ctx.length > 0) agentContextMap.set(a.id, ctx);
-          } catch { /* non-fatal */ }
-        })
-      );
-    }
-  }
-
-  // 6. Build system prompt
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const agentDescriptions = agents.map((a: any) => {
-    const shortPurpose = a.purpose.length > 120 ? a.purpose.slice(0, 120).trimEnd() + "..." : a.purpose;
-    let desc = `- ${a.name} (id: ${a.id}, color: ${a.color}): ${shortPurpose}`;
-    const docNames = docsByAgent.get(a.id);
-    if (docNames?.length) desc += `\n  Documents: ${docNames.join(", ")}`;
-    const ctx = agentContextMap.get(a.id);
-    if (ctx?.length) {
-      desc += `\n  Relevant excerpts for ${a.name}:`;
-      ctx.forEach((c, i) => {
-        let header = `From "${c.fileName}"`;
-        if (c.metadata?.document_date) header += ` (${c.metadata.document_date})`;
-        if (c.metadata?.section_heading) header += ` — ${c.metadata.section_heading}`;
-        desc += `\n  [${i + 1}] ${header}: ${c.content}`;
-      });
-    }
-    return desc;
-  }).join("\n\n");
-
-  // Build the response requirement instruction based on addressing type
-  let responseRequirement: string;
-  if (isTeamWide) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const agentNames = agents.map((a: any) => a.name).join(", ");
-    responseRequirement = `MANDATORY: This message is addressed to the ENTIRE team. EVERY agent listed must respond — ${agentNames}. No agent may be skipped or omitted. Each gives their individual update or answer.`;
-  } else if (mentionedAgentIds.length > 0) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mentionedNames = agents.filter((a: any) => mentionedAgentIds.includes(a.id)).map((a: any) => a.name);
-    const otherNames = mentionedNames.join(", ");
-    responseRequirement = `MANDATORY: The following agents were directly addressed by name and MUST respond: ${otherNames}. Other agents may also chime in briefly if they have relevant input, but the named agents must reply first.`;
-  } else if (effectiveIntent === "casual") {
-    responseRequirement = `1-2 agents respond with a brief, natural reply. If the message clearly doesn't need a response, output exactly: [no reactions]`;
+  // 5. Build message history
+  let messages: { role: "user" | "assistant"; content: string }[];
+  if (_round > 0) {
+    messages = [{ role: "user", content: triggerMessage }];
   } else {
-    responseRequirement = `1-3 agents respond based on relevance to their domain. If no agent has anything relevant to add, output exactly: [no reactions]`;
+    messages = await buildHistory(supabase, conversationId, 20);
+    if (messages.length === 0) {
+      messages.push({ role: "user", content: "[group chat]" });
+      messages.push({ role: "assistant", content: triggerMessage });
+    }
   }
 
-  const posterContext = posterName
-    ? `\nThis message was posted by ${posterName}. When the message says "you" or asks a question, it is directed at the listed agents.`
-    : "";
-
-  const systemPrompt = `You are the Operations Manager for a team of AI agents in a group chat. A message was just posted and you must generate responses from the appropriate agents.${posterContext}
-
-Your team:
-${agentDescriptions}
-
-RESPONSE REQUIREMENT:
-${responseRequirement}
-
-FORMAT RULES (strictly enforced):
-- Format EACH agent's response on its own line: [Agent Name] Their response here.
-- Every line MUST start with [Agent Name]. No text outside that format.
-- Plain conversational text only. No markdown, no **bold**, no # headers, no bullet lists. No XML tags.
-- Each response: 1-4 sentences, concise and in-character.
-- When an agent has knowledge excerpts, they should reference that information.
-- Agents are colleagues — they can tag others for follow-up (e.g. "@Bob what do you think?") but keep it natural.`;
-
-  // 7. Call Claude
-  console.log(`${LOG} calling Claude — isTeamWide=${isTeamWide} mentionedIds=${mentionedAgentIds.length} system=${systemPrompt.length}chars`);
   const anthropic = getAnthropicClient();
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-5-20250929",
-    max_tokens: 2048,
-    system: systemPrompt,
-    messages,
-  });
 
-  const rawText = response.content
+  // 6. CASUAL SHORTCUT — no evaluate, no RAG, Haiku model
+  if (effectiveIntent === "casual" && mentionedAgentIds.length === 0) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .filter((b: any) => b.type === "text")
+    const scored = agents
+      .map((a: any) => ({ agent: a, score: scoreAgentRelevance(plainText, a) }))
+      .sort((a: any, b: any) => b.score - a.score);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .map((b: any) => b.text)
-    .join("");
+    const casualAgents = scored.slice(0, Math.min(2, scored.length)).map((s: any) => s.agent);
 
-  const cleaned = cleanResponse(rawText).trim();
-  console.log(`${LOG} Claude response (${cleaned.length}chars): "${cleaned.slice(0, 150)}"`);
+    const responses = await Promise.all(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      casualAgents.map(async (agent: any) => {
+        const systemPrompt = buildGroupAgentSystemPrompt(agent, [], []);
+        const response = await anthropic.messages.create({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 200,
+          system: systemPrompt,
+          messages,
+        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const text = response.content
+          .filter((b: any) => b.type === "text")
+          .map((b: any) => b.text as string)
+          .join("")
+          .trim();
+        return `[${agent.name}] ${cleanResponse(text)}`;
+      })
+    );
 
-  if (!cleaned || /^\[no reactions\]$/i.test(cleaned) || cleaned.toLowerCase().includes("[no reactions]")) {
-    console.log(`${LOG} no reactions — skipping save`);
+    const combined = responses.filter((r) => r.trim()).join("\n");
+    if (!combined) return;
+
+    await supabase.from("messages").insert({ conversation_id: conversationId, role: "assistant", content: combined });
+    await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", conversationId);
+    console.log(`${LOG} Casual: ${casualAgents.length} agent(s) responded`);
     return;
   }
 
-  // 8. Save responses
-  await supabase.from("messages").insert({
-    conversation_id: conversationId,
-    role: "assistant",
-    content: cleaned,
-  });
-  await supabase
-    .from("conversations")
-    .update({ updated_at: new Date().toISOString() })
-    .eq("id", conversationId);
+  // 7. EVALUATE PHASE — parallel cheap calls
+  // @mentioned agents always respond; others self-select
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mentionedAgents = agents.filter((a: any) => mentionedAgentIds.includes(a.id));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const nonMentionedAgents = agents.filter((a: any) => !mentionedAgentIds.includes(a.id));
 
-  console.log(`${LOG} responses saved to conv=${conversationId}`);
+  // Get last 3-4 messages as context for eval
+  const recentForEval = messages.slice(-4).map(
+    (m) => `${m.role === "user" ? "User" : "Team"}: ${m.content.slice(0, 150)}`
+  );
 
-  // 9. Multi-round follow-up — cap at 2 extra rounds total.
+  let evalResults: EvalResult[] = [];
+  if (nonMentionedAgents.length > 0) {
+    if (isTeamWide) {
+      // Team-wide: everyone responds, skip eval
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      evalResults = nonMentionedAgents.map((a: any) => ({ agentId: a.id, respond: true, reason: "team-wide message" }));
+    } else {
+      evalResults = await evaluateAgents(anthropic, nonMentionedAgents, recentForEval, plainText);
+      for (const r of evalResults) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const name = agents.find((a: any) => a.id === r.agentId)?.name ?? r.agentId;
+        console.log(`${LOG} Eval: ${name} → ${r.respond ? "YES" : "NO"} (${r.reason})`);
+      }
+    }
+  }
+
+  // Collect responding agents
+  const respondingIds = new Set<string>([
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...mentionedAgents.map((a: any) => a.id as string),
+    ...evalResults.filter((r) => r.respond).map((r) => r.agentId),
+  ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const respondingAgents = agents.filter((a: any) => respondingIds.has(a.id));
+
+  console.log(`${LOG} Responding: [${respondingAgents.map((a: any) => a.name).join(", ") || "none"}]`);
+
+  if (respondingAgents.length === 0) {
+    console.log(`${LOG} No agents selected — done`);
+    return;
+  }
+
+  // 8. RESPOND PHASE — parallel full pipeline
+  const agentResponses = await Promise.all(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    respondingAgents.map(async (agent: any) => {
+      const text = await generateAgentResponse(
+        anthropic,
+        supabase,
+        agent,
+        messages,
+        plainText,
+        docsByAgent
+      );
+      return `[${agent.name}] ${text}`;
+    })
+  );
+
+  const combined = agentResponses.filter((r) => r.trim()).join("\n");
+  if (!combined) {
+    console.log(`${LOG} All responses empty — done`);
+    return;
+  }
+
+  // 9. Save
+  await supabase.from("messages").insert({ conversation_id: conversationId, role: "assistant", content: combined });
+  await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", conversationId);
+  console.log(`${LOG} Saved ${respondingAgents.length} agent response(s)`);
+
+  // 10. FOLLOW-UP DETECTION — cap at 2 extra rounds
   if (_round < 2) {
-    console.log(`${LOG} Checking for follow-up triggers in agent responses...`);
-    const followUp = detectFollowUpTriggers(cleaned, allAgents, excludeIds);
-
+    const followUp = detectFollowUpTriggers(combined, allAgents, excludeIds);
     if (followUp) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const targetNames = allAgents.filter((a: any) => followUp.targetAgentIds.includes(a.id)).map((a: any) => a.name).join(", ");
-      console.log(`${LOG} Follow-up triggered — targets: [${targetNames}] reason: ${followUp.reason}`);
-
-      // Exclude everyone EXCEPT targeted agents (so only they can respond).
-      // Also exclude the askers so they don't answer their own questions.
+      console.log(`${LOG} Follow-up → [${targetNames}] reason: ${followUp.reason}`);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const nextExclude = allAgents
-        .filter((a: any) => !followUp.targetAgentIds.includes(a.id))
-        .map((a: any) => a.id as string);
-
-      await runGroupOrchestration(supabase, userId, conversationId, cleaned, nextExclude, _round + 1);
+      const nextExclude = allAgents.filter((a: any) => !followUp.targetAgentIds.includes(a.id)).map((a: any) => a.id as string);
+      await runGroupOrchestration(supabase, userId, conversationId, combined, nextExclude, _round + 1);
     } else {
-      console.log(`${LOG} No follow-up triggers found — conversation complete`);
+      console.log(`${LOG} No follow-up triggers — conversation complete`);
     }
   }
 }

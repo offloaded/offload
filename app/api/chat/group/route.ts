@@ -1,7 +1,29 @@
 import { createServerSupabase } from "@/lib/supabase-server";
 import { getAnthropicClient, cleanResponse } from "@/lib/anthropic";
-import { retrieveContext } from "@/lib/rag";
-import { classifyIntent, scoreAgentRelevance, detectMessageAddressing } from "@/lib/group-orchestration";
+import {
+  classifyIntent,
+  detectMessageAddressing,
+  evaluateAgents,
+  generateAgentResponse,
+  scoreAgentRelevance,
+} from "@/lib/group-orchestration";
+
+// Schedule detection instructions included in agent prompts when intent is "action"
+function buildScheduleInstructions(): string {
+  return `If the user is asking you to schedule, remind, or delay something, acknowledge the request and include a JSON block at the END of your response.
+
+For RECURRING tasks ("every morning", "daily at 5pm", "every Monday"):
+\`\`\`schedule_request
+{"agent_id": "YOUR_AGENT_ID", "instruction": "the task to perform", "cron": "0 9 * * *", "timezone": "Pacific/Auckland", "recurring": true, "destination": "group"}
+\`\`\`
+
+For ONE-OFF tasks ("in 5 minutes", "at 3pm today", "tomorrow at noon"):
+\`\`\`schedule_request
+{"agent_id": "YOUR_AGENT_ID", "instruction": "the task to perform", "run_at": "${new Date().toISOString()}", "timezone": "Pacific/Auckland", "recurring": false, "destination": "dm"}
+\`\`\`
+
+Current date/time: ${new Date().toISOString()}. Only include this block when scheduling is explicitly requested. Set destination: "group" for team posts, "dm" for personal reminders.`;
+}
 
 export async function POST(request: Request) {
   const LOG = "[Group Chat]";
@@ -13,12 +35,8 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    console.log(`${LOG} ✗ Unauthorized — no user session`);
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-    });
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
   }
-  console.log(`${LOG} ✓ User authenticated: ${user.id}`);
 
   const body = await request.json();
   const { message, conversation_id, mentions } = body as {
@@ -28,49 +46,32 @@ export async function POST(request: Request) {
   };
 
   console.log(`${LOG} Message: "${message?.slice(0, 100)}${message?.length > 100 ? "..." : ""}"`);
-  console.log(`${LOG} conversation_id: ${conversation_id ?? "(none — new conversation)"}`);
-  console.log(`${LOG} mentions: ${mentions?.length ? mentions.join(", ") : "(none)"}`);
 
   if (!message?.trim()) {
-    console.log(`${LOG} ✗ Empty message rejected`);
-    return new Response(
-      JSON.stringify({ error: "message is required" }),
-      { status: 400 }
-    );
+    return new Response(JSON.stringify({ error: "message is required" }), { status: 400 });
   }
 
-  // Load all agents for this user
+  // Load agents
   const { data: agents, error: agentsError } = await supabase
     .from("agents")
     .select("*")
     .eq("user_id", user.id)
     .order("created_at", { ascending: true });
 
-  if (agentsError) {
-    console.log(`${LOG} ✗ DB error loading agents:`, agentsError);
-    return new Response(
-      JSON.stringify({ error: "No agents found. Create agents first." }),
-      { status: 400 }
-    );
+  if (agentsError || !agents?.length) {
+    return new Response(JSON.stringify({ error: "No agents found. Create agents first." }), { status: 400 });
   }
-  if (!agents || agents.length === 0) {
-    console.log(`${LOG} ✗ No agents found for user ${user.id}`);
-    return new Response(
-      JSON.stringify({ error: "No agents found. Create agents first." }),
-      { status: 400 }
-    );
-  }
-  console.log(`${LOG} ✓ Loaded ${agents.length} agent(s): ${agents.map((a) => `"${a.name}" (${a.id})`).join(", ")}`);
+  console.log(`${LOG} ✓ ${agents.length} agent(s): ${agents.map((a) => a.name).join(", ")}`);
 
-  // Classify intent and detect addressing early — both influence RAG and prompt logic
+  // Classify intent and detect addressing
   const intent = classifyIntent(message.trim());
   const { isTeamWide, mentionedAgentIds: detectedMentionIds } = detectMessageAddressing(message.trim(), agents);
-  console.log(`${LOG} ✓ Intent: ${intent} isTeamWide: ${isTeamWide}`);
+  const effectiveIntent = isTeamWide && intent === "casual" ? "knowledge" : intent;
+  console.log(`${LOG} intent=${intent} effective=${effectiveIntent} isTeamWide=${isTeamWide}`);
 
-  // Use existing conversation or create a new one
+  // Resolve/create conversation
   let convId = conversation_id;
   if (convId) {
-    // Verify the conversation belongs to this user
     const { data: existingConv } = await supabase
       .from("conversations")
       .select("id")
@@ -78,312 +79,206 @@ export async function POST(request: Request) {
       .eq("user_id", user.id)
       .single();
     if (!existingConv) {
-      console.log(`${LOG} ✗ Conversation ${convId} not found or doesn't belong to user`);
-      return new Response(
-        JSON.stringify({ error: "Conversation not found" }),
-        { status: 404 }
-      );
+      return new Response(JSON.stringify({ error: "Conversation not found" }), { status: 404 });
     }
-    console.log(`${LOG} ✓ Using existing conversation: ${convId}`);
   } else {
     const { data: newConv, error: convError } = await supabase
       .from("conversations")
       .insert({ user_id: user.id, agent_id: null })
       .select("id")
       .single();
-
     if (convError || !newConv) {
-      console.log(`${LOG} ✗ Failed to create conversation:`, convError);
-      return new Response(
-        JSON.stringify({ error: "Failed to create conversation" }),
-        { status: 500 }
-      );
+      return new Response(JSON.stringify({ error: "Failed to create conversation" }), { status: 500 });
     }
     convId = newConv.id;
-    console.log(`${LOG} ✓ Created new conversation: ${convId}`);
   }
+  console.log(`${LOG} ✓ Conversation: ${convId}`);
 
-  // Save the user message
-  const { error: userMsgError } = await supabase.from("messages").insert({
-    conversation_id: convId,
-    role: "user",
-    content: message.trim(),
-  });
-  if (userMsgError) {
-    console.log(`${LOG} ✗ Failed to save user message:`, userMsgError);
-  } else {
-    console.log(`${LOG} ✓ User message saved`);
-  }
+  // Save user message
+  await supabase.from("messages").insert({ conversation_id: convId, role: "user", content: message.trim() });
+  await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
 
-  await supabase
-    .from("conversations")
-    .update({ updated_at: new Date().toISOString() })
-    .eq("id", convId);
-
-  // Load message history — casual (non-team-wide) messages only need a short window
-  const historyLimit = intent === "casual" && !isTeamWide ? 6 : 20;
-  const { data: history, error: historyError } = await supabase
+  // Load message history
+  const historyLimit = effectiveIntent === "casual" && !isTeamWide ? 6 : 20;
+  const { data: history } = await supabase
     .from("messages")
     .select("role, content")
     .eq("conversation_id", convId)
     .order("created_at", { ascending: false })
     .limit(historyLimit);
 
-  if (historyError) {
-    console.log(`${LOG} ✗ Failed to load history:`, historyError);
-  }
-
-  // Re-sort ascending for the LLM (we fetched newest-first for the limit)
   if (history) history.reverse();
-
-  const messages = (history || []).map((m) => ({
+  const messages = (history || []).map((m: { role: string; content: string }) => ({
     role: m.role as "user" | "assistant",
     content: m.content,
   }));
 
-  console.log(`${LOG} ✓ History: ${messages.length} message(s) — roles: [${messages.map((m) => m.role).join(", ")}]`);
-  // Check for invalid consecutive same-role messages (would cause Claude API 400)
+  // Validate no consecutive same-role messages (causes Claude API 400)
   for (let i = 1; i < messages.length; i++) {
     if (messages[i].role === messages[i - 1].role) {
-      console.log(`${LOG} ⚠ CONSECUTIVE ${messages[i].role.toUpperCase()} MESSAGES at index ${i - 1} and ${i} — Claude API will reject this!`);
+      console.log(`${LOG} ⚠ Consecutive ${messages[i].role} messages at index ${i - 1},${i}`);
     }
   }
-  if (messages.length > 0) {
-    console.log(`${LOG}   First message role: ${messages[0].role}, Last message role: ${messages[messages.length - 1].role}`);
-  }
+  console.log(`${LOG} ✓ History: ${messages.length} message(s)`);
 
-  // RAG: retrieve document context for each agent that has ready documents
+  // Load docs per agent
   const { data: allDocs } = await supabase
     .from("documents")
     .select("agent_id, file_name")
     .in("agent_id", agents.map((a) => a.id))
     .eq("status", "ready");
 
-  // Group docs by agent
   const docsByAgent = new Map<string, string[]>();
   for (const doc of allDocs || []) {
     const list = docsByAgent.get(doc.agent_id) || [];
     list.push(doc.file_name);
     docsByAgent.set(doc.agent_id, list);
   }
-  console.log(`${LOG} ✓ RAG docs: ${allDocs?.length ?? 0} ready doc(s) across ${docsByAgent.size} agent(s)`);
+  console.log(`${LOG} ✓ Docs: ${allDocs?.length ?? 0} ready doc(s)`);
 
-  // Determine which agents need RAG based on intent + relevance
-  // casual/search → skip RAG entirely
-  // knowledge/action → only retrieve for agents whose purpose overlaps the message
-  const agentContextMap = new Map<string, { content: string; fileName: string; metadata?: { document_date?: string | null; section_heading?: string | null } }[]>();
-
-  if (intent === "knowledge" || intent === "action" || (isTeamWide && intent === "casual")) {
-    const agentsWithDocs = agents.filter((a) => docsByAgent.has(a.id));
-
-    // Score relevance and select agents to retrieve for
-    let agentsToRetrieve = agentsWithDocs;
-    if (agentsWithDocs.length > 0) {
-      const scored = agentsWithDocs
-        .map((a) => ({ agent: a, score: scoreAgentRelevance(message.trim(), a) }))
-        .sort((a, b) => b.score - a.score);
-      const relevant = scored.filter((s) => s.score > 0);
-      // If relevance scoring finds matches, use those. Otherwise fall back to all agents with docs
-      // (avoids missing context when message uses synonyms not in the purpose text)
-      agentsToRetrieve = relevant.length > 0 ? relevant.map((s) => s.agent) : agentsWithDocs;
-      console.log(
-        `${LOG}   RAG selection: ${agentsToRetrieve.map((a) => {
-          const s = scored.find((x) => x.agent.id === a.id);
-          return `"${a.name}"(${s?.score ?? 0})`;
-        }).join(", ")}`
-      );
-    }
-
-    const retrievalPromises = agentsToRetrieve.map(async (a) => {
-      const topK = 5;
-      try {
-        const ctx = await retrieveContext(supabase, a.id, message.trim(), topK);
-        if (ctx.length > 0) {
-          agentContextMap.set(a.id, ctx);
-          console.log(`${LOG}   RAG: ${ctx.length} chunk(s) retrieved for "${a.name}"`);
-        }
-      } catch (err) {
-        console.error(`${LOG} ✗ RAG retrieval failed for "${a.name}":`, err);
-      }
-    });
-
-    await Promise.all(retrievalPromises);
-  } else {
-    console.log(`${LOG}   Skipping RAG for intent="${intent}"`);
-  }
-
-  // Combine UI @mentions (from the client) with name-detected mentions
-  const uiMentionedAgents = (mentions || [])
-    .map((name) => agents.find((a) => a.name.toLowerCase() === name.toLowerCase()))
-    .filter(Boolean);
-  const uiMentionIds = uiMentionedAgents.map((a) => a!.id);
+  // Resolve all @mentioned agents (from UI + from text detection)
+  const uiMentionIds = (mentions || [])
+    .map((name) => agents.find((a) => a.name.toLowerCase() === name.toLowerCase())?.id)
+    .filter((id): id is string => Boolean(id));
   const allMentionedIds = [...new Set([...uiMentionIds, ...detectedMentionIds])];
-  const allMentionedAgents = agents.filter((a) => allMentionedIds.includes(a.id));
-
-  // Override casual intent when message is team-wide (standup, "what are you working on", etc.)
-  const effectiveIntent = isTeamWide && intent === "casual" ? "knowledge" : intent;
-
-  // Build the response requirement instruction
-  let responseRequirement: string;
-  if (isTeamWide) {
-    const agentNames = agents.map((a) => a.name).join(", ");
-    responseRequirement = `MANDATORY: This message is addressed to the ENTIRE team. EVERY agent listed must respond — ${agentNames}. No agent may be skipped.`;
-  } else if (allMentionedAgents.length > 0) {
-    const names = allMentionedAgents.map((a) => a.name).join(", ");
-    responseRequirement = `MANDATORY: The following agents were directly addressed and MUST respond: ${names}. Other agents may chime in briefly if relevant.`;
-  } else if (effectiveIntent === "casual") {
-    responseRequirement = `1-2 agents respond with a brief, natural reply. For simple acknowledgements, 1 agent is enough.`;
-  } else {
-    responseRequirement = `1-3 agents respond based on relevance to their domain.`;
-  }
-
-  console.log(`${LOG} isTeamWide=${isTeamWide} mentionedIds=${allMentionedIds.length} effectiveIntent=${effectiveIntent}`);
-
-  // ── System prompt ──────────────────────────────────────────────────────────
-  const agentList = agents
-    .map((a) => `- ${a.name} (id: ${a.id}, color: ${a.color}): ${a.purpose}`)
-    .join("\n");
-
-  let systemPrompt: string;
-
-  if (effectiveIntent === "casual") {
-    systemPrompt = `You are managing a friendly team of ${agents.length} AI agents in a group chat. This is casual conversation — respond warmly and briefly.
-
-Your team:
-${agentList}
-
-RESPONSE REQUIREMENT: ${responseRequirement}
-
-FORMAT RULES:
-- Format every response as: [Agent Name] their message
-- Every line must start with [Agent Name]. No markdown. Plain conversational text only.`;
-  } else {
-    // Full prompt with RAG context and scheduling support
-    const agentDescriptions = agents.map((a) => {
-      const shortPurpose = a.purpose.length > 120 ? a.purpose.slice(0, 120).trimEnd() + "..." : a.purpose;
-      let desc = `- ${a.name} (id: ${a.id}, color: ${a.color}): ${shortPurpose}`;
-      const docNames = docsByAgent.get(a.id);
-      if (docNames && docNames.length > 0) {
-        desc += `\n  Documents: ${docNames.join(", ")}`;
-      }
-      const ctx = agentContextMap.get(a.id);
-      if (ctx && ctx.length > 0) {
-        desc += `\n  Relevant knowledge base excerpts for ${a.name}:`;
-        ctx.forEach((c, i) => {
-          let header = `From "${c.fileName}"`;
-          if (c.metadata?.document_date) header += ` (${c.metadata.document_date})`;
-          if (c.metadata?.section_heading) header += ` — ${c.metadata.section_heading}`;
-          desc += `\n  [${i + 1}] ${header}: ${c.content}`;
-        });
-      }
-      return desc;
-    }).join("\n\n");
-
-    systemPrompt = `You are the Operations Manager for a team of AI agents. Your job is to route the user's message to the most relevant agent(s) and respond as them.
-
-Your team:
-${agentDescriptions}
-
-RESPONSE REQUIREMENT:
-${responseRequirement}
-
-FORMAT RULES (strictly enforced):
-- Format EACH agent's response on its own line: [Agent Name] Their response text here.
-- Every line MUST start with [Agent Name]. No text outside that format.
-- Plain conversational text only. No **bold**, no *italic*, no # headers, no bullet lists. No XML tags.
-- Each response: 1-3 sentences unless more detail is genuinely needed.
-- When an agent has knowledge base excerpts, they MUST reference and use that information.
-
-TEAM COLLABORATION:
-- Agents are colleagues. If another agent's expertise is relevant, tag them: "@Name, what do you think?"
-- Build on prior conversation context. Don't repeat what was already said.
-
-SCHEDULED TASKS:
-If the user asks to schedule, remind, or delay something, the most relevant agent should acknowledge the request AND include a JSON block at the very END of your response.
-
-For RECURRING tasks ("every morning", "daily at 5pm", "every Monday"):
-\`\`\`schedule_request
-{"agent_id": "the-agent-id", "instruction": "the task to perform", "cron": "0 9 * * *", "timezone": "Pacific/Auckland", "recurring": true, "destination": "group"}
-\`\`\`
-
-For ONE-OFF tasks ("in 5 minutes", "at 3pm today", "tomorrow at noon", "in an hour"):
-\`\`\`schedule_request
-{"agent_id": "the-agent-id", "instruction": "the task to perform", "run_at": "2025-03-07T15:00:00.000Z", "timezone": "Pacific/Auckland", "recurring": false, "destination": "group"}
-\`\`\`
-
-The current date/time is ${new Date().toISOString()}. For one-off tasks use "run_at" with the exact UTC ISO datetime — do NOT include a "cron" field. For recurring tasks use "cron" with a standard 5-field expression — do NOT include "run_at". Set "destination" based on the user's wording: use "group" if they say things like "ask the group", "post in the group chat", "tell the team", "message the team", "share with everyone"; use "dm" if they say "remind me", "message me", "send me", "let me know", "tell me". Default to "dm" when unclear. Only include this block when the user is explicitly requesting a scheduled or delayed task.`;
-  }
-
-  console.log(`${LOG} ✓ System prompt built: ${systemPrompt.length} chars`);
-  console.log(`${LOG} ─── Calling Claude API ───`);
-  console.log(`${LOG}   model: claude-sonnet-4-5-20250929`);
-  console.log(`${LOG}   messages: ${messages.length}`);
-  console.log(`${LOG}   system prompt preview: ${systemPrompt.slice(0, 200).replace(/\n/g, "↵")}...`);
+  const mentionedAgents = agents.filter((a) => allMentionedIds.includes(a.id));
+  const nonMentionedAgents = agents.filter((a) => !allMentionedIds.includes(a.id));
 
   const anthropic = getAnthropicClient();
-  const stream = anthropic.messages.stream({
-    model: "claude-sonnet-4-5-20250929",
-    max_tokens: 4096,
-    system: systemPrompt,
-    messages,
-  });
-  console.log(`${LOG} ✓ Claude stream created`);
-
   const encoder = new TextEncoder();
-  let fullResponse = "";
-  let chunkCount = 0;
 
   const readable = new ReadableStream({
     async start(controller) {
-      console.log(`${LOG} ─── Stream started ───`);
+      const send = (data: Record<string, unknown>) =>
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+
       try {
-        controller.enqueue(
-          encoder.encode(
-            `data: ${JSON.stringify({ type: "conversation_id", conversation_id: convId })}\n\n`
-          )
-        );
+        send({ type: "conversation_id", conversation_id: convId });
 
-        for await (const event of stream) {
-          if (
-            event.type === "content_block_delta" &&
-            event.delta.type === "text_delta"
-          ) {
-            const text = event.delta.text;
-            fullResponse += text;
-            chunkCount++;
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({ type: "text", text })}\n\n`
-              )
+        let combined = "";
+
+        // ── CASUAL SHORTCUT ────────────────────────────────────────────────
+        // For clearly casual messages with no @mentions: skip evaluate phase,
+        // pick 1-2 agents by relevance, use Haiku, no RAG.
+        if (effectiveIntent === "casual" && allMentionedIds.length === 0) {
+          console.log(`${LOG} Casual shortcut`);
+
+          const scored = agents
+            .map((a) => ({ agent: a, score: scoreAgentRelevance(message.trim(), a) }))
+            .sort((a, b) => b.score - a.score);
+          const casualAgents = scored.slice(0, Math.min(2, scored.length)).map((s) => s.agent);
+
+          const casualResponses = await Promise.all(
+            casualAgents.map(async (agent) => {
+              const systemPrompt = `You are ${agent.name}, a member of a team group chat.\nYour role: ${agent.purpose}\n\nWrite a brief, natural response (1-2 sentences). Plain text only, no markdown. Do NOT start with your name.`;
+              const response = await anthropic.messages.create({
+                model: "claude-haiku-4-5-20251001",
+                max_tokens: 150,
+                system: systemPrompt,
+                messages,
+              });
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const text = response.content
+                .filter((b: any) => b.type === "text")
+                .map((b: any) => b.text as string)
+                .join("")
+                .trim();
+              return `[${agent.name}] ${cleanResponse(text)}`;
+            })
+          );
+
+          combined = casualResponses.filter((r) => r.trim()).join("\n");
+          console.log(`${LOG} Casual: ${casualAgents.length} agent(s) → ${combined.length} chars`);
+        } else {
+          // ── EVALUATE PHASE ───────────────────────────────────────────────
+          // Parallel cheap Haiku calls to decide who should respond.
+          // @mentioned agents bypass evaluation and always respond.
+
+          const recentForEval = messages.slice(-4).map(
+            (m) => `${m.role === "user" ? "User" : "Team"}: ${m.content.slice(0, 150)}`
+          );
+
+          let evalResults: Awaited<ReturnType<typeof evaluateAgents>> = [];
+
+          if (isTeamWide) {
+            // All agents respond — skip eval
+            evalResults = nonMentionedAgents.map((a) => ({
+              agentId: a.id,
+              respond: true,
+              reason: "team-wide message",
+            }));
+            console.log(`${LOG} Team-wide: all ${agents.length} agents respond`);
+          } else if (nonMentionedAgents.length > 0) {
+            console.log(`${LOG} Evaluating ${nonMentionedAgents.length} agent(s)...`);
+            evalResults = await evaluateAgents(
+              anthropic,
+              nonMentionedAgents,
+              recentForEval,
+              message.trim()
             );
+            for (const r of evalResults) {
+              const name = agents.find((a) => a.id === r.agentId)?.name ?? r.agentId;
+              console.log(`${LOG}   ${name} → ${r.respond ? "YES" : "NO"} (${r.reason})`);
+            }
           }
+
+          // ── RESPOND PHASE ─────────────────────────────────────────────
+          // Mentioned agents always respond; self-selected agents also respond.
+          // Run full pipeline (RAG + individual system prompt) in parallel.
+
+          const respondingIds = new Set<string>([
+            ...mentionedAgents.map((a) => a.id),
+            ...evalResults.filter((r) => r.respond).map((r) => r.agentId),
+          ]);
+          const respondingAgents = agents.filter((a) => respondingIds.has(a.id));
+
+          console.log(`${LOG} Responding: [${respondingAgents.map((a) => a.name).join(", ") || "none"}]`);
+
+          if (respondingAgents.length === 0) {
+            send({ type: "done" });
+            controller.close();
+            return;
+          }
+
+          const scheduleInstructions = intent === "action" ? buildScheduleInstructions() : undefined;
+
+          const agentResponses = await Promise.all(
+            respondingAgents.map(async (agent) => {
+              const text = await generateAgentResponse(
+                anthropic,
+                supabase,
+                agent,
+                messages,
+                message.trim(),
+                docsByAgent,
+                scheduleInstructions
+              );
+              // Replace placeholder agent_id with real id in any schedule_request block
+              return `[${agent.name}] ${text.replace(/YOUR_AGENT_ID/g, agent.id)}`;
+            })
+          );
+
+          combined = agentResponses.filter((r) => r.trim()).join("\n");
+          console.log(`${LOG} Respond phase: ${respondingAgents.length} agent(s) → ${combined.length} chars`);
         }
 
-        console.log(`${LOG} ✓ Stream complete: ${chunkCount} chunk(s), ${fullResponse.length} chars total`);
-        console.log(`${LOG}   Raw response preview: "${fullResponse.slice(0, 300).replace(/\n/g, "↵")}"`);
-
-        // Detect schedule_request before cleaning
-        const scheduleMatch = fullResponse.match(
-          /```schedule_request\s*\n([\s\S]*?)\n```/
-        );
-
-        // Clean the response: strip any <search> blocks or tool markup
-        const cleaned = cleanResponse(fullResponse);
-
-        console.log(`${LOG}   Cleaned response length: ${cleaned.length} chars (was ${fullResponse.length})`);
-        if (cleaned.length === 0 && fullResponse.length > 0) {
-          console.log(`${LOG} ⚠ ENTIRE RESPONSE WAS STRIPPED by cleanResponse! Raw was:\n${fullResponse}`);
+        if (!combined) {
+          send({ type: "done" });
+          controller.close();
+          return;
         }
 
-        // Parse agent responses to check formatting
-        const agentLines = cleaned.split("\n").filter((l) => l.trim());
-        const parsedLines = agentLines.filter((l) => /^\[.+\]/.test(l));
-        console.log(`${LOG}   Agent-tagged lines: ${parsedLines.length}/${agentLines.length} total lines`);
-        if (parsedLines.length === 0 && cleaned.length > 0) {
-          console.log(`${LOG} ⚠ No [Agent Name] tags found — response won't parse into agent bubbles. Content:\n${cleaned.slice(0, 500)}`);
-        }
+        // Detect schedule_request block before stripping (for action intent)
+        const scheduleMatch = combined.match(/```schedule_request\s*\n([\s\S]*?)\n```/);
 
-        // Save the cleaned response
+        // Clean the combined response
+        const cleaned = cleanResponse(combined);
+        console.log(`${LOG} Cleaned: ${cleaned.length} chars`);
+
+        // Stream the assembled response
+        send({ type: "text", text: cleaned });
+
+        // Save to DB
         const { error: saveMsgError } = await supabase.from("messages").insert({
           conversation_id: convId,
           role: "assistant",
@@ -392,45 +287,32 @@ The current date/time is ${new Date().toISOString()}. For one-off tasks use "run
         if (saveMsgError) {
           console.log(`${LOG} ✗ Failed to save assistant message:`, saveMsgError);
         } else {
-          console.log(`${LOG} ✓ Assistant message saved to DB`);
+          console.log(`${LOG} ✓ Saved to DB`);
         }
 
-        // If cleaning changed the text, send a replace event
-        if (cleaned !== fullResponse) {
-          controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({ type: "replace", text: cleaned })}\n\n`
-            )
-          );
+        // If cleaning modified the text, send a replace event so the client shows the clean version
+        if (cleaned !== combined) {
+          send({ type: "replace", text: cleaned });
         }
 
+        // Forward schedule_request if detected
         if (scheduleMatch) {
           try {
             const schedule = JSON.parse(scheduleMatch[1]);
-            console.log(`${LOG}   Schedule request detected: ${JSON.stringify(schedule)}`);
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({ type: "schedule_request", ...schedule })}\n\n`
-              )
-            );
+            console.log(`${LOG} Schedule request: ${JSON.stringify(schedule)}`);
+            send({ type: "schedule_request", ...schedule });
           } catch {
             console.log(`${LOG} ⚠ Failed to parse schedule_request JSON`);
           }
         }
 
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`)
-        );
-        console.log(`${LOG} ✓ Done event sent`);
+        send({ type: "done" });
         controller.close();
       } catch (err) {
-        const errorMsg =
-          err instanceof Error ? err.message : "Stream error";
-        console.log(`${LOG} ✗ Stream error: ${errorMsg}`, err);
+        const errorMsg = err instanceof Error ? err.message : "Stream error";
+        console.log(`${LOG} ✗ Error: ${errorMsg}`, err);
         controller.enqueue(
-          encoder.encode(
-            `data: ${JSON.stringify({ type: "error", error: errorMsg })}\n\n`
-          )
+          encoder.encode(`data: ${JSON.stringify({ type: "error", error: errorMsg })}\n\n`)
         );
         controller.close();
       }
