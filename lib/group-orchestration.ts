@@ -114,10 +114,19 @@ interface FollowUpTrigger {
   reason: string;
 }
 
+/**
+ * Scan all agent response blocks for questions that need follow-up.
+ *
+ * @param hardExcludeIds     Agents who can never respond (original poster, etc.)
+ * @param alreadyRespondedIds Agents who already responded this chain — excluded from
+ *                            ambiguous targets ("you", "everyone") but CAN be targeted
+ *                            if specifically @mentioned by name.
+ */
 function detectFollowUpTriggers(
   responseText: string,
   allAgents: { id: string; name: string }[],
-  alwaysExcludeIds: Set<string>,
+  hardExcludeIds: Set<string>,
+  alreadyRespondedIds: Set<string>,
 ): FollowUpTrigger | null {
   const blocks = parseAgentBlocks(responseText);
   if (blocks.length === 0) return null;
@@ -133,9 +142,10 @@ function detectFollowUpTriggers(
     const asker = allAgents.find((a) => a.name === block.name);
     if (asker) askerIds.add(asker.id);
 
+    // 1. Specific agent named — allow even if they already responded this round
     let foundSpecific = false;
     for (const agent of allAgents) {
-      if (alwaysExcludeIds.has(agent.id)) continue;
+      if (hardExcludeIds.has(agent.id)) continue;
       if (asker && agent.id === asker.id) continue;
       const n = agent.name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const specific = [
@@ -151,6 +161,7 @@ function detectFollowUpTriggers(
       }
     }
 
+    // 2. Ambiguous ("you", "everyone") — only target agents who haven't responded yet
     if (!foundSpecific) {
       const ambiguous = [
         /\bhow about you\b/,
@@ -172,12 +183,15 @@ function detectFollowUpTriggers(
         /\blet me know if (anyone|anyone's)\b/,
       ];
       if (ambiguous.some((p) => p.test(lower))) {
+        let added = 0;
         for (const agent of allAgents) {
-          if (alwaysExcludeIds.has(agent.id)) continue;
+          if (hardExcludeIds.has(agent.id)) continue;
+          if (alreadyRespondedIds.has(agent.id)) continue; // skip already-responded for ambiguous
           if (asker && agent.id === asker.id) continue;
           targetIds.add(agent.id);
+          added++;
         }
-        reasons.push(`${block.name} → ambiguous "you" (all agents)`);
+        if (added > 0) reasons.push(`${block.name} → ambiguous (${added} new agents)`);
       }
     }
   }
@@ -197,17 +211,25 @@ type ContextChunk = {
 function buildGroupAgentSystemPrompt(
   agent: { name: string; purpose: string },
   context: ContextChunk[],
+  teamMemberNames: string[],
   docNames?: string[],
   scheduleInstructions?: string
 ): string {
+  const otherMembers = teamMemberNames.filter((n) => n !== agent.name);
+  const teamList = otherMembers.length > 0 ? otherMembers.join(", ") : "no other members";
+
   let prompt = `You are ${agent.name}, a member of a team group chat.
 
 Your role: ${agent.purpose}
 
-Write a concise, natural response (1-3 sentences) from your perspective as ${agent.name}.
-Do NOT prefix your response with your name or "[${agent.name}]" — just write the response directly.
-Plain conversational text only. No markdown, no bold, no headers, no bullet lists.
-You are a team colleague — be direct, relevant, and brief.`;
+Team members you can address: ${teamList}. Address the user as @You.
+When referencing someone, use @Name (e.g. @${otherMembers[0] ?? "Alice"}, @You). Never use markdown like **replies to Name** or "replies to".
+
+Write a concise, natural response (1-3 sentences) from your perspective.
+Do NOT prefix your response with your name or "[${agent.name}]".
+Plain conversational text only — no markdown, no bold, no headers, no bullet lists.
+
+CRITICAL: If you are asked a question, answer it directly from your own perspective and expertise. Do NOT redirect the question back to the group or ask others the same question. Do NOT say things like "Can everyone give me an update?" — instead, give YOUR OWN update or answer.`;
 
   if (docNames?.length) {
     prompt += `\n\nYour knowledge base: ${docNames.join(", ")}`;
@@ -262,7 +284,7 @@ export async function evaluateAgents(
 
 ${contextText}New message: "${newMessage}"
 
-Should you respond based on your role and expertise?`,
+Should you respond based on your role and expertise? If the message asks for your perspective or input, respond true.`,
           }],
         });
 
@@ -294,6 +316,7 @@ export async function generateAgentResponse(
   messages: { role: "user" | "assistant"; content: string }[],
   plainMessage: string,
   docsByAgent: Map<string, string[]>,
+  teamMemberNames: string[],
   scheduleInstructions?: string
 ): Promise<string> {
   let context: ContextChunk[] = [];
@@ -306,6 +329,7 @@ export async function generateAgentResponse(
   const systemPrompt = buildGroupAgentSystemPrompt(
     agent,
     context,
+    teamMemberNames,
     docsByAgent.get(agent.id),
     scheduleInstructions
   );
@@ -372,6 +396,10 @@ async function buildHistory(supabase: any, conversationId: string, limit = 20): 
  * 2. Evaluate phase: parallel Haiku calls to each agent for relevance check
  * 3. Respond phase: parallel Sonnet calls for selected agents with full RAG
  * 4. Follow-up detection: up to 2 rounds for agent-to-agent questions
+ *
+ * @param _respondedIds  Accumulates agent IDs that have responded across rounds.
+ *                       Passed recursively to prevent duplicate responses in
+ *                       ambiguous follow-up targeting.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function runGroupOrchestration(
@@ -381,7 +409,8 @@ export async function runGroupOrchestration(
   conversationId: string,
   triggerMessage: string,
   excludeAgentId?: string | string[],
-  _round = 0
+  _round = 0,
+  _respondedIds = new Set<string>()
 ): Promise<void> {
   const LOG = `[GroupOrch r${_round}]`;
   console.log(`${LOG} triggered — conv=${conversationId} msg="${triggerMessage.slice(0, 80)}"`);
@@ -448,6 +477,8 @@ export async function runGroupOrchestration(
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const teamMemberNames = allAgents.map((a: any) => a.name as string);
   const anthropic = getAnthropicClient();
 
   // 6. CASUAL SHORTCUT — no evaluate, no RAG, Haiku model
@@ -462,7 +493,7 @@ export async function runGroupOrchestration(
     const responses = await Promise.all(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       casualAgents.map(async (agent: any) => {
-        const systemPrompt = buildGroupAgentSystemPrompt(agent, [], []);
+        const systemPrompt = buildGroupAgentSystemPrompt(agent, [], teamMemberNames, []);
         const response = await anthropic.messages.create({
           model: "claude-haiku-4-5-20251001",
           max_tokens: 200,
@@ -488,42 +519,50 @@ export async function runGroupOrchestration(
     return;
   }
 
-  // 7. EVALUATE PHASE — parallel cheap calls
-  // @mentioned agents always respond; others self-select
+  // 7. SELECT RESPONDING AGENTS
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mentionedAgents = agents.filter((a: any) => mentionedAgentIds.includes(a.id));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const nonMentionedAgents = agents.filter((a: any) => !mentionedAgentIds.includes(a.id));
 
-  // Get last 3-4 messages as context for eval
-  const recentForEval = messages.slice(-4).map(
-    (m) => `${m.role === "user" ? "User" : "Team"}: ${m.content.slice(0, 150)}`
-  );
+  let respondingAgents: typeof agents;
 
-  let evalResults: EvalResult[] = [];
-  if (nonMentionedAgents.length > 0) {
-    if (isTeamWide) {
-      // Team-wide: everyone responds, skip eval
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      evalResults = nonMentionedAgents.map((a: any) => ({ agentId: a.id, respond: true, reason: "team-wide message" }));
-    } else {
-      evalResults = await evaluateAgents(anthropic, nonMentionedAgents, recentForEval, plainText);
-      for (const r of evalResults) {
+  if (_round > 0) {
+    // Follow-up rounds: skip re-evaluation — these agents were explicitly targeted by
+    // detectFollowUpTriggers. Having them evaluate would likely result in "no" since
+    // they can see they've already contributed to the conversation.
+    respondingAgents = agents;
+    console.log(`${LOG} Follow-up round: ${agents.length} targeted agent(s) respond without re-evaluation`);
+  } else {
+    // EVALUATE PHASE — parallel cheap calls
+    const recentForEval = messages.slice(-4).map(
+      (m) => `${m.role === "user" ? "User" : "Team"}: ${m.content.slice(0, 150)}`
+    );
+
+    let evalResults: EvalResult[] = [];
+    if (nonMentionedAgents.length > 0) {
+      if (isTeamWide) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const name = agents.find((a: any) => a.id === r.agentId)?.name ?? r.agentId;
-        console.log(`${LOG} Eval: ${name} → ${r.respond ? "YES" : "NO"} (${r.reason})`);
+        evalResults = nonMentionedAgents.map((a: any) => ({ agentId: a.id, respond: true, reason: "team-wide message" }));
+        console.log(`${LOG} Team-wide: all ${agents.length} agents respond`);
+      } else {
+        evalResults = await evaluateAgents(anthropic, nonMentionedAgents, recentForEval, plainText);
+        for (const r of evalResults) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const name = agents.find((a: any) => a.id === r.agentId)?.name ?? r.agentId;
+          console.log(`${LOG} Eval: ${name} → ${r.respond ? "YES" : "NO"} (${r.reason})`);
+        }
       }
     }
-  }
 
-  // Collect responding agents
-  const respondingIds = new Set<string>([
+    const respondingIds = new Set<string>([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...mentionedAgents.map((a: any) => a.id as string),
+      ...evalResults.filter((r) => r.respond).map((r) => r.agentId),
+    ]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ...mentionedAgents.map((a: any) => a.id as string),
-    ...evalResults.filter((r) => r.respond).map((r) => r.agentId),
-  ]);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const respondingAgents = agents.filter((a: any) => respondingIds.has(a.id));
+    respondingAgents = agents.filter((a: any) => respondingIds.has(a.id));
+  }
 
   console.log(`${LOG} Responding: [${respondingAgents.map((a: any) => a.name).join(", ") || "none"}]`);
 
@@ -542,7 +581,8 @@ export async function runGroupOrchestration(
         agent,
         messages,
         plainText,
-        docsByAgent
+        docsByAgent,
+        teamMemberNames
       );
       return `[${agent.name}] ${text}`;
     })
@@ -561,14 +601,18 @@ export async function runGroupOrchestration(
 
   // 10. FOLLOW-UP DETECTION — cap at 2 extra rounds
   if (_round < 2) {
-    const followUp = detectFollowUpTriggers(combined, allAgents, excludeIds);
+    // Track who has responded across this entire chain (cumulative)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const nowResponded = new Set<string>([..._respondedIds, ...respondingAgents.map((a: any) => a.id as string)]);
+
+    const followUp = detectFollowUpTriggers(combined, allAgents, excludeIds, nowResponded);
     if (followUp) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const targetNames = allAgents.filter((a: any) => followUp.targetAgentIds.includes(a.id)).map((a: any) => a.name).join(", ");
       console.log(`${LOG} Follow-up → [${targetNames}] reason: ${followUp.reason}`);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const nextExclude = allAgents.filter((a: any) => !followUp.targetAgentIds.includes(a.id)).map((a: any) => a.id as string);
-      await runGroupOrchestration(supabase, userId, conversationId, combined, nextExclude, _round + 1);
+      await runGroupOrchestration(supabase, userId, conversationId, combined, nextExclude, _round + 1, nowResponded);
     } else {
       console.log(`${LOG} No follow-up triggers — conversation complete`);
     }
