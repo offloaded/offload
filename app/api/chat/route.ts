@@ -41,7 +41,9 @@ export async function POST(request: Request) {
     });
   }
 
-  // Use existing conversation or create a new one
+  // Use existing conversation or create a new one.
+  // If no conversation_id provided, reuse the most recent conversation for this agent
+  // rather than creating a new one — prevents orphaned conversations when the cache is cleared.
   let convId = conversation_id;
   if (convId) {
     // Verify the conversation belongs to this user
@@ -58,19 +60,33 @@ export async function POST(request: Request) {
       );
     }
   } else {
-    const { data: newConv, error: convError } = await supabase
+    // Try to find the most recent conversation for this agent first
+    const { data: existing } = await supabase
       .from("conversations")
-      .insert({ user_id: user.id, agent_id })
       .select("id")
+      .eq("user_id", user.id)
+      .eq("agent_id", agent_id)
+      .order("updated_at", { ascending: false })
+      .limit(1)
       .single();
 
-    if (convError || !newConv) {
-      return new Response(
-        JSON.stringify({ error: "Failed to create conversation" }),
-        { status: 500 }
-      );
+    if (existing) {
+      convId = existing.id;
+    } else {
+      const { data: newConv, error: convError } = await supabase
+        .from("conversations")
+        .insert({ user_id: user.id, agent_id })
+        .select("id")
+        .single();
+
+      if (convError || !newConv) {
+        return new Response(
+          JSON.stringify({ error: "Failed to create conversation" }),
+          { status: 500 }
+        );
+      }
+      convId = newConv.id;
     }
-    convId = newConv.id;
   }
 
   // Save the user message
