@@ -1,4 +1,4 @@
-import { createServerSupabase } from "@/lib/supabase-server";
+import { createServiceSupabase } from "@/lib/supabase-server";
 import { getAnthropicClient, buildSystemPrompt, cleanResponse } from "@/lib/anthropic";
 import { retrieveContext, type RetrievedChunk } from "@/lib/rag";
 import { webSearch, formatSearchResults } from "@/lib/web-search";
@@ -6,6 +6,7 @@ import { getNextRun } from "@/lib/cron";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 300; // 5 min for Vercel
+export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   // Verify cron secret to prevent unauthorized access
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = await createServerSupabase();
+  const supabase = createServiceSupabase();
   const now = new Date();
 
   // Find all enabled tasks whose next_run_at is in the past
@@ -55,7 +56,7 @@ export async function POST(request: Request) {
 }
 
 async function runTask(
-  supabase: Awaited<ReturnType<typeof createServerSupabase>>,
+  supabase: ReturnType<typeof createServiceSupabase>,
   task: {
     id: string;
     user_id: string;

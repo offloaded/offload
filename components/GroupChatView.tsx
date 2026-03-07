@@ -12,6 +12,7 @@ import {
   type ChatMessage,
 } from "@/lib/chat-cache";
 import { sendGroup, subscribe, getInflightState, resetInflight } from "@/lib/inflight";
+import { useApp } from "@/app/(app)/layout";
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -492,6 +493,7 @@ export function GroupChatView({
   openDrawer: () => void;
   initialConversationId?: string | null;
 }) {
+  const { markRead } = useApp();
   const CHAT_ID = initialConversationId
     ? `conv:${initialConversationId}`
     : "group";
@@ -538,6 +540,9 @@ export function GroupChatView({
       setConversationId(inflight.conversationId || cached.conversationId);
       setHasMore(cached.hasMore);
       setLoading(false);
+      if (inflight.conversationId || cached.conversationId) {
+        markRead(inflight.conversationId || cached.conversationId!);
+      }
       return;
     }
 
@@ -563,6 +568,7 @@ export function GroupChatView({
         setMessages(msgs);
         setHasMore(more);
         setCache(CHAT_ID, { conversationId: convId, messages: msgs, hasMore: more });
+        if (convId) markRead(convId);
       })
       .catch(() => {})
       .finally(() => setLoading(false));

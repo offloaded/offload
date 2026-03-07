@@ -14,6 +14,9 @@ interface AppContextValue {
   refreshTaskCount: () => void;
   mobile: boolean;
   openDrawer: () => void;
+  unreadCounts: Record<string, number>;
+  refreshUnreadCounts: () => void;
+  markRead: (conversationId: string) => void;
 }
 
 const AppContext = createContext<AppContextValue>({
@@ -23,6 +26,9 @@ const AppContext = createContext<AppContextValue>({
   refreshTaskCount: () => {},
   mobile: false,
   openDrawer: () => {},
+  unreadCounts: {},
+  refreshUnreadCounts: () => {},
+  markRead: () => {},
 });
 
 export function useApp() {
@@ -44,6 +50,7 @@ function useIsMobile() {
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [activeTaskCount, setActiveTaskCount] = useState(0);
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [checked, setChecked] = useState(false);
   const mobile = useIsMobile();
@@ -68,6 +75,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       .catch(() => {});
   }, []);
 
+  const refreshUnreadCounts = useCallback(() => {
+    fetch("/api/unread-counts")
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((counts: Record<string, number>) => setUnreadCounts(counts))
+      .catch(() => {});
+  }, []);
+
+  const markRead = useCallback((conversationId: string) => {
+    fetch("/api/conversations/mark-read", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversation_id: conversationId }),
+    }).then(() => refreshUnreadCounts()).catch(() => {});
+  }, [refreshUnreadCounts]);
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) {
@@ -76,9 +98,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         setChecked(true);
         refreshAgents();
         refreshTaskCount();
+        refreshUnreadCounts();
       }
     });
-  }, [supabase, router, refreshAgents, refreshTaskCount]);
+  }, [supabase, router, refreshAgents, refreshTaskCount, refreshUnreadCounts]);
+
+  // Poll for unread counts every 20 seconds
+  useEffect(() => {
+    if (!checked) return;
+    const interval = setInterval(refreshUnreadCounts, 20_000);
+    return () => clearInterval(interval);
+  }, [checked, refreshUnreadCounts]);
 
   if (!checked) {
     return (
@@ -89,11 +119,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AppContext value={{ agents, refreshAgents, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true) }}>
+    <AppContext value={{ agents, refreshAgents, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead }}>
       <div className="flex h-screen w-full bg-[var(--color-page-bg)] overflow-hidden">
         {/* Desktop sidebar — hidden below 768px via CSS */}
         <div className="hidden md:flex w-[220px] min-w-[220px] bg-[var(--color-bg)] border-r border-[var(--color-border)] flex-col">
-          <SidebarContent agents={agents} activeTaskCount={activeTaskCount} />
+          <SidebarContent agents={agents} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} />
         </div>
 
         {/* Mobile drawer — always mounted, visibility controlled by open state */}
@@ -102,6 +132,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
           activeTaskCount={activeTaskCount}
+          unreadCounts={unreadCounts}
         />
 
         <div className="flex-1 flex flex-col overflow-hidden">
