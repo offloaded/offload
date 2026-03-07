@@ -69,6 +69,14 @@ export function detectMessageAddressing(
     /how (is|are) (everyone|the team|things|you all|we all)\b/,
     /what'?s? (everyone|the team|going on|new|the status)\b/,
     /\b(go around|round the room|each of you|all of you)\b/,
+    // "What are your top risks?" / "What's your take?" — plural "your" implying the whole group
+    /what (are|is|were) your\b/,
+    /what'?s? your\b/,
+    // "Give me your X" / "Share your X" — soliciting from the group
+    /\b(give|share|tell|show) me your\b/,
+    // "I'd like to hear from everyone" / "thoughts?"
+    /\b(hear from|input from|feedback from) (everyone|the team|each|all)\b/,
+    /\bthoughts\?/,
   ].some((p) => p.test(lower));
 
   const mentionedAgentIds: string[] = [];
@@ -128,15 +136,22 @@ export function detectFollowUpTriggers(
   hardExcludeIds: Set<string>,
   alreadyRespondedIds: Set<string>,
 ): FollowUpTrigger | null {
+  const LOG = "[FollowUp]";
   const blocks = parseAgentBlocks(responseText);
-  if (blocks.length === 0) return null;
+  console.log(`${LOG} Scanning ${blocks.length} block(s) for follow-up triggers. Already responded: [${[...alreadyRespondedIds].map((id) => allAgents.find((a) => a.id === id)?.name ?? id).join(", ")}]`);
+  if (blocks.length === 0) {
+    console.log(`${LOG} No [AgentName] blocks found in response text`);
+    return null;
+  }
 
   const targetIds = new Set<string>();
   const askerIds = new Set<string>();
   const reasons: string[] = [];
 
   for (const block of blocks) {
-    if (!block.content.includes("?")) continue;
+    const hasQuestion = block.content.includes("?");
+    console.log(`${LOG} Block [${block.name}]: hasQuestion=${hasQuestion} content="${block.content.slice(0, 120)}"`);
+    if (!hasQuestion) continue;
     const lower = block.content.toLowerCase();
 
     const asker = allAgents.find((a) => a.name === block.name);
@@ -148,16 +163,22 @@ export function detectFollowUpTriggers(
       if (hardExcludeIds.has(agent.id)) continue;
       if (asker && agent.id === asker.id) continue;
       const n = agent.name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      // Also match role-based references like "governance perspective", "from a X standpoint"
+      const roleStem = agent.name.toLowerCase().replace(/\b(advisor|manager|lead|officer|specialist|analyst|director|consultant)\b/gi, "").trim();
       const specific = [
         new RegExp(`@${n}\\b`),
         new RegExp(`\\b${n}[,?!]`),
         new RegExp(`\\b${n}[,.]?\\s+(what|how|do|can|are|have|did|is|any|got)\\b`),
         new RegExp(`(how about|what about|anything from),?\\s*${n}\\b`),
+        // Role-based matching: "from a governance perspective", "on your radar"
+        ...(roleStem.length > 3 ? [new RegExp(`\\b${roleStem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+(perspective|standpoint|side|angle|view)\\b`)] : []),
       ];
-      if (specific.some((p) => p.test(lower))) {
+      const matchedPattern = specific.find((p) => p.test(lower));
+      if (matchedPattern) {
         targetIds.add(agent.id);
         foundSpecific = true;
         reasons.push(`${block.name} → @${agent.name}`);
+        console.log(`${LOG}   Specific match: ${block.name} → ${agent.name} (pattern: ${matchedPattern.source})`);
       }
     }
 
@@ -181,8 +202,11 @@ export function detectFollowUpTriggers(
         /\banyone (else|have|know|want|need)\b/,
         /\bany (thoughts|updates?|reactions?|questions?|feedback)\b/,
         /\blet me know if (anyone|anyone's)\b/,
+        /\bon your radar\b/,
+        /\bwhat (are|is) your\b/,
       ];
-      if (ambiguous.some((p) => p.test(lower))) {
+      const matchedAmbiguous = ambiguous.find((p) => p.test(lower));
+      if (matchedAmbiguous) {
         let added = 0;
         for (const agent of allAgents) {
           if (hardExcludeIds.has(agent.id)) continue;
@@ -191,11 +215,19 @@ export function detectFollowUpTriggers(
           targetIds.add(agent.id);
           added++;
         }
-        if (added > 0) reasons.push(`${block.name} → ambiguous (${added} new agents)`);
+        if (added > 0) {
+          reasons.push(`${block.name} → ambiguous (${added} new agents)`);
+          console.log(`${LOG}   Ambiguous match: ${block.name} → ${added} new agents (pattern: ${matchedAmbiguous.source})`);
+        } else {
+          console.log(`${LOG}   Ambiguous match found but all eligible agents already responded`);
+        }
+      } else {
+        console.log(`${LOG}   Question detected but no specific or ambiguous pattern matched`);
       }
     }
   }
 
+  console.log(`${LOG} Result: ${targetIds.size} target(s) [${[...targetIds].map((id) => allAgents.find((a) => a.id === id)?.name ?? id).join(", ")}]`);
   if (targetIds.size === 0) return null;
   return { targetAgentIds: [...targetIds], askerAgentIds: [...askerIds], reason: reasons.join("; ") };
 }
@@ -297,20 +329,30 @@ export async function evaluateAgents(
   return Promise.all(
     agents.map(async (agent): Promise<EvalResult> => {
       const initiative = agent.initiative ?? 3;
-      const initiativeNote =
-        initiative <= 2
-          ? "\nINITIATIVE=LOW: Only set respond=true if the message directly asks for your input, @mentions you, or is squarely in your core expertise. If you have already responded in the recent conversation, set respond=false unless directly asked again."
-          : initiative >= 4
-          ? "\nINITIATIVE=HIGH: You actively engage. Set respond=true if you can add value, ask a useful question, or build on the discussion — even tangentially."
-          : "\nINITIATIVE=MEDIUM: Respond when the topic is relevant to your role. Don't force yourself into conversations where others have it covered.";
 
       // Check if this agent already spoke in the recent context
       const alreadySpoke = recentMessages.some((m) =>
         m.includes(`[${agent.name}]`) || m.startsWith(`Team: [${agent.name}]`)
       );
-      const reEngageNote = alreadySpoke
-        ? "\nYou have ALREADY responded in this conversation. Only set respond=true if: (1) someone @mentioned you or asked you directly, (2) you have genuinely NEW information (not a restatement), or (3) your initiative is HIGH and there is a meaningful new angle to add. NEVER repeat a point you already made."
-        : "";
+
+      // Initiative only governs RE-ENGAGEMENT (speaking again after already responding).
+      // First-time responses are governed purely by relevance to the agent's role.
+      let initiativeNote = "";
+      if (alreadySpoke) {
+        initiativeNote = initiative <= 2
+          ? "\nYou have ALREADY responded. INITIATIVE=LOW: set respond=false unless you are directly @mentioned or asked a direct question."
+          : initiative >= 4
+          ? "\nYou have ALREADY responded. INITIATIVE=HIGH: you may respond again if you have genuinely NEW information, a new angle, or a useful follow-up question. Do NOT restate what you already said."
+          : "\nYou have ALREADY responded. INITIATIVE=MEDIUM: only respond again if you have something new to add that wasn't in your previous response.";
+      }
+
+      const evalPrompt = `You are ${agent.name}. Your role: ${agent.purpose.slice(0, 200)}.${initiativeNote}
+
+${contextText}New message: "${newMessage}"
+
+Should you respond? Consider: Is this relevant to your role? Would your expertise add value?${alreadySpoke ? " Remember you already responded — only say yes if you have something NEW." : " When in doubt, respond — it's better to contribute than stay silent."}`;
+
+      console.log(`[Evaluate] ${agent.name}: alreadySpoke=${alreadySpoke} initiative=${initiative}`);
 
       try {
         const response = await anthropic.messages.create({
@@ -318,35 +360,36 @@ export async function evaluateAgents(
           max_tokens: 120,
           system: `You are a relevance classifier for a group chat. Reply with JSON only, no extra text:
 {"respond": true/false, "urgency": "high|medium|low", "weight": "full|brief", "reason": "brief reason"}
-urgency: high=core to their expertise/critical to answer, medium=useful contribution, low=tangential
-weight: full=substantive response needed, brief=1 sentence acknowledgment only
-IMPORTANT: An agent should NOT respond just to agree or restate what they already said. Only respond=true if they have something new to contribute.`,
+respond: true if the message is relevant to the agent's role and they can contribute meaningfully
+urgency: high=directly about their expertise, medium=relevant contribution, low=tangential but useful
+weight: full=substantive response needed, brief=1 sentence acknowledgment
+Default to respond=true if the topic touches their area of expertise.`,
           messages: [{
             role: "user",
-            content: `You are ${agent.name}. Your role: ${agent.purpose.slice(0, 200)}.${initiativeNote}${reEngageNote}
-
-${contextText}New message: "${newMessage}"
-
-Should you respond? How urgently, and how much?`,
+            content: evalPrompt,
           }],
         });
 
         const text = response.content[0].type === "text" ? response.content[0].text.trim() : "";
+        console.log(`[Evaluate] ${agent.name} raw response: ${text}`);
         const jsonMatch = text.match(/\{[\s\S]*?\}/);
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
           const urgency = (["high", "medium", "low"].includes(parsed.urgency) ? parsed.urgency : "medium") as "high" | "medium" | "low";
           const weight = (parsed.weight === "brief" ? "brief" : "full") as "full" | "brief";
-          return {
+          const result = {
             agentId: agent.id,
             respond: Boolean(parsed.respond),
             urgency,
             weight,
             reason: String(parsed.reason || ""),
           };
+          console.log(`[Evaluate] ${agent.name}: respond=${result.respond} urgency=${result.urgency} weight=${result.weight} reason="${result.reason}"`);
+          return result;
         }
+        console.log(`[Evaluate] ${agent.name}: NO JSON found in response, defaulting to respond=false`);
       } catch (err) {
-        console.error(`[Evaluate] ${agent.name}:`, err);
+        console.error(`[Evaluate] ${agent.name}: ERROR`, err);
       }
       return { agentId: agent.id, respond: false, urgency: "low", weight: "full", reason: "evaluation error" };
     })

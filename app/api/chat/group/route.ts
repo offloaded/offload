@@ -68,7 +68,7 @@ export async function POST(request: Request) {
   const intent = classifyIntent(message.trim());
   const { isTeamWide, mentionedAgentIds: detectedMentionIds } = detectMessageAddressing(message.trim(), agents);
   const effectiveIntent = isTeamWide && intent === "casual" ? "knowledge" : intent;
-  console.log(`${LOG} intent=${intent} effective=${effectiveIntent} isTeamWide=${isTeamWide}`);
+  console.log(`${LOG} intent=${intent} effective=${effectiveIntent} isTeamWide=${isTeamWide} mentionedIds=${detectedMentionIds.length > 0 ? detectedMentionIds.map((id) => agents.find((a) => a.id === id)?.name ?? id).join(", ") : "none"}`);
 
   // Resolve/create conversation.
   // If no conversation_id provided, reuse the most recent group conversation rather than
@@ -271,8 +271,12 @@ export async function POST(request: Request) {
             }));
             console.log(`${LOG} Team-wide: all ${agents.length} agents respond`);
           } else if (nonMentionedAgents.length > 0) {
-            console.log(`${LOG} Evaluating ${nonMentionedAgents.length} agent(s)...`);
+            console.log(`${LOG} Evaluating ${nonMentionedAgents.length} non-mentioned agent(s): [${nonMentionedAgents.map((a) => a.name).join(", ")}]`);
+            console.log(`${LOG} Recent context for eval (${recentForEval.length} msgs): ${recentForEval.map((m) => m.slice(0, 80)).join(" | ")}`);
             evalResults = await evaluateAgents(anthropic, nonMentionedAgents, recentForEval, message.trim());
+            const yesCount = evalResults.filter((r) => r.respond).length;
+            const noCount = evalResults.filter((r) => !r.respond).length;
+            console.log(`${LOG} Eval summary: ${yesCount} YES, ${noCount} NO out of ${evalResults.length} agents`);
             for (const r of evalResults) {
               const name = agents.find((a) => a.id === r.agentId)?.name ?? r.agentId;
               console.log(`${LOG}   ${name} → ${r.respond ? "YES" : "NO"} urgency=${r.urgency} weight=${r.weight} (${r.reason})`);
@@ -345,13 +349,17 @@ export async function POST(request: Request) {
         }).filter((id): id is string => Boolean(id)));
         const hardExcludeIds = new Set<string>(); // no hard excludes for user-initiated flow
 
+        console.log(`${LOG} ── Follow-up detection ──`);
+        console.log(`${LOG} Responded so far: [${[...respondedIds].map((id) => agents.find((a) => a.id === id)?.name ?? id).join(", ")}]`);
+        console.log(`${LOG} Scanning combined response (${combined.length} chars) for questions...`);
+
         let followUpRound = 0;
         let lastCombined = combined;
 
         while (followUpRound < 2) {
           const followUp = detectFollowUpTriggers(lastCombined, agents, hardExcludeIds, respondedIds);
           if (!followUp) {
-            console.log(`${LOG} No follow-up triggers after round ${followUpRound} — done`);
+            console.log(`${LOG} No follow-up triggers after round ${followUpRound} — conversation complete`);
             break;
           }
 
