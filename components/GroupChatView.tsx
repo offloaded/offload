@@ -494,12 +494,16 @@ export function GroupChatView({
   openDrawer: () => void;
   initialConversationId?: string | null;
 }) {
-  const { markRead, setActiveChatKey } = useApp();
+  const { markRead, setActiveChatKey, unreadCounts } = useApp();
   const CHAT_ID = initialConversationId
     ? `conv:${initialConversationId}`
     : "group";
-  const cached = getCached(CHAT_ID);
   const inflight = getInflightState(CHAT_ID);
+  // If there are unread messages and we're not mid-stream, clear stale cache so we fetch fresh from DB
+  if (unreadCounts["group"] && !inflight.streaming) {
+    clearCache(CHAT_ID);
+  }
+  const cached = getCached(CHAT_ID);
 
   const [messages, setMessages] = useState<ChatMessage[]>(cached?.messages || []);
   const [streaming, setStreaming] = useState(inflight.streaming);

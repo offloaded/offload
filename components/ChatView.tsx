@@ -301,12 +301,16 @@ export function ChatView({
   openDrawer: () => void;
   initialConversationId?: string | null;
 }) {
-  const { refreshAgents, markRead, setActiveChatKey } = useApp();
+  const { refreshAgents, markRead, setActiveChatKey, unreadCounts } = useApp();
   const chatId = initialConversationId
     ? `conv:${initialConversationId}`
     : `agent:${agent.id}`;
-  const cached = getCached(chatId);
   const inflight = getInflightState(chatId);
+  // If there are unread messages and we're not mid-stream, clear stale cache so we fetch fresh from DB
+  if (unreadCounts[agent.id] && !inflight.streaming) {
+    clearCache(chatId);
+  }
+  const cached = getCached(chatId);
 
   const [messages, setMessages] = useState<ChatMessage[]>(cached?.messages || []);
   const [streaming, setStreaming] = useState(inflight.streaming);
