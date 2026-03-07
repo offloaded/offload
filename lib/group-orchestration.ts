@@ -250,6 +250,7 @@ function buildGroupAgentSystemPrompt(
     repetition_tolerance?: number;
     warmth?: number;
     voice_profile?: string | null;
+    soft_skills?: { skill: string; confidence: string; note?: string }[] | null;
   },
   context: ContextChunk[],
   teamMemberNames: string[],
@@ -281,6 +282,13 @@ CONTEXT: Only respond to the MOST RECENT message in the conversation. Ignore old
 
   if (agent.voice_profile) {
     prompt += `\n\nTONE OF VOICE: Communicate in this style: ${agent.voice_profile} Match this tone and approach in every response.`;
+  }
+
+  if (agent.soft_skills && agent.soft_skills.length > 0) {
+    const skillsList = agent.soft_skills
+      .map((s) => `- ${s.skill} (${s.confidence})${s.note ? ` — ${s.note}` : ""}`)
+      .join("\n");
+    prompt += `\n\nYOUR SOFT SKILLS:\n${skillsList}\nLean into these strengths when responding.`;
   }
 
   if (docNames?.length) {
@@ -409,7 +417,7 @@ export async function generateAgentResponse(
   anthropic: Anthropic,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
-  agent: { id: string; name: string; purpose: string; verbosity?: number; initiative?: number; reactivity?: number; repetition_tolerance?: number; warmth?: number; voice_profile?: string | null },
+  agent: { id: string; name: string; purpose: string; verbosity?: number; initiative?: number; reactivity?: number; repetition_tolerance?: number; warmth?: number; voice_profile?: string | null; soft_skills?: { skill: string; confidence: string; note?: string }[] | null },
   messages: { role: "user" | "assistant"; content: string }[],
   plainMessage: string,
   docsByAgent: Map<string, string[]>,

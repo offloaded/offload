@@ -14,8 +14,16 @@ export interface Agent {
   // Tone of voice
   voice_samples: string[] | null;
   voice_profile: string | null;
+  // Soft skills
+  soft_skills: SoftSkill[] | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface SoftSkill {
+  skill: string;
+  confidence: "low" | "medium" | "high";
+  note?: string;
 }
 
 export interface Document {

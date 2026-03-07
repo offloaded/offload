@@ -237,6 +237,9 @@ export async function POST(request: Request) {
         const groupMsgMatch = fullResponse.match(
           /```group_message_request\s*\n([\s\S]*?)\n```/
         );
+        const skillsMatch = fullResponse.match(
+          /```skills_update\s*\n([\s\S]*?)\n```/
+        );
 
         // Clean the response: strip <search> blocks, schedule_request blocks, feature_request blocks, etc.
         const cleaned = cleanResponse(fullResponse);
@@ -296,6 +299,34 @@ export async function POST(request: Request) {
             }
           } catch (err) {
             console.error("[Chat] Failed to cross-post to group:", err);
+          }
+        }
+
+        if (skillsMatch) {
+          try {
+            const newSkills = JSON.parse(skillsMatch[1]);
+            if (Array.isArray(newSkills) && newSkills.length > 0) {
+              // Merge with existing skills: update matching skills, add new ones
+              const existing: Array<{ skill: string; confidence: string; note?: string }> = agent.soft_skills || [];
+              const merged = [...existing];
+              for (const ns of newSkills) {
+                if (!ns.skill) continue;
+                const idx = merged.findIndex((s) => s.skill.toLowerCase() === ns.skill.toLowerCase());
+                if (idx >= 0) {
+                  merged[idx] = { ...merged[idx], ...ns };
+                } else {
+                  merged.push(ns);
+                }
+              }
+              await supabase
+                .from("agents")
+                .update({ soft_skills: merged, updated_at: new Date().toISOString() })
+                .eq("id", agent_id)
+                .eq("user_id", user.id);
+              console.log(`[Chat] Updated soft_skills for ${agent.name}: ${merged.length} skill(s)`);
+            }
+          } catch {
+            // Invalid JSON — ignore
           }
         }
 
