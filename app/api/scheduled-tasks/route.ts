@@ -45,11 +45,27 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { agent_id, instruction, cron, timezone, recurring, destination } = body;
+  const { agent_id, instruction, cron, run_at, timezone, recurring, destination } = body;
 
-  if (!agent_id || !instruction?.trim() || !cron?.trim()) {
+  if (!agent_id || !instruction?.trim()) {
     return NextResponse.json(
-      { error: "agent_id, instruction, and cron are required" },
+      { error: "agent_id and instruction are required" },
+      { status: 400 }
+    );
+  }
+
+  const isRecurring = recurring !== false;
+
+  // Recurring tasks need a cron; one-off tasks need run_at (or fallback to cron)
+  if (isRecurring && !cron?.trim()) {
+    return NextResponse.json(
+      { error: "cron is required for recurring tasks" },
+      { status: 400 }
+    );
+  }
+  if (!isRecurring && !run_at && !cron?.trim()) {
+    return NextResponse.json(
+      { error: "run_at is required for one-off tasks" },
       { status: 400 }
     );
   }
@@ -66,15 +82,41 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Agent not found" }, { status: 404 });
   }
 
-  // Calculate next run time
+  // Calculate next run time and the cron to store (null for one-off with run_at)
   let nextRun: string;
-  try {
-    nextRun = getNextRun(cron, new Date()).toISOString();
-  } catch {
-    return NextResponse.json(
-      { error: "Invalid cron expression" },
-      { status: 400 }
-    );
+  let cronToStore: string | null = null;
+
+  if (isRecurring) {
+    try {
+      nextRun = getNextRun(cron.trim(), new Date()).toISOString();
+      cronToStore = cron.trim();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid cron expression" },
+        { status: 400 }
+      );
+    }
+  } else if (run_at) {
+    const runDate = new Date(run_at);
+    if (isNaN(runDate.getTime())) {
+      return NextResponse.json(
+        { error: "Invalid run_at datetime" },
+        { status: 400 }
+      );
+    }
+    nextRun = runDate.toISOString();
+    cronToStore = null;
+  } else {
+    // Fallback: one-off but cron was provided (backward compat)
+    try {
+      nextRun = getNextRun(cron.trim(), new Date()).toISOString();
+      cronToStore = cron.trim();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid cron expression" },
+        { status: 400 }
+      );
+    }
   }
 
   const { data, error } = await supabase
@@ -83,9 +125,9 @@ export async function POST(request: Request) {
       user_id: user.id,
       agent_id,
       instruction: instruction.trim(),
-      cron: cron.trim(),
+      cron: cronToStore,
       timezone: timezone || "UTC",
-      recurring: recurring !== false, // default true for backward compat
+      recurring: isRecurring,
       destination: destination === "group" ? "group" : "dm",
       next_run_at: nextRun,
     })

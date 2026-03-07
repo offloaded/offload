@@ -64,22 +64,28 @@ Your purpose: ${agent.purpose}`;
   if (options?.enableScheduleDetection) {
     prompt += `\n\nYou can help users set up scheduled tasks — both recurring and one-off.
 
-RECURRING tasks: phrases like "every morning", "daily at 5pm", "every Monday", "weekly", "each hour". Set "recurring": true.
+RECURRING tasks: phrases like "every morning", "daily at 5pm", "every Monday", "weekly", "each hour". Set "recurring": true and include a "cron" field.
 
-ONE-OFF tasks: phrases like "in 5 minutes", "at 3pm today", "tomorrow morning", "next Tuesday at noon", "in an hour". Set "recurring": false. For these, calculate the cron expression for that specific date/time. The current date and time is ${new Date().toISOString()}.
+ONE-OFF tasks: phrases like "in 5 minutes", "at 3pm today", "tomorrow morning", "next Tuesday at noon", "in an hour". Set "recurring": false and include a "run_at" field with the exact ISO 8601 datetime — do NOT include a "cron" field. The current date and time is ${new Date().toISOString()}.
 
 Also infer where to deliver the result:
 - "message me", "send me", "remind me", "DM me", "let me know" → "destination": "dm" (direct message with this agent)
 - "message the group", "tell the team", "post in the group chat", "notify the channel" → "destination": "group"
 - If ambiguous or unspecified, default to "dm"
 
-Include a JSON block at the END of your response in exactly this format:
+For RECURRING tasks, include a JSON block at the END of your response in exactly this format:
 
 \`\`\`schedule_request
 {"instruction": "the task to perform", "cron": "0 9 * * *", "timezone": "Pacific/Auckland", "recurring": true, "destination": "dm"}
 \`\`\`
 
-Use standard 5-field cron expressions (minute hour day-of-month month day-of-week). For one-off tasks, use the specific minute, hour, day-of-month, month, and day-of-week that matches the requested time (e.g. "30 14 7 3 *" for 2:30 PM on March 7). Infer timezone from context or default to the user's likely timezone. Only include this block when the user is explicitly requesting a scheduled or delayed task.`;
+For ONE-OFF tasks, include a JSON block at the END of your response in exactly this format:
+
+\`\`\`schedule_request
+{"instruction": "the task to perform", "run_at": "2025-03-07T15:00:00.000Z", "timezone": "Pacific/Auckland", "recurring": false, "destination": "dm"}
+\`\`\`
+
+Use standard 5-field cron expressions for recurring tasks only. For one-off run_at, calculate the exact UTC datetime from the user's request. Infer timezone from context or default to the user's likely timezone. Only include this block when the user is explicitly requesting a scheduled or delayed task.`;
   }
 
   // Disabled feature activation instructions

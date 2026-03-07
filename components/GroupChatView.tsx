@@ -699,7 +699,9 @@ export function GroupChatView({
         body: JSON.stringify({
           agent_id: agentId,
           instruction: scheduleRequest.instruction,
-          cron: scheduleRequest.cron,
+          ...(scheduleRequest.recurring
+            ? { cron: scheduleRequest.cron }
+            : { run_at: scheduleRequest.run_at }),
           timezone: scheduleRequest.timezone,
           recurring: scheduleRequest.recurring,
           destination: scheduleRequest.destination,
@@ -707,17 +709,19 @@ export function GroupChatView({
       });
       if (res.ok) {
         let desc: string;
-        try {
-          desc = describeCron(scheduleRequest.cron);
-        } catch {
-          desc = scheduleRequest.cron;
+        if (scheduleRequest.recurring && scheduleRequest.cron) {
+          try { desc = describeCron(scheduleRequest.cron); } catch { desc = scheduleRequest.cron; }
+        } else if (scheduleRequest.run_at) {
+          desc = new Date(scheduleRequest.run_at).toLocaleString();
+        } else {
+          desc = scheduleRequest.cron ?? "scheduled time";
         }
         const taskType = scheduleRequest.recurring ? "Scheduled task" : "One-off task";
         const successMsg: ChatMessage = {
           role: "assistant",
           content: scheduleRequest.recurring
             ? `${taskType} created — I'll run "${scheduleRequest.instruction}" ${desc} (${scheduleRequest.timezone}).`
-            : `${taskType} created — I'll run "${scheduleRequest.instruction}" once at ${desc} (${scheduleRequest.timezone}).`,
+            : `${taskType} created — I'll run "${scheduleRequest.instruction}" once at ${desc}.`,
           created_at: new Date().toISOString(),
         };
         updateMessages(CHAT_ID, (prev) => [...prev, successMsg]);
@@ -818,7 +822,11 @@ export function GroupChatView({
                 {scheduleRequest.instruction}
               </div>
               <div className="text-[11px] text-[var(--color-text-tertiary)] mt-0.5">
-                {scheduleRequest.cron} &middot; {scheduleRequest.timezone}
+                {scheduleRequest.recurring
+                  ? `${scheduleRequest.cron} · ${scheduleRequest.timezone}`
+                  : scheduleRequest.run_at
+                    ? new Date(scheduleRequest.run_at).toLocaleString()
+                    : scheduleRequest.cron}
               </div>
               <div className="flex gap-2 mt-2">
                 <button

@@ -349,13 +349,19 @@ TEAM COLLABORATION:
 14. When multiple agents respond, they should feel like a natural team discussion, not a list of independent answers.${mentionInstruction}
 
 SCHEDULED TASKS:
-If the user asks to schedule, remind, or delay something (e.g. "every morning", "daily at 5pm", "in 5 minutes", "tomorrow at noon"), the most relevant agent should acknowledge the request AND you must include a JSON block at the very END of your response in exactly this format:
+If the user asks to schedule, remind, or delay something, the most relevant agent should acknowledge the request AND include a JSON block at the very END of your response.
 
+For RECURRING tasks ("every morning", "daily at 5pm", "every Monday"):
 \`\`\`schedule_request
-{"agent_id": "the-agent-id-who-should-run-it", "instruction": "the task to perform", "cron": "0 9 * * *", "timezone": "Pacific/Auckland", "recurring": true, "destination": "group"}
+{"agent_id": "the-agent-id", "instruction": "the task to perform", "cron": "0 9 * * *", "timezone": "Pacific/Auckland", "recurring": true, "destination": "group"}
 \`\`\`
 
-Use standard 5-field cron (minute hour day-of-month month day-of-week). Set "recurring": true for repeating tasks, false for one-off. The current date/time is ${new Date().toISOString()}. For one-off tasks, compute the specific cron for that date/time. Set "destination" to "group" if the user wants the response in the group chat, or "dm" if they want a direct message. Default to "group" since the user is in the group chat. Only include this block when the user is explicitly requesting a scheduled or delayed task.`;
+For ONE-OFF tasks ("in 5 minutes", "at 3pm today", "tomorrow at noon", "in an hour"):
+\`\`\`schedule_request
+{"agent_id": "the-agent-id", "instruction": "the task to perform", "run_at": "2025-03-07T15:00:00.000Z", "timezone": "Pacific/Auckland", "recurring": false, "destination": "group"}
+\`\`\`
+
+The current date/time is ${new Date().toISOString()}. For one-off tasks use "run_at" with the exact UTC ISO datetime — do NOT include a "cron" field. For recurring tasks use "cron" with a standard 5-field expression — do NOT include "run_at". Set "destination" based on the user's wording: use "group" if they say things like "ask the group", "post in the group chat", "tell the team", "message the team", "share with everyone"; use "dm" if they say "remind me", "message me", "send me", "let me know", "tell me". Default to "dm" when unclear. Only include this block when the user is explicitly requesting a scheduled or delayed task.`;
   }
 
   console.log(`${LOG} ✓ System prompt built: ${systemPrompt.length} chars`);
