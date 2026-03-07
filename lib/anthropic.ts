@@ -213,6 +213,9 @@ export function cleanResponse(text: string, streaming = false): string {
     cleaned = cleaned.replace(/```group_message_request[\s\S]*$/g, "");
   }
 
+  // Strip leading [AgentName] or [You] bracket prefix that agents sometimes generate
+  cleaned = cleaned.replace(/^\[[^\]]+\]\s*/, "");
+
   // Trim leftover whitespace from removals
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
   return cleaned;

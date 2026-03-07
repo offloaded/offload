@@ -3,6 +3,7 @@ import { getAnthropicClient, cleanResponse } from "@/lib/anthropic";
 import {
   classifyIntent,
   detectMessageAddressing,
+  detectFollowUpTriggers,
   evaluateAgents,
   generateAgentResponse,
   scoreAgentRelevance,
@@ -168,13 +169,13 @@ export async function POST(request: Request) {
       const send = (data: Record<string, unknown>) =>
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
 
-      // Delays (ms) before each agent starts generating, by urgency.
+      // Minimum delay (ms) before each agent's response appears.
       // Generation runs concurrently with the delay so the user sees the
       // typing indicator immediately, and the response appears once both
       // the minimum wait AND generation complete.
       const DELAY_RANGES: Record<string, [number, number]> = {
-        high:   [1000,  3000],
-        medium: [3000,  8000],
+        high:   [3000,  5000],
+        medium: [4000,  8000],
         low:    [8000, 14000],
       };
 
@@ -236,9 +237,9 @@ export async function POST(request: Request) {
           let priorResponses = "";
           for (let i = 0; i < casualAgents.length; i++) {
             const agent = casualAgents[i];
-            const delay = i === 0 ? 500 + Math.random() * 1000 : 1000 + Math.random() * 1500;
+            const delay = i === 0 ? 2000 + Math.random() * 2000 : 3000 + Math.random() * 5000;
             send({ type: "agent_typing", agent_id: agent.id, agent_name: agent.name, agent_color: agent.color });
-            const systemPrompt = `You are ${agent.name}, a member of a team group chat.\nYour role: ${agent.purpose}\n\nWrite a brief, natural response (1-2 sentences). Plain text only, no markdown. Do NOT start with your name.${priorResponses ? `\n\nColleagues already said:\n${priorResponses}\nDon't repeat them.` : ""}`;
+            const systemPrompt = `You are ${agent.name}, a member of a team group chat.\nYour role: ${agent.purpose}\n\nWrite a brief, natural response (1-2 sentences). Plain text only, no markdown.\nNEVER prefix your response with your name or anyone else's name in brackets like [Name]. NEVER speak as the user or write [You]. The system handles attribution — just write your response naturally.${priorResponses ? `\n\nColleagues already said:\n${priorResponses}\nDon't repeat them.` : ""}`;
             const [response] = await Promise.all([
               anthropic.messages.create({
                 model: "claude-haiku-4-5-20251001",
@@ -333,6 +334,59 @@ export async function POST(request: Request) {
         if (schedulePayload) {
           console.log(`${LOG} Schedule request: ${JSON.stringify(schedulePayload)}`);
           send({ type: "schedule_request", ...(schedulePayload as Record<string, unknown>) });
+        }
+
+        // ── FOLLOW-UP DETECTION — agents responding to each other ────────
+        // After agents respond, check if any asked a question that should
+        // trigger other agents. Up to 2 follow-up rounds within the same SSE stream.
+        const respondedIds = new Set<string>(allResponses.map((r) => {
+          const m = r.match(/^\[([^\]]+)\]/);
+          return m ? agents.find((a) => a.name === m[1])?.id : undefined;
+        }).filter((id): id is string => Boolean(id)));
+        const hardExcludeIds = new Set<string>(); // no hard excludes for user-initiated flow
+
+        let followUpRound = 0;
+        let lastCombined = combined;
+
+        while (followUpRound < 2) {
+          const followUp = detectFollowUpTriggers(lastCombined, agents, hardExcludeIds, respondedIds);
+          if (!followUp) {
+            console.log(`${LOG} No follow-up triggers after round ${followUpRound} — done`);
+            break;
+          }
+
+          followUpRound++;
+          const targetNames = agents
+            .filter((a) => followUp.targetAgentIds.includes(a.id))
+            .map((a) => a.name)
+            .join(", ");
+          console.log(`${LOG} Follow-up round ${followUpRound} → [${targetNames}] reason: ${followUp.reason}`);
+
+          const followUpAgents = agents.filter((a) => followUp.targetAgentIds.includes(a.id));
+          const followUpResponses: string[] = [];
+          // Full conversation context: all responses so far
+          let followUpPrior = allResponses.join("\n");
+
+          for (const agent of followUpAgents) {
+            await runAgent(agent, "medium", "full", followUpPrior);
+            const latestResponse = allResponses[allResponses.length - 1];
+            followUpResponses.push(latestResponse);
+            followUpPrior += "\n" + latestResponse;
+            respondedIds.add(agent.id);
+          }
+
+          // Save follow-up round to DB
+          if (followUpResponses.length > 0) {
+            const followUpCombined = followUpResponses.join("\n");
+            await supabase.from("messages").insert({
+              conversation_id: convId,
+              role: "assistant",
+              content: followUpCombined,
+            });
+            await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
+            console.log(`${LOG} ✓ Saved ${followUpResponses.length} follow-up response(s)`);
+            lastCombined = followUpCombined;
+          }
         }
 
         send({ type: "done" });

@@ -108,7 +108,7 @@ function parseAgentBlocks(text: string): { name: string; content: string }[] {
 
 // ─── Internal: follow-up detection ────────────────────────────────────────
 
-interface FollowUpTrigger {
+export interface FollowUpTrigger {
   targetAgentIds: string[];
   askerAgentIds: string[];
   reason: string;
@@ -122,7 +122,7 @@ interface FollowUpTrigger {
  *                            ambiguous targets ("you", "everyone") but CAN be targeted
  *                            if specifically @mentioned by name.
  */
-function detectFollowUpTriggers(
+export function detectFollowUpTriggers(
   responseText: string,
   allAgents: { id: string; name: string }[],
   hardExcludeIds: Set<string>,
@@ -238,6 +238,8 @@ Team members you can address: ${teamList}. Address the user as @You.
 When referencing someone, use @Name (e.g. @${otherMembers[0] ?? "Alice"}, @You). Never use markdown like **replies to Name** or "replies to".
 
 ${personalityInstructions ? `${personalityInstructions}\n\n` : "Write a concise, natural response (1-3 sentences) from your perspective.\n"}Do NOT prefix your response with your name or "[${agent.name}]".
+NEVER wrap any name in square brackets like [SomeName]. NEVER speak as the user or prefix with [You].
+Just write your natural response — the system adds attribution automatically.
 Plain conversational text only — no markdown, no bold, no headers, no bullet lists.
 
 CRITICAL: If you are asked a question, answer it directly from your own perspective and expertise. Do NOT redirect the question back to the group or ask others the same question. Do NOT say things like "Can everyone give me an update?" — instead, give YOUR OWN update or answer.`;
