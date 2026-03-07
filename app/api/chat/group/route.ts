@@ -1,7 +1,7 @@
 import { createServerSupabase } from "@/lib/supabase-server";
 import { getAnthropicClient, cleanResponse } from "@/lib/anthropic";
 import { retrieveContext } from "@/lib/rag";
-import { classifyIntent, scoreAgentRelevance } from "@/lib/group-orchestration";
+import { classifyIntent, scoreAgentRelevance, detectMessageAddressing } from "@/lib/group-orchestration";
 
 export async function POST(request: Request) {
   const LOG = "[Group Chat]";
@@ -62,9 +62,10 @@ export async function POST(request: Request) {
   }
   console.log(`${LOG} ✓ Loaded ${agents.length} agent(s): ${agents.map((a) => `"${a.name}" (${a.id})`).join(", ")}`);
 
-  // Classify intent to determine pipeline depth
+  // Classify intent and detect addressing early — both influence RAG and prompt logic
   const intent = classifyIntent(message.trim());
-  console.log(`${LOG} ✓ Intent: ${intent}`);
+  const { isTeamWide, mentionedAgentIds: detectedMentionIds } = detectMessageAddressing(message.trim(), agents);
+  console.log(`${LOG} ✓ Intent: ${intent} isTeamWide: ${isTeamWide}`);
 
   // Use existing conversation or create a new one
   let convId = conversation_id;
@@ -119,8 +120,8 @@ export async function POST(request: Request) {
     .update({ updated_at: new Date().toISOString() })
     .eq("id", convId);
 
-  // Load message history — casual messages only need a short window
-  const historyLimit = intent === "casual" ? 6 : 20;
+  // Load message history — casual (non-team-wide) messages only need a short window
+  const historyLimit = intent === "casual" && !isTeamWide ? 6 : 20;
   const { data: history, error: historyError } = await supabase
     .from("messages")
     .select("role, content")
@@ -172,7 +173,7 @@ export async function POST(request: Request) {
   // knowledge/action → only retrieve for agents whose purpose overlaps the message
   const agentContextMap = new Map<string, { content: string; fileName: string; metadata?: { document_date?: string | null; section_heading?: string | null } }[]>();
 
-  if (intent === "knowledge" || intent === "action") {
+  if (intent === "knowledge" || intent === "action" || (isTeamWide && intent === "casual")) {
     const agentsWithDocs = agents.filter((a) => docsByAgent.has(a.id));
 
     // Score relevance and select agents to retrieve for
@@ -211,38 +212,51 @@ export async function POST(request: Request) {
     console.log(`${LOG}   Skipping RAG for intent="${intent}"`);
   }
 
-  // Build mention instruction if user @mentioned specific agents
-  const mentionedAgents = (mentions || [])
+  // Combine UI @mentions (from the client) with name-detected mentions
+  const uiMentionedAgents = (mentions || [])
     .map((name) => agents.find((a) => a.name.toLowerCase() === name.toLowerCase()))
     .filter(Boolean);
+  const uiMentionIds = uiMentionedAgents.map((a) => a!.id);
+  const allMentionedIds = [...new Set([...uiMentionIds, ...detectedMentionIds])];
+  const allMentionedAgents = agents.filter((a) => allMentionedIds.includes(a.id));
 
-  let mentionInstruction = "";
-  if (mentionedAgents.length > 0) {
-    const names = mentionedAgents.map((a) => a!.name).join(", ");
-    mentionInstruction = `\n\nThe user has specifically @mentioned: ${names}. These agents MUST respond first and directly address the user's question. Other agents may still chime in briefly if they have relevant input.`;
+  // Override casual intent when message is team-wide (standup, "what are you working on", etc.)
+  const effectiveIntent = isTeamWide && intent === "casual" ? "knowledge" : intent;
+
+  // Build the response requirement instruction
+  let responseRequirement: string;
+  if (isTeamWide) {
+    const agentNames = agents.map((a) => a.name).join(", ");
+    responseRequirement = `MANDATORY: This message is addressed to the ENTIRE team. EVERY agent listed must respond — ${agentNames}. No agent may be skipped.`;
+  } else if (allMentionedAgents.length > 0) {
+    const names = allMentionedAgents.map((a) => a.name).join(", ");
+    responseRequirement = `MANDATORY: The following agents were directly addressed and MUST respond: ${names}. Other agents may chime in briefly if relevant.`;
+  } else if (effectiveIntent === "casual") {
+    responseRequirement = `1-2 agents respond with a brief, natural reply. For simple acknowledgements, 1 agent is enough.`;
+  } else {
+    responseRequirement = `1-3 agents respond based on relevance to their domain.`;
   }
 
+  console.log(`${LOG} isTeamWide=${isTeamWide} mentionedIds=${allMentionedIds.length} effectiveIntent=${effectiveIntent}`);
+
   // ── System prompt ──────────────────────────────────────────────────────────
-  // Casual messages get a lean prompt — no doc context, no heavy instructions.
-  // All other intents get the full prompt with RAG chunks and scheduling rules.
   const agentList = agents
     .map((a) => `- ${a.name} (id: ${a.id}, color: ${a.color}): ${a.purpose}`)
     .join("\n");
 
   let systemPrompt: string;
 
-  if (intent === "casual") {
+  if (effectiveIntent === "casual") {
     systemPrompt = `You are managing a friendly team of ${agents.length} AI agents in a group chat. This is casual conversation — respond warmly and briefly.
 
 Your team:
 ${agentList}
 
-RULES:
-1. For team-wide greetings ("hello team", "good morning", "how's everyone", "hi all") — ALL ${agents.length} agents MUST respond, each with exactly 1 short sentence. Do not skip any agent.
-2. For personal acknowledgements ("thanks", "ok", "sounds good") — 1-2 agents respond.
-3. Format every response as: [Agent Name] their message
-4. Every line must start with [Agent Name].
-5. No markdown. Plain conversational text only.${mentionInstruction}`;
+RESPONSE REQUIREMENT: ${responseRequirement}
+
+FORMAT RULES:
+- Format every response as: [Agent Name] their message
+- Every line must start with [Agent Name]. No markdown. Plain conversational text only.`;
   } else {
     // Full prompt with RAG context and scheduling support
     const agentDescriptions = agents.map((a) => {
@@ -270,24 +284,19 @@ RULES:
 Your team:
 ${agentDescriptions}
 
-IMPORTANT RULES:
-1. Decide which agent(s) should respond based on the user's message.
-2. Respond as each relevant agent. You may have 1-3 agents respond.
-3. Format EACH agent's response on its own line, prefixed with their exact name in brackets:
-   [Agent Name] Their response text here.
-4. Each agent should respond in character — concise, professional, as a colleague. CRITICAL: Never use markdown formatting. No **bold** or *italic* asterisks. No # headers. No - bullet lists. No \`code blocks\`. Write in plain conversational text like a human messaging in a chat app. Never output XML tags, tool calls, or search markup.
-5. If the message is general (like "hello"), have 1-2 agents respond naturally.
-6. If the message clearly relates to one agent's domain, only that agent responds.
-7. Do NOT add any text outside of the [Agent Name] format. Every line of your response must start with [Agent Name].
-8. Keep responses concise — each agent should respond in 1-3 sentences unless more detail is needed.
-9. When an agent has knowledge base excerpts provided above, they MUST reference and use that information in their response. Cite the relevant documents.
+RESPONSE REQUIREMENT:
+${responseRequirement}
+
+FORMAT RULES (strictly enforced):
+- Format EACH agent's response on its own line: [Agent Name] Their response text here.
+- Every line MUST start with [Agent Name]. No text outside that format.
+- Plain conversational text only. No **bold**, no *italic*, no # headers, no bullet lists. No XML tags.
+- Each response: 1-3 sentences unless more detail is genuinely needed.
+- When an agent has knowledge base excerpts, they MUST reference and use that information.
 
 TEAM COLLABORATION:
-10. Agents are colleagues, not isolated responders. They should act like a real team discussing problems together.
-11. If another agent's expertise is relevant to your answer, tag them and ask for their input. For example: "[Marketing Lead] Great question — this also has HR implications. @HR Advisor, what does our policy say about this?"
-12. If you notice a gap in your own knowledge that another agent could fill, ask them directly.
-13. Build on what other agents have said in the conversation. Reference their previous responses when relevant.
-14. When multiple agents respond, they should feel like a natural team discussion, not a list of independent answers.${mentionInstruction}
+- Agents are colleagues. If another agent's expertise is relevant, tag them: "@Name, what do you think?"
+- Build on prior conversation context. Don't repeat what was already said.
 
 SCHEDULED TASKS:
 If the user asks to schedule, remind, or delay something, the most relevant agent should acknowledge the request AND include a JSON block at the very END of your response.
