@@ -69,7 +69,9 @@ export async function POST(request: Request) {
   const effectiveIntent = isTeamWide && intent === "casual" ? "knowledge" : intent;
   console.log(`${LOG} intent=${intent} effective=${effectiveIntent} isTeamWide=${isTeamWide}`);
 
-  // Resolve/create conversation
+  // Resolve/create conversation.
+  // If no conversation_id provided, reuse the most recent group conversation rather than
+  // creating a new one — prevents orphaned conversations when the cache is cleared.
   let convId = conversation_id;
   if (convId) {
     const { data: existingConv } = await supabase
@@ -82,15 +84,29 @@ export async function POST(request: Request) {
       return new Response(JSON.stringify({ error: "Conversation not found" }), { status: 404 });
     }
   } else {
-    const { data: newConv, error: convError } = await supabase
+    // Try to find the most recent group conversation first
+    const { data: existing } = await supabase
       .from("conversations")
-      .insert({ user_id: user.id, agent_id: null })
       .select("id")
+      .eq("user_id", user.id)
+      .is("agent_id", null)
+      .order("updated_at", { ascending: false })
+      .limit(1)
       .single();
-    if (convError || !newConv) {
-      return new Response(JSON.stringify({ error: "Failed to create conversation" }), { status: 500 });
+
+    if (existing) {
+      convId = existing.id;
+    } else {
+      const { data: newConv, error: convError } = await supabase
+        .from("conversations")
+        .insert({ user_id: user.id, agent_id: null })
+        .select("id")
+        .single();
+      if (convError || !newConv) {
+        return new Response(JSON.stringify({ error: "Failed to create conversation" }), { status: 500 });
+      }
+      convId = newConv.id;
     }
-    convId = newConv.id;
   }
   console.log(`${LOG} ✓ Conversation: ${convId}`);
 
