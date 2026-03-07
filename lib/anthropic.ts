@@ -111,6 +111,10 @@ CRITICAL — YOU ARE NOT A TOOL-USING SYSTEM: Never output XML tags, tool calls,
     prompt += `\n\nWhen answering questions, reference the relevant documents from your knowledge base. Cite the document name and date when available (e.g. "In the July 2023 meeting, council resolved..."). If you don't have enough information in your documents to answer confidently, say so.`;
   }
 
+  if (agent.web_search_enabled) {
+    prompt += `\n\nYou have web search capability. The system automatically searches the web for every message you receive and provides the results below.`;
+  }
+
   if (options?.webSearchResults) {
     prompt += `\n\nWeb search results:\n\n${options.webSearchResults}`;
     prompt += `\n\nYou may reference these web search results when they're relevant. Cite URLs when quoting specific information.`;

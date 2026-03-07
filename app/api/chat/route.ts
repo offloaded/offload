@@ -150,8 +150,10 @@ export async function POST(request: Request) {
   }
 
   // Web search only if enabled — this is the server-side enforcement point
+  // Coerce null to false (agents created before the column existed may have null)
+  const webSearchEnabled = agent.web_search_enabled === true;
   let webSearchResults: string | undefined;
-  if (agent.web_search_enabled) {
+  if (webSearchEnabled) {
     try {
       const results = await webSearch(message.trim(), 5);
       if (results.length > 0) {
@@ -169,7 +171,7 @@ export async function POST(request: Request) {
 
   // Build list of disabled features for in-chat activation
   const disabledFeatures: Array<{ feature: string; label: string; description: string }> = [];
-  if (!agent.web_search_enabled) {
+  if (!webSearchEnabled) {
     disabledFeatures.push({
       feature: "web_search",
       label: "Web Search",
