@@ -2,18 +2,27 @@
 
 import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { Avatar } from "./Avatar";
-import { SendIcon, MenuIcon, HashIcon, NewChatIcon } from "./Icons";
+import { SendIcon, MenuIcon, HashIcon, NewChatIcon, CalendarIcon } from "./Icons";
 import type { Agent, Message } from "@/lib/types";
 import {
   getCached,
   setCache,
   prependMessages,
   clearCache,
+  updateMessages,
   pollNewMessages,
   type ChatMessage,
 } from "@/lib/chat-cache";
-import { sendGroup, subscribe, getInflightState, resetInflight } from "@/lib/inflight";
+import {
+  sendGroup,
+  subscribe,
+  getInflightState,
+  resetInflight,
+  clearScheduleRequest,
+  type ScheduleRequest,
+} from "@/lib/inflight";
 import { useApp } from "@/app/(app)/layout";
+import { describeCron } from "@/lib/cron";
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -514,6 +523,8 @@ export function GroupChatView({
   const [loading, setLoading] = useState(!cached);
   const [hasMore, setHasMore] = useState(cached?.hasMore ?? false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [scheduleRequest, setScheduleRequest] = useState<ScheduleRequest | null>(null);
+  const [confirmingSchedule, setConfirmingSchedule] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -534,6 +545,9 @@ export function GroupChatView({
       setStreamText(state.streamText);
       if (state.conversationId) {
         setConversationId(state.conversationId);
+      }
+      if (state.scheduleRequest) {
+        setScheduleRequest(state.scheduleRequest);
       }
       const c = getCached(CHAT_ID);
       if (c) {
@@ -673,6 +687,66 @@ export function GroupChatView({
     sendGroup(CHAT_ID, text, conversationIdRef.current, mentions);
   }, [CHAT_ID]);
 
+  const confirmSchedule = useCallback(async () => {
+    if (!scheduleRequest || confirmingSchedule) return;
+    setConfirmingSchedule(true);
+    try {
+      const agentId = scheduleRequest.agent_id || agents[0]?.id;
+      if (!agentId) return;
+      const res = await fetch("/api/scheduled-tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_id: agentId,
+          instruction: scheduleRequest.instruction,
+          cron: scheduleRequest.cron,
+          timezone: scheduleRequest.timezone,
+          recurring: scheduleRequest.recurring,
+          destination: scheduleRequest.destination,
+        }),
+      });
+      if (res.ok) {
+        let desc: string;
+        try {
+          desc = describeCron(scheduleRequest.cron);
+        } catch {
+          desc = scheduleRequest.cron;
+        }
+        const taskType = scheduleRequest.recurring ? "Scheduled task" : "One-off task";
+        const successMsg: ChatMessage = {
+          role: "assistant",
+          content: scheduleRequest.recurring
+            ? `${taskType} created — I'll run "${scheduleRequest.instruction}" ${desc} (${scheduleRequest.timezone}).`
+            : `${taskType} created — I'll run "${scheduleRequest.instruction}" once at ${desc} (${scheduleRequest.timezone}).`,
+          created_at: new Date().toISOString(),
+        };
+        updateMessages(CHAT_ID, (prev) => [...prev, successMsg]);
+        setMessages((prev) => [...prev, successMsg]);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        const errorMsg: ChatMessage = {
+          role: "assistant",
+          content: `Failed to create scheduled task: ${data.error || `Error ${res.status}`}`,
+          created_at: new Date().toISOString(),
+        };
+        updateMessages(CHAT_ID, (prev) => [...prev, errorMsg]);
+        setMessages((prev) => [...prev, errorMsg]);
+      }
+    } catch (err) {
+      const errorMsg: ChatMessage = {
+        role: "assistant",
+        content: `Failed to create scheduled task: ${err instanceof Error ? err.message : "Network error"}`,
+        created_at: new Date().toISOString(),
+      };
+      updateMessages(CHAT_ID, (prev) => [...prev, errorMsg]);
+      setMessages((prev) => [...prev, errorMsg]);
+    } finally {
+      setScheduleRequest(null);
+      clearScheduleRequest(CHAT_ID);
+      setConfirmingSchedule(false);
+    }
+  }, [scheduleRequest, confirmingSchedule, agents, CHAT_ID]);
+
   const handleNewChat = useCallback(() => {
     clearCache(CHAT_ID);
     resetInflight(CHAT_ID);
@@ -729,6 +803,44 @@ export function GroupChatView({
           streaming={streaming}
           streamText={streamText}
         />
+
+        {/* Schedule request banner */}
+        {scheduleRequest && (
+          <div className="mx-3 my-2 md:mx-5 p-3 rounded-lg border border-[var(--color-accent)] bg-[var(--color-accent-soft)] flex items-start gap-3">
+            <span className="text-[var(--color-accent)] mt-0.5">
+              <CalendarIcon />
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-semibold text-[var(--color-text)] mb-0.5">
+                Schedule task?
+              </div>
+              <div className="text-[13px] text-[var(--color-text-secondary)]">
+                {scheduleRequest.instruction}
+              </div>
+              <div className="text-[11px] text-[var(--color-text-tertiary)] mt-0.5">
+                {scheduleRequest.cron} &middot; {scheduleRequest.timezone}
+              </div>
+              <div className="flex gap-2 mt-2">
+                <button
+                  onClick={confirmSchedule}
+                  disabled={confirmingSchedule}
+                  className="py-1.5 px-3 rounded-md border-none text-[12px] font-semibold cursor-pointer bg-[var(--color-accent)] text-white disabled:opacity-50"
+                >
+                  {confirmingSchedule ? "..." : "Confirm"}
+                </button>
+                <button
+                  onClick={() => {
+                    setScheduleRequest(null);
+                    clearScheduleRequest(CHAT_ID);
+                  }}
+                  className="py-1.5 px-3 rounded-md bg-transparent border border-[var(--color-border)] text-[12px] text-[var(--color-text-secondary)] cursor-pointer"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div ref={endRef} />
         </div>

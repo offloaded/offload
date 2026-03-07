@@ -13,6 +13,7 @@ export interface ScheduleRequest {
   timezone: string;
   recurring: boolean;
   destination: "dm" | "group";
+  agent_id?: string;
 }
 
 export interface FeatureRequest {
@@ -305,6 +306,16 @@ async function _streamGroup(
           } else if (event.type === "replace") {
             fullText = event.text;
             entry.state.streamText = fullText;
+            notify(chatId);
+          } else if (event.type === "schedule_request") {
+            entry.state.scheduleRequest = {
+              instruction: event.instruction,
+              cron: event.cron,
+              timezone: event.timezone,
+              recurring: event.recurring !== false,
+              destination: event.destination === "group" ? "group" : "dm",
+              agent_id: event.agent_id,
+            };
             notify(chatId);
           } else if (event.type === "error") {
             throw new Error(event.error);
