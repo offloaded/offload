@@ -17,7 +17,13 @@ export async function GET(request: Request) {
   const agentId = searchParams.get("agent_id");
   const conversationId = searchParams.get("conversation_id");
   const before = searchParams.get("before");
+  const after = searchParams.get("after");
   const limit = parseInt(searchParams.get("limit") || String(PAGE_SIZE), 10);
+
+  // Fetch messages newer than a timestamp (for polling)
+  if (conversationId && after) {
+    return loadNewMessages(supabase, user.id, conversationId, after);
+  }
 
   // Load a specific conversation by ID
   if (conversationId) {
@@ -112,4 +118,36 @@ async function loadConversation(
     messages: page,
     has_more: hasMore,
   });
+}
+
+async function loadNewMessages(
+  supabase: Awaited<ReturnType<typeof createServerSupabase>>,
+  userId: string,
+  conversationId: string,
+  after: string
+) {
+  const { data: conv } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("id", conversationId)
+    .eq("user_id", userId)
+    .single();
+
+  if (!conv) {
+    return NextResponse.json({ messages: [] });
+  }
+
+  const { data: messages, error } = await supabase
+    .from("messages")
+    .select("*")
+    .eq("conversation_id", conversationId)
+    .gt("created_at", after)
+    .order("created_at", { ascending: true })
+    .limit(50);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ messages: messages || [] });
 }

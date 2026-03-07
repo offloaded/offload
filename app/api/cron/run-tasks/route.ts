@@ -3,6 +3,7 @@ import { getAnthropicClient, buildSystemPrompt, cleanResponse } from "@/lib/anth
 import { retrieveContext, type RetrievedChunk } from "@/lib/rag";
 import { webSearch, formatSearchResults } from "@/lib/web-search";
 import { getNextRun } from "@/lib/cron";
+import { logActivity } from "@/lib/activity";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 300; // 5 min for Vercel
@@ -44,7 +45,20 @@ export async function POST(request: Request) {
   console.log(`[Cron] Running ${tasks.length} task(s)`);
 
   const results = await Promise.allSettled(
-    tasks.map((task) => runTask(supabase, task))
+    tasks.map(async (task) => {
+      try {
+        await runTask(supabase, task);
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : "Unknown error";
+        const agentName = task.agents?.name || "Agent";
+        const preview = task.instruction.slice(0, 80) + (task.instruction.length > 80 ? "..." : "");
+        await logActivity(supabase, task.user_id, task.agent_id, "task_failed",
+          `${agentName} failed scheduled task: ${preview}`,
+          { task_id: task.id, error: errMsg }
+        );
+        throw err;
+      }
+    })
   );
 
   const ran = results.filter((r) => r.status === "fulfilled").length;
@@ -73,7 +87,13 @@ async function runTask(
   }
 ) {
   const agent = task.agents;
-  console.log(`[Cron] Running task ${task.id} for agent "${agent.name}": ${task.instruction.slice(0, 80)}`);
+  const preview = task.instruction.slice(0, 80) + (task.instruction.length > 80 ? "..." : "");
+  console.log(`[Cron] Running task ${task.id} for agent "${agent.name}": ${preview}`);
+
+  await logActivity(supabase, task.user_id, task.agent_id, "task_started",
+    `${agent.name} started scheduled task: ${preview}`,
+    { task_id: task.id }
+  );
 
   // 1. Create a conversation for this task run
   const { data: conv, error: convError } = await supabase
@@ -120,6 +140,10 @@ async function runTask(
       const results = await webSearch(task.instruction, 5);
       if (results.length > 0) {
         searchContext = `\n\nWeb search results for context:\n\n${formatSearchResults(results)}`;
+        await logActivity(supabase, task.user_id, task.agent_id, "web_search",
+          `${agent.name} searched the web for: ${preview}`,
+          { task_id: task.id, result_count: results.length }
+        );
       }
     } catch (err) {
       console.error("[Cron] Web search failed:", err);
@@ -183,6 +207,11 @@ async function runTask(
       updated_at: new Date().toISOString(),
     })
     .eq("id", task.id);
+
+  await logActivity(supabase, task.user_id, task.agent_id, "task_completed",
+    `${agent.name} completed scheduled task: ${preview}`,
+    { task_id: task.id, conversation_id: conv.id }
+  );
 
   console.log(`[Cron] Task ${task.id} completed. Response: ${responseText.slice(0, 100)}...`);
 }
