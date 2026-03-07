@@ -9,6 +9,7 @@ import {
   setCache,
   prependMessages,
   clearCache,
+  pollNewMessages,
   type ChatMessage,
 } from "@/lib/chat-cache";
 import { sendGroup, subscribe, getInflightState, resetInflight } from "@/lib/inflight";
@@ -584,6 +585,20 @@ export function GroupChatView({
       endRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, streamText]);
+
+  // Poll for new messages every 12 seconds (catches scheduled task responses)
+  useEffect(() => {
+    if (loading || !conversationId) return;
+    const interval = setInterval(async () => {
+      if (getInflightState(CHAT_ID).streaming) return;
+      const newMsgs = await pollNewMessages(CHAT_ID);
+      if (newMsgs.length > 0) {
+        setMessages((prev) => [...prev, ...newMsgs]);
+        markRead(conversationIdRef.current!);
+      }
+    }, 12_000);
+    return () => clearInterval(interval);
+  }, [CHAT_ID, loading, conversationId]);
 
   // Scroll-to-top lazy loading
   useEffect(() => {

@@ -91,3 +91,44 @@ export function preloadAllChats(agentIds: string[]): void {
   const ids = ["group", ...agentIds];
   ids.forEach((id) => preloadChat(id));
 }
+
+// Poll for new messages after the last known timestamp.
+// Returns the new messages (empty array if none).
+export async function pollNewMessages(chatId: string): Promise<ChatMessage[]> {
+  const entry = cache.get(chatId);
+  if (!entry || !entry.conversationId) return [];
+
+  // Find the latest message timestamp
+  const msgs = entry.messages;
+  if (msgs.length === 0) return [];
+  const lastTs = msgs[msgs.length - 1].created_at;
+
+  try {
+    const res = await fetch(
+      `/api/conversations?conversation_id=${entry.conversationId}&after=${encodeURIComponent(lastTs)}`
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    const newMsgs: ChatMessage[] = (data.messages || []).map(
+      (m: { id: string; role: string; content: string; created_at: string }) => ({
+        id: m.id,
+        role: m.role as "user" | "assistant",
+        content: m.content,
+        created_at: m.created_at,
+      })
+    );
+
+    if (newMsgs.length > 0) {
+      // Deduplicate by id — avoid appending messages we already have from streaming
+      const existingIds = new Set(msgs.filter((m) => m.id).map((m) => m.id));
+      const truly = newMsgs.filter((m) => m.id && !existingIds.has(m.id));
+      if (truly.length > 0) {
+        entry.messages = [...entry.messages, ...truly];
+        return truly;
+      }
+    }
+  } catch {
+    // silent
+  }
+  return [];
+}

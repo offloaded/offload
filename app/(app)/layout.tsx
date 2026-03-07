@@ -17,6 +17,7 @@ interface AppContextValue {
   unreadCounts: Record<string, number>;
   refreshUnreadCounts: () => void;
   markRead: (conversationId: string) => void;
+  hasNewActivity: boolean;
 }
 
 const AppContext = createContext<AppContextValue>({
@@ -29,6 +30,7 @@ const AppContext = createContext<AppContextValue>({
   unreadCounts: {},
   refreshUnreadCounts: () => {},
   markRead: () => {},
+  hasNewActivity: false,
 });
 
 export function useApp() {
@@ -51,6 +53,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [activeTaskCount, setActiveTaskCount] = useState(0);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const [hasNewActivity, setHasNewActivity] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [checked, setChecked] = useState(false);
   const mobile = useIsMobile();
@@ -82,6 +85,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       .catch(() => {});
   }, []);
 
+  const checkNewActivity = useCallback(() => {
+    fetch("/api/activity/latest")
+      .then((r) => (r.ok ? r.json() : { latest: null }))
+      .then(({ latest }) => {
+        if (!latest) return;
+        const lastSeen = localStorage.getItem("activity_last_seen");
+        setHasNewActivity(!lastSeen || latest > lastSeen);
+      })
+      .catch(() => {});
+  }, []);
+
   const markRead = useCallback((conversationId: string) => {
     fetch("/api/conversations/mark-read", {
       method: "POST",
@@ -99,16 +113,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         refreshAgents();
         refreshTaskCount();
         refreshUnreadCounts();
+        checkNewActivity();
       }
     });
-  }, [supabase, router, refreshAgents, refreshTaskCount, refreshUnreadCounts]);
+  }, [supabase, router, refreshAgents, refreshTaskCount, refreshUnreadCounts, checkNewActivity]);
 
-  // Poll for unread counts every 20 seconds
+  // Poll for unread counts and new activity every 20 seconds
   useEffect(() => {
     if (!checked) return;
-    const interval = setInterval(refreshUnreadCounts, 20_000);
+    const interval = setInterval(() => {
+      refreshUnreadCounts();
+      checkNewActivity();
+    }, 20_000);
     return () => clearInterval(interval);
-  }, [checked, refreshUnreadCounts]);
+  }, [checked, refreshUnreadCounts, checkNewActivity]);
 
   if (!checked) {
     return (
@@ -119,11 +137,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AppContext value={{ agents, refreshAgents, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead }}>
+    <AppContext value={{ agents, refreshAgents, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, hasNewActivity }}>
       <div className="flex h-screen w-full bg-[var(--color-page-bg)] overflow-hidden">
         {/* Desktop sidebar — hidden below 768px via CSS */}
         <div className="hidden md:flex w-[220px] min-w-[220px] bg-[var(--color-bg)] border-r border-[var(--color-border)] flex-col">
-          <SidebarContent agents={agents} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} />
+          <SidebarContent agents={agents} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} />
         </div>
 
         {/* Mobile drawer — always mounted, visibility controlled by open state */}
@@ -133,6 +151,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           onClose={() => setDrawerOpen(false)}
           activeTaskCount={activeTaskCount}
           unreadCounts={unreadCounts}
+          hasNewActivity={hasNewActivity}
         />
 
         <div className="flex-1 flex flex-col overflow-hidden">

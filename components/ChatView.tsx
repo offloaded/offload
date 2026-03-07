@@ -10,6 +10,7 @@ import {
   prependMessages,
   clearCache,
   updateMessages,
+  pollNewMessages,
   type ChatMessage,
 } from "@/lib/chat-cache";
 import {
@@ -404,6 +405,20 @@ export function ChatView({
       endRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, streamText]);
+
+  // Poll for new messages every 12 seconds (catches scheduled task responses)
+  useEffect(() => {
+    if (loading || !conversationId) return;
+    const interval = setInterval(async () => {
+      if (getInflightState(chatId).streaming) return;
+      const newMsgs = await pollNewMessages(chatId);
+      if (newMsgs.length > 0) {
+        setMessages((prev) => [...prev, ...newMsgs]);
+        markRead(conversationIdRef.current!);
+      }
+    }, 12_000);
+    return () => clearInterval(interval);
+  }, [chatId, loading, conversationId]);
 
   // Scroll-to-top lazy loading
   useEffect(() => {

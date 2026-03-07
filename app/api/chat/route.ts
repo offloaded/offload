@@ -2,6 +2,7 @@ import { createServerSupabase } from "@/lib/supabase-server";
 import { getAnthropicClient, buildSystemPrompt, cleanResponse } from "@/lib/anthropic";
 import { retrieveContext, type RetrievedChunk } from "@/lib/rag";
 import { webSearch, formatSearchResults } from "@/lib/web-search";
+import { logActivity } from "@/lib/activity";
 
 export async function POST(request: Request) {
   const supabase = await createServerSupabase();
@@ -138,6 +139,11 @@ export async function POST(request: Request) {
       const results = await webSearch(message.trim(), 5);
       if (results.length > 0) {
         webSearchResults = formatSearchResults(results);
+        const queryPreview = message.trim().slice(0, 80) + (message.trim().length > 80 ? "..." : "");
+        logActivity(supabase, user.id, agent_id, "web_search",
+          `${agent.name} searched the web for: ${queryPreview}`,
+          { conversation_id: convId, result_count: results.length }
+        );
       }
     } catch (err) {
       console.error("[Chat] Web search failed:", err);

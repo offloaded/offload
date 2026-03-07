@@ -1,5 +1,6 @@
 import { createServerSupabase } from "@/lib/supabase-server";
 import { processDocument } from "@/lib/rag";
+import { logActivity } from "@/lib/activity";
 import { NextResponse } from "next/server";
 
 const ALLOWED_TYPES = [
@@ -101,9 +102,21 @@ export async function POST(request: Request) {
     );
   }
 
+  // Look up agent name for activity log
+  const { data: agentInfo } = await supabase
+    .from("agents")
+    .select("name")
+    .eq("id", agentId)
+    .single();
+  const agentName = agentInfo?.name || "Agent";
+
   // Process document inline (extract text, chunk, embed, store)
   try {
     await processDocument(supabase, doc.id, storagePath);
+    await logActivity(supabase, user.id, agentId, "document_processed",
+      `Document ready: ${file.name} for ${agentName}`,
+      { document_id: doc.id, file_name: file.name }
+    );
     // Refresh the doc to return updated status
     const { data: updatedDoc } = await supabase
       .from("documents")
@@ -113,6 +126,11 @@ export async function POST(request: Request) {
     return NextResponse.json(updatedDoc || doc, { status: 201 });
   } catch (err) {
     console.error("Document processing failed:", err);
+    const errMsg = err instanceof Error ? err.message : "Unknown error";
+    await logActivity(supabase, user.id, agentId, "document_failed",
+      `Document processing failed: ${file.name}`,
+      { document_id: doc.id, file_name: file.name, error: errMsg }
+    );
     // Document record exists with status 'error' (set by processDocument)
     // Return it so UI shows the error state
     const { data: errorDoc } = await supabase

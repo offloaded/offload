@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { HashIcon, GearIcon, XIcon, ClockIcon, PlusIcon, RepeatClockIcon } from "./Icons";
+import { HashIcon, GearIcon, XIcon, ClockIcon, PlusIcon, RepeatClockIcon, ActivityIcon } from "./Icons";
 import { createClient } from "@/lib/supabase";
 import type { Agent } from "@/lib/types";
 
@@ -36,12 +36,14 @@ export function SidebarContent({
   onClose,
   activeTaskCount = 0,
   unreadCounts = {},
+  hasNewActivity = false,
 }: {
   agents: Agent[];
   showClose?: boolean;
   onClose?: () => void;
   activeTaskCount?: number;
   unreadCounts?: Record<string, number>;
+  hasNewActivity?: boolean;
 }) {
   const pathname = usePathname();
 
@@ -62,6 +64,16 @@ export function SidebarContent({
       </div>
 
       <div className="flex-1 px-2 flex flex-col gap-0.5 overflow-auto">
+        <NavItem href="/activity" isActive={pathname === "/activity"}>
+          <span className="opacity-60">
+            <ActivityIcon />
+          </span>
+          <span className="flex-1">Activity</span>
+          {hasNewActivity && pathname !== "/activity" && (
+            <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] shrink-0" />
+          )}
+        </NavItem>
+
         <div className="px-2 pt-2 pb-1.5">
           <span className="text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider">
             Channels
@@ -200,12 +212,14 @@ export function Drawer({
   onClose,
   activeTaskCount,
   unreadCounts,
+  hasNewActivity,
 }: {
   agents: Agent[];
   open: boolean;
   onClose: () => void;
   activeTaskCount?: number;
   unreadCounts?: Record<string, number>;
+  hasNewActivity?: boolean;
 }) {
   return (
     <>
@@ -230,6 +244,7 @@ export function Drawer({
           onClose={onClose}
           activeTaskCount={activeTaskCount}
           unreadCounts={unreadCounts}
+          hasNewActivity={hasNewActivity}
         />
       </div>
     </>
