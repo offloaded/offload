@@ -11,6 +11,7 @@ export interface ScheduleRequest {
   instruction: string;
   cron: string;
   timezone: string;
+  recurring: boolean;
 }
 
 export interface FeatureRequest {
@@ -180,6 +181,7 @@ async function _streamDM(
               instruction: event.instruction,
               cron: event.cron,
               timezone: event.timezone,
+              recurring: event.recurring !== false,
             };
             notify(chatId);
           } else if (event.type === "feature_request") {

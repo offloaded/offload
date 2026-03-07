@@ -44,6 +44,7 @@ export interface ScheduledTask {
   instruction: string;
   cron: string;
   timezone: string;
+  recurring: boolean;
   enabled: boolean;
   last_run_at: string | null;
   next_run_at: string | null;

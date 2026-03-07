@@ -78,6 +78,7 @@ async function runTask(
     instruction: string;
     cron: string;
     timezone: string;
+    recurring: boolean;
     agents: {
       id: string;
       name: string;
@@ -95,20 +96,34 @@ async function runTask(
     { task_id: task.id }
   );
 
-  // 1. Create a conversation for this task run
-  const { data: conv, error: convError } = await supabase
+  // 1. Find existing conversation for this agent, or create one
+  let convId: string;
+  const { data: existingConv } = await supabase
     .from("conversations")
-    .insert({ user_id: task.user_id, agent_id: task.agent_id })
     .select("id")
+    .eq("user_id", task.user_id)
+    .eq("agent_id", task.agent_id)
+    .order("updated_at", { ascending: false })
+    .limit(1)
     .single();
 
-  if (convError || !conv) {
-    throw new Error(`Failed to create conversation: ${convError?.message}`);
+  if (existingConv) {
+    convId = existingConv.id;
+  } else {
+    const { data: newConv, error: convError } = await supabase
+      .from("conversations")
+      .insert({ user_id: task.user_id, agent_id: task.agent_id })
+      .select("id")
+      .single();
+    if (convError || !newConv) {
+      throw new Error(`Failed to create conversation: ${convError?.message}`);
+    }
+    convId = newConv.id;
   }
 
   // 2. Insert the instruction as a user message
   await supabase.from("messages").insert({
-    conversation_id: conv.id,
+    conversation_id: convId,
     role: "user",
     content: `[Scheduled task] ${task.instruction}`,
   });
@@ -180,7 +195,7 @@ async function runTask(
 
   // 7. Save response as assistant message
   await supabase.from("messages").insert({
-    conversation_id: conv.id,
+    conversation_id: convId,
     role: "assistant",
     content: responseText,
   });
@@ -189,28 +204,40 @@ async function runTask(
   await supabase
     .from("conversations")
     .update({ updated_at: new Date().toISOString() })
-    .eq("id", conv.id);
+    .eq("id", convId);
 
-  // 9. Update task: last_run_at + next_run_at
-  let nextRun: string;
-  try {
-    nextRun = getNextRun(task.cron, new Date()).toISOString();
-  } catch {
-    nextRun = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  // 9. Update task: last_run_at + next_run_at (or disable if one-off)
+  if (task.recurring === false) {
+    // One-off task: disable after running once
+    await supabase
+      .from("scheduled_tasks")
+      .update({
+        last_run_at: new Date().toISOString(),
+        enabled: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", task.id);
+  } else {
+    let nextRun: string;
+    try {
+      nextRun = getNextRun(task.cron, new Date()).toISOString();
+    } catch {
+      nextRun = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    }
+
+    await supabase
+      .from("scheduled_tasks")
+      .update({
+        last_run_at: new Date().toISOString(),
+        next_run_at: nextRun,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", task.id);
   }
-
-  await supabase
-    .from("scheduled_tasks")
-    .update({
-      last_run_at: new Date().toISOString(),
-      next_run_at: nextRun,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", task.id);
 
   await logActivity(supabase, task.user_id, task.agent_id, "task_completed",
     `${agent.name} completed scheduled task: ${preview}`,
-    { task_id: task.id, conversation_id: conv.id }
+    { task_id: task.id, conversation_id: convId }
   );
 
   console.log(`[Cron] Task ${task.id} completed. Response: ${responseText.slice(0, 100)}...`);
