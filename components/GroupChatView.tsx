@@ -667,17 +667,77 @@ export function GroupChatView({
   }, [messages, streaming]);
 
   // Poll for new messages every 12 seconds (catches scheduled task responses)
+  // When multi-agent responses arrive, stagger them with delays so each agent
+  // appears individually rather than all at once.
+  const pollQueueRef = useRef<ChatMessage[]>([]);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (loading || !conversationId) return;
-    const interval = setInterval(async () => {
-      if (getInflightState(CHAT_ID).streaming) return;
-      const newMsgs = await pollNewMessages(CHAT_ID);
-      if (newMsgs.length > 0) {
-        setMessages((prev) => [...prev, ...newMsgs]);
+
+    // Drip-feed queued messages one at a time with random 3-8s gaps
+    const drainNext = () => {
+      const next = pollQueueRef.current.shift();
+      if (!next) return;
+      setMessages((prev) => [...prev, next]);
+      if (pollQueueRef.current.length > 0) {
+        const gap = 3000 + Math.random() * 5000;
+        pollTimerRef.current = setTimeout(drainNext, gap);
+      } else {
+        pollTimerRef.current = null;
         markRead(conversationIdRef.current!);
       }
+    };
+
+    // Split a multi-agent assistant message into individual messages
+    const splitAgentMessages = (msg: ChatMessage): ChatMessage[] => {
+      if (msg.role !== "assistant") return [msg];
+      const lines = msg.content.split("\n");
+      const blocks: string[] = [];
+      for (const line of lines) {
+        if (/^\[[^\]]+\]\s/.test(line)) {
+          blocks.push(line);
+        } else if (blocks.length > 0) {
+          blocks[blocks.length - 1] += "\n" + line;
+        }
+      }
+      if (blocks.length <= 1) return [msg];
+      return blocks.map((block) => ({
+        ...msg,
+        id: msg.id ? `${msg.id}-${blocks.indexOf(block)}` : undefined,
+        content: block.trim(),
+      }));
+    };
+
+    const interval = setInterval(async () => {
+      if (getInflightState(CHAT_ID).streaming) return;
+      if (pollQueueRef.current.length > 0) return; // still draining
+      const newMsgs = await pollNewMessages(CHAT_ID);
+      if (newMsgs.length === 0) return;
+
+      // Split multi-agent messages and queue for staggered display
+      const expanded: ChatMessage[] = [];
+      for (const msg of newMsgs) {
+        expanded.push(...splitAgentMessages(msg));
+      }
+
+      if (expanded.length === 1) {
+        // Single message — show immediately
+        setMessages((prev) => [...prev, expanded[0]]);
+        markRead(conversationIdRef.current!);
+      } else {
+        // Multiple — show first immediately, queue rest with delays
+        setMessages((prev) => [...prev, expanded[0]]);
+        pollQueueRef.current = expanded.slice(1);
+        const gap = 3000 + Math.random() * 5000;
+        pollTimerRef.current = setTimeout(drainNext, gap);
+      }
     }, 12_000);
-    return () => clearInterval(interval);
+
+    return () => {
+      clearInterval(interval);
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+    };
   }, [CHAT_ID, loading, conversationId]);
 
   // Scroll-to-top lazy loading
