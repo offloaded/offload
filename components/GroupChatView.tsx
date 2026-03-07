@@ -494,7 +494,7 @@ export function GroupChatView({
   openDrawer: () => void;
   initialConversationId?: string | null;
 }) {
-  const { markRead } = useApp();
+  const { markRead, setActiveChatKey } = useApp();
   const CHAT_ID = initialConversationId
     ? `conv:${initialConversationId}`
     : "group";
@@ -517,6 +517,12 @@ export function GroupChatView({
   const conversationIdRef = useRef(conversationId);
   conversationIdRef.current = conversationId;
 
+  // Track this chat as active so unread badges are suppressed
+  useEffect(() => {
+    setActiveChatKey("group");
+    return () => setActiveChatKey(null);
+  }, [setActiveChatKey]);
+
   // Subscribe to inflight state changes (background streaming)
   useEffect(() => {
     return subscribe(CHAT_ID, (state) => {
@@ -529,8 +535,12 @@ export function GroupChatView({
       if (c) {
         setMessages(c.messages);
       }
+      // Mark read when streaming finishes so new message doesn't count as unread
+      if (!state.streaming && conversationIdRef.current) {
+        markRead(conversationIdRef.current);
+      }
     });
-  }, []);
+  }, [CHAT_ID, markRead]);
 
   // Fetch initial messages (skip if cached)
   useEffect(() => {
