@@ -5,6 +5,12 @@ export interface Agent {
   purpose: string;
   color: string;
   web_search_enabled: boolean;
+  // Personality traits (1–5, default 3)
+  verbosity: number;
+  initiative: number;
+  reactivity: number;
+  repetition_tolerance: number;
+  warmth: number;
   created_at: string;
   updated_at: string;
 }

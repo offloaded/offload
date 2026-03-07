@@ -21,8 +21,75 @@ interface ContextChunk {
   };
 }
 
+// ─── Personality trait → system prompt instructions ───────────────────────
+
+const PERSONALITY_INSTRUCTIONS: Record<string, Record<number, string>> = {
+  verbosity: {
+    1: "Keep your responses brief and to the point — one or two sentences unless absolutely necessary.",
+    2: "Be concise. Get to the point without unnecessary elaboration.",
+    4: "Provide thorough responses with relevant context and examples where helpful.",
+    5: "Give detailed, comprehensive responses with full context, reasoning, and examples.",
+  },
+  initiative: {
+    1: "Only respond when directly addressed or clearly asked. Do not volunteer information unprompted.",
+    2: "Respond when relevant but be selective — prefer to let others lead.",
+    4: "Actively contribute to conversations. Volunteer relevant information and ask follow-up questions.",
+    5: "Be proactive: volunteer information, raise questions, and actively steer relevant discussions.",
+  },
+  reactivity: {
+    1: "Give your own independent answer without referencing or building on what others have said.",
+    2: "Focus on your own perspective with minimal reference to others.",
+    4: "Engage with others' points — build on what's been said, note agreements or disagreements.",
+    5: "Actively build on others' responses: reference, agree, disagree, or ask follow-ups about what they said.",
+  },
+  repetition_tolerance: {
+    1: "Make your point once and don't repeat it, even if the topic continues.",
+    2: "Avoid repeating yourself — say it once clearly.",
+    4: "Feel free to reiterate or add nuance if the topic continues or isn't fully resolved.",
+    5: "Reinforce and reiterate important points, adding nuance and clarification as the conversation develops.",
+  },
+  warmth: {
+    1: "Maintain a strictly professional, formal tone. No small talk, no humour, no emoji.",
+    2: "Keep a professional tone with minimal informality.",
+    4: "Be warm and friendly — a casual, approachable tone is fine. Occasional humour is welcome.",
+    5: "Be casual, warm, and personable. Use humour, emoji, and informal language freely.",
+  },
+};
+
+export function buildPersonalityInstructions(agent: {
+  verbosity?: number;
+  initiative?: number;
+  reactivity?: number;
+  repetition_tolerance?: number;
+  warmth?: number;
+}): string {
+  const traits: [string, number | undefined][] = [
+    ["verbosity",            agent.verbosity],
+    ["initiative",           agent.initiative],
+    ["reactivity",           agent.reactivity],
+    ["repetition_tolerance", agent.repetition_tolerance],
+    ["warmth",               agent.warmth],
+  ];
+  const lines = traits
+    .map(([key, val]) => {
+      const v = val ?? 3;
+      return PERSONALITY_INSTRUCTIONS[key]?.[v] ?? "";
+    })
+    .filter(Boolean);
+  return lines.join(" ");
+}
+
 export function buildSystemPrompt(
-  agent: { name: string; purpose: string; web_search_enabled?: boolean },
+  agent: {
+    name: string;
+    purpose: string;
+    web_search_enabled?: boolean;
+    verbosity?: number;
+    initiative?: number;
+    reactivity?: number;
+    repetition_tolerance?: number;
+    warmth?: number;
+  },
   context?: ContextChunk[],
   documentNames?: string[],
   options?: {
@@ -107,7 +174,12 @@ Disabled features:`;
     prompt += `\n\nOnly include the feature_request block when the user's request clearly requires one of these disabled features.`;
   }
 
-  prompt += `\n\nBe concise, professional, and helpful. You are a remote team member — communicate like a competent colleague, not an AI assistant.
+  const personalityInstructions = buildPersonalityInstructions(agent);
+  const behaviorLine = personalityInstructions
+    ? personalityInstructions
+    : "Be concise, professional, and helpful.";
+
+  prompt += `\n\n${behaviorLine} You are a remote team member — communicate like a competent colleague, not an AI assistant.
 
 FORMATTING RULE: Never use markdown formatting. No **bold**, no *italic*, no # headers, no - bullet lists, no \`code blocks\`, no [links](url). Write in plain conversational text like a human in a chat app. To list things, use natural sentences or "1." "2." numbering.`;
 

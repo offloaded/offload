@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicClient, cleanResponse } from "./anthropic";
+import { getAnthropicClient, cleanResponse, buildPersonalityInstructions } from "./anthropic";
 import { retrieveContext } from "./rag";
 
 type MessageIntent = "casual" | "knowledge" | "action" | "search";
@@ -209,7 +209,15 @@ type ContextChunk = {
 };
 
 function buildGroupAgentSystemPrompt(
-  agent: { name: string; purpose: string },
+  agent: {
+    name: string;
+    purpose: string;
+    verbosity?: number;
+    initiative?: number;
+    reactivity?: number;
+    repetition_tolerance?: number;
+    warmth?: number;
+  },
   context: ContextChunk[],
   teamMemberNames: string[],
   docNames?: string[],
@@ -220,6 +228,8 @@ function buildGroupAgentSystemPrompt(
   const otherMembers = teamMemberNames.filter((n) => n !== agent.name);
   const teamList = otherMembers.length > 0 ? otherMembers.join(", ") : "no other members";
 
+  const personalityInstructions = buildPersonalityInstructions(agent);
+
   let prompt = `You are ${agent.name}, a member of a team group chat.
 
 Your role: ${agent.purpose}
@@ -227,8 +237,7 @@ Your role: ${agent.purpose}
 Team members you can address: ${teamList}. Address the user as @You.
 When referencing someone, use @Name (e.g. @${otherMembers[0] ?? "Alice"}, @You). Never use markdown like **replies to Name** or "replies to".
 
-Write a concise, natural response (1-3 sentences) from your perspective.
-Do NOT prefix your response with your name or "[${agent.name}]".
+${personalityInstructions ? `${personalityInstructions}\n\n` : "Write a concise, natural response (1-3 sentences) from your perspective.\n"}Do NOT prefix your response with your name or "[${agent.name}]".
 Plain conversational text only — no markdown, no bold, no headers, no bullet lists.
 
 CRITICAL: If you are asked a question, answer it directly from your own perspective and expertise. Do NOT redirect the question back to the group or ask others the same question. Do NOT say things like "Can everyone give me an update?" — instead, give YOUR OWN update or answer.`;
@@ -275,7 +284,7 @@ export type EvalResult = {
 
 export async function evaluateAgents(
   anthropic: Anthropic,
-  agents: { id: string; name: string; purpose: string }[],
+  agents: { id: string; name: string; purpose: string; initiative?: number }[],
   recentMessages: string[],
   newMessage: string
 ): Promise<EvalResult[]> {
@@ -285,6 +294,14 @@ export async function evaluateAgents(
 
   return Promise.all(
     agents.map(async (agent): Promise<EvalResult> => {
+      const initiative = agent.initiative ?? 3;
+      const initiativeNote =
+        initiative <= 2
+          ? "\nYour initiative is LOW — only set respond=true if the message is squarely in your core expertise and clearly needs your input. Default to not responding."
+          : initiative >= 4
+          ? "\nYour initiative is HIGH — you actively contribute. Set respond=true if you can add any value, even tangentially."
+          : "";
+
       try {
         const response = await anthropic.messages.create({
           model: "claude-haiku-4-5-20251001",
@@ -295,7 +312,7 @@ urgency: high=core to their expertise/critical to answer, medium=useful contribu
 weight: full=substantive response needed, brief=1 sentence acknowledgment only`,
           messages: [{
             role: "user",
-            content: `You are ${agent.name}. Your role: ${agent.purpose.slice(0, 200)}.
+            content: `You are ${agent.name}. Your role: ${agent.purpose.slice(0, 200)}.${initiativeNote}
 
 ${contextText}New message: "${newMessage}"
 
@@ -331,7 +348,7 @@ export async function generateAgentResponse(
   anthropic: Anthropic,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
-  agent: { id: string; name: string; purpose: string },
+  agent: { id: string; name: string; purpose: string; verbosity?: number; initiative?: number; reactivity?: number; repetition_tolerance?: number; warmth?: number },
   messages: { role: "user" | "assistant"; content: string }[],
   plainMessage: string,
   docsByAgent: Map<string, string[]>,
