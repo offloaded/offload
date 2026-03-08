@@ -16,6 +16,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const agentId = searchParams.get("agent_id");
   const conversationId = searchParams.get("conversation_id");
+  const teamId = searchParams.get("team_id");
   const before = searchParams.get("before");
   const after = searchParams.get("after");
   const limit = parseInt(searchParams.get("limit") || String(PAGE_SIZE), 10);
@@ -30,10 +31,32 @@ export async function GET(request: Request) {
     return loadConversation(supabase, user.id, conversationId, before, limit);
   }
 
+  // Load team conversation
+  if (teamId) {
+    const { data: teamConv } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("user_id", user.id)
+      .is("agent_id", null)
+      .eq("team_id", teamId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!teamConv) {
+      return NextResponse.json({
+        conversation_id: null,
+        messages: [],
+        has_more: false,
+      });
+    }
+    return loadConversation(supabase, user.id, teamConv.id, before, limit);
+  }
+
   // Load the most recent conversation for an agent (existing behavior)
   if (!agentId) {
     return NextResponse.json(
-      { error: "agent_id or conversation_id is required" },
+      { error: "agent_id, conversation_id, or team_id is required" },
       { status: 400 }
     );
   }
@@ -47,7 +70,7 @@ export async function GET(request: Request) {
     .limit(1);
 
   if (agentId === "group") {
-    query = query.is("agent_id", null);
+    query = query.is("agent_id", null).is("team_id", null);
   } else {
     query = query.eq("agent_id", agentId);
   }

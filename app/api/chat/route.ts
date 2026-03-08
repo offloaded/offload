@@ -283,6 +283,9 @@ export async function POST(request: Request) {
         const skillsMatch = fullResponse.match(
           /```skills_update\s*\n([\s\S]*?)\n```/
         );
+        const expectationsMatch = fullResponse.match(
+          /```expectations_update\s*\n([\s\S]*?)\n```/
+        );
 
         // Clean the response: strip <search> blocks, schedule_request blocks, feature_request blocks, etc.
         const cleaned = cleanResponse(fullResponse);
@@ -373,6 +376,30 @@ export async function POST(request: Request) {
           }
         }
 
+        if (expectationsMatch) {
+          try {
+            const newExpectations = JSON.parse(expectationsMatch[1]);
+            if (Array.isArray(newExpectations) && newExpectations.length > 0) {
+              const existing: Array<{ expectation: string; category?: string }> = agent.team_expectations || [];
+              const merged = [...existing];
+              for (const ne of newExpectations) {
+                if (!ne.expectation) continue;
+                if (!merged.some((e) => e.expectation.toLowerCase() === ne.expectation.toLowerCase())) {
+                  merged.push(ne);
+                }
+              }
+              await supabase
+                .from("agents")
+                .update({ team_expectations: merged, updated_at: new Date().toISOString() })
+                .eq("id", agent_id)
+                .eq("user_id", user.id);
+              console.log(`[Chat] Updated team_expectations for ${agent.name}: ${merged.length} expectation(s)`);
+            }
+          } catch {
+            // Invalid JSON — ignore
+          }
+        }
+
         // Log API usage
         const responseTimeMs = Date.now() - chatStartTime;
         try {
@@ -431,12 +458,13 @@ async function crossPostToGroupChat(
   agent: { id: string; name: string; purpose: string },
   messageContent: string
 ): Promise<string> {
-  // Find or create the group conversation (agent_id = null)
+  // Find or create the group conversation (agent_id = null, no team)
   const { data: existingConv } = await supabase
     .from("conversations")
     .select("id")
     .eq("user_id", userId)
     .is("agent_id", null)
+    .is("team_id", null)
     .order("updated_at", { ascending: false })
     .limit(1)
     .single();

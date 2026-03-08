@@ -4,14 +4,12 @@ import { logApiUsage, estimateCost } from "@/lib/api-usage";
 import {
   classifyIntent,
   detectMessageAddressing,
-  detectFollowUpTriggers,
   evaluateAgents,
   generateAgentResponse,
   scoreAgentRelevance,
   buildSmartHistory,
 } from "@/lib/group-orchestration";
 
-// Schedule detection instructions included in agent prompts when intent is "action"
 function buildScheduleInstructions(): string {
   return `If the user is asking you to schedule, remind, or delay something, acknowledge the request and include a JSON block at the END of your response.
 
@@ -29,8 +27,7 @@ Current date/time: ${new Date().toISOString()}. Only include this block when sch
 }
 
 export async function POST(request: Request) {
-  const LOG = "[Group Chat]";
-  console.log(`${LOG} ─── Request received ───`);
+  const LOG = "[Team Chat]";
 
   const supabase = await createServerSupabase();
   const {
@@ -72,39 +69,62 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { message, conversation_id, mentions } = body as {
+  const { message, conversation_id, mentions, team_id } = body as {
     message: string;
     conversation_id?: string;
     mentions?: string[];
+    team_id: string;
   };
-
-  console.log(`${LOG} Message: "${message?.slice(0, 100)}${message?.length > 100 ? "..." : ""}"`);
 
   if (!message?.trim()) {
     return new Response(JSON.stringify({ error: "message is required" }), { status: 400 });
   }
+  if (!team_id) {
+    return new Response(JSON.stringify({ error: "team_id is required" }), { status: 400 });
+  }
 
-  // Load agents
-  const { data: agents, error: agentsError } = await supabase
+  // Verify team ownership
+  const { data: team, error: teamError } = await supabase
+    .from("teams")
+    .select("id, name")
+    .eq("id", team_id)
+    .eq("user_id", user.id)
+    .single();
+
+  if (teamError || !team) {
+    return new Response(JSON.stringify({ error: "Team not found" }), { status: 404 });
+  }
+
+  // Load team member agent IDs
+  const { data: teamMembers } = await supabase
+    .from("team_members")
+    .select("agent_id")
+    .eq("team_id", team_id);
+
+  const teamAgentIds = new Set((teamMembers || []).map((m) => m.agent_id));
+
+  // Load only agents that belong to this team
+  const { data: allAgents } = await supabase
     .from("agents")
     .select("*")
     .eq("user_id", user.id)
     .order("created_at", { ascending: true });
 
-  if (agentsError || !agents?.length) {
-    return new Response(JSON.stringify({ error: "No agents found. Create agents first." }), { status: 400 });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const agents = (allAgents || []).filter((a: any) => teamAgentIds.has(a.id));
+
+  if (agents.length === 0) {
+    return new Response(JSON.stringify({ error: "No agents in this team." }), { status: 400 });
   }
-  console.log(`${LOG} ✓ ${agents.length} agent(s): ${agents.map((a) => a.name).join(", ")}`);
+
+  console.log(`${LOG} Team "${team.name}" — ${agents.length} agent(s): ${agents.map((a) => a.name).join(", ")}`);
 
   // Classify intent and detect addressing
   const intent = classifyIntent(message.trim());
   const { isTeamWide, mentionedAgentIds: detectedMentionIds } = detectMessageAddressing(message.trim(), agents);
   const effectiveIntent = isTeamWide && intent === "casual" ? "knowledge" : intent;
-  console.log(`${LOG} intent=${intent} effective=${effectiveIntent} isTeamWide=${isTeamWide} mentionedIds=${detectedMentionIds.length > 0 ? detectedMentionIds.map((id) => agents.find((a) => a.id === id)?.name ?? id).join(", ") : "none"}`);
 
-  // Resolve/create conversation.
-  // If no conversation_id provided, reuse the most recent group conversation rather than
-  // creating a new one — prevents orphaned conversations when the cache is cleared.
+  // Resolve/create team conversation
   let convId = conversation_id;
   if (convId) {
     const { data: existingConv } = await supabase
@@ -117,13 +137,13 @@ export async function POST(request: Request) {
       return new Response(JSON.stringify({ error: "Conversation not found" }), { status: 404 });
     }
   } else {
-    // Try to find the most recent group conversation first (exclude team conversations)
+    // Find or create a team conversation (agent_id = null, team_id = team_id)
     const { data: existing } = await supabase
       .from("conversations")
       .select("id")
       .eq("user_id", user.id)
       .is("agent_id", null)
-      .is("team_id", null)
+      .eq("team_id", team_id)
       .order("updated_at", { ascending: false })
       .limit(1)
       .single();
@@ -133,7 +153,7 @@ export async function POST(request: Request) {
     } else {
       const { data: newConv, error: convError } = await supabase
         .from("conversations")
-        .insert({ user_id: user.id, agent_id: null })
+        .insert({ user_id: user.id, agent_id: null, team_id })
         .select("id")
         .single();
       if (convError || !newConv) {
@@ -142,16 +162,14 @@ export async function POST(request: Request) {
       convId = newConv.id;
     }
   }
-  console.log(`${LOG} ✓ Conversation: ${convId}`);
 
   // Save user message
   await supabase.from("messages").insert({ conversation_id: convId, role: "user", content: message.trim() });
   await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
 
-  // Load message history with smart topic-aware trimming
+  // Load message history
   const anthropic = getAnthropicClient();
   const messages = await buildSmartHistory(supabase, anthropic, convId!);
-  console.log(`${LOG} ✓ History: ${messages.length} message(s) (smart trimmed)`);
 
   // Load docs per agent
   const { data: allDocs } = await supabase
@@ -166,15 +184,29 @@ export async function POST(request: Request) {
     list.push(doc.file_name);
     docsByAgent.set(doc.agent_id, list);
   }
-  console.log(`${LOG} ✓ Docs: ${allDocs?.length ?? 0} ready doc(s)`);
 
-  // Resolve all @mentioned agents (from UI + from text detection)
+  // Resolve @mentions
   const uiMentionIds = (mentions || [])
     .map((name) => agents.find((a) => a.name.toLowerCase() === name.toLowerCase())?.id)
     .filter((id): id is string => Boolean(id));
   const allMentionedIds = [...new Set([...uiMentionIds, ...detectedMentionIds])];
   const mentionedAgents = agents.filter((a) => allMentionedIds.includes(a.id));
   const nonMentionedAgents = agents.filter((a) => !allMentionedIds.includes(a.id));
+
+  // Build per-agent team expectations context (other agents' expectations)
+  const buildTeamExpectationsForAgent = (agentId: string): string | undefined => {
+    const otherExpectations: string[] = [];
+    for (const a of agents) {
+      if (a.id === agentId) continue;
+      if (a.team_expectations && a.team_expectations.length > 0) {
+        for (const e of a.team_expectations) {
+          otherExpectations.push(`- ${a.name}: ${e.expectation}`);
+        }
+      }
+    }
+    if (otherExpectations.length === 0) return undefined;
+    return `YOUR TEAM'S EXPECTATIONS (what your teammates commit to):\n${otherExpectations.slice(0, 20).join("\n")}\nBe aware of your teammates' standards when collaborating.`;
+  };
 
   const encoder = new TextEncoder();
 
@@ -183,14 +215,10 @@ export async function POST(request: Request) {
       const send = (data: Record<string, unknown>) =>
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
 
-      // Minimum delay (ms) before each agent's response appears.
-      // Generation runs concurrently with the delay so the user sees the
-      // typing indicator immediately, and the response appears once both
-      // the minimum wait AND generation complete.
       const DELAY_RANGES: Record<string, [number, number]> = {
-        high:   [3000,  5000],
-        medium: [4000,  8000],
-        low:    [8000, 14000],
+        high: [3000, 5000],
+        medium: [4000, 8000],
+        low: [8000, 14000],
       };
 
       const teamMemberNames = agents.map((a) => a.name);
@@ -199,11 +227,9 @@ export async function POST(request: Request) {
       try {
         send({ type: "conversation_id", conversation_id: convId });
 
-        // Ordered list of agent responses accumulated for DB save and prior-context
         const allResponses: string[] = [];
         let schedulePayload: Record<string, unknown> | null = null;
 
-        // ── Helper: run one agent sequentially ─────────────────────────
         const runAgent = async (
           agent: typeof agents[0],
           urgency: "high" | "medium" | "low",
@@ -215,19 +241,17 @@ export async function POST(request: Request) {
 
           send({ type: "agent_typing", agent_id: agent.id, agent_name: agent.name, agent_color: agent.color });
 
-          // Generate response and enforce minimum delay simultaneously
           const [rawText] = await Promise.all([
             generateAgentResponse(
               anthropic, supabase, agent, messages, message.trim(),
               docsByAgent, teamMemberNames, scheduleInstructions, priorResponses, weight,
-              user.id
+              user.id, buildTeamExpectationsForAgent(agent.id)
             ),
             new Promise<void>((r) => setTimeout(r, targetDelay)),
           ]);
 
           const text = cleanResponse(rawText.replace(/YOUR_AGENT_ID/g, agent.id));
 
-          // Capture schedule block from raw text before cleaning
           if (!schedulePayload) {
             const m = rawText.match(/```schedule_request\s*\n([\s\S]*?)\n```/);
             if (m) {
@@ -237,13 +261,10 @@ export async function POST(request: Request) {
 
           send({ type: "agent_text", agent_id: agent.id, agent_name: agent.name, agent_color: agent.color, text });
           allResponses.push(`[${agent.name}] ${text}`);
-          console.log(`${LOG} ${agent.name} (${urgency}/${weight}): ${text.slice(0, 80)}`);
         };
 
-        // ── CASUAL SHORTCUT ────────────────────────────────────────────
+        // CASUAL SHORTCUT
         if (effectiveIntent === "casual" && allMentionedIds.length === 0) {
-          console.log(`${LOG} Casual shortcut`);
-
           const scored = agents
             .map((a) => ({ agent: a, score: scoreAgentRelevance(message.trim(), a) }))
             .sort((a, b) => b.score - a.score);
@@ -254,7 +275,7 @@ export async function POST(request: Request) {
             const agent = casualAgents[i];
             const delay = i === 0 ? 2000 + Math.random() * 2000 : 3000 + Math.random() * 5000;
             send({ type: "agent_typing", agent_id: agent.id, agent_name: agent.name, agent_color: agent.color });
-            const systemPrompt = `You are ${agent.name}, a member of a team group chat.\nYour role: ${agent.purpose}\n\nWrite a brief, natural response (1-2 sentences). Plain text only, no markdown.\nNEVER prefix your response with your name or anyone else's name in brackets like [Name]. NEVER speak as the user or write [You]. The system handles attribution — just write your response naturally.${priorResponses ? `\n\nColleagues already said:\n${priorResponses}\nDon't repeat them.` : ""}`;
+            const systemPrompt = `You are ${agent.name}, a member of the "${team.name}" team group chat.\nYour role: ${agent.purpose}\n\nWrite a brief, natural response (1-2 sentences). Plain text only, no markdown.\nNEVER prefix your response with your name or anyone else's name in brackets like [Name]. NEVER speak as the user or write [You]. The system handles attribution — just write your response naturally.${priorResponses ? `\n\nColleagues already said:\n${priorResponses}\nDon't repeat them.` : ""}`;
             const [response] = await Promise.all([
               anthropic.messages.create({
                 model: "claude-haiku-4-5-20251001",
@@ -264,12 +285,11 @@ export async function POST(request: Request) {
               }),
               new Promise<void>((r) => setTimeout(r, delay)),
             ]);
-            // Log API usage for casual response
             const casualTokensIn = response.usage?.input_tokens || 0;
             const casualTokensOut = response.usage?.output_tokens || 0;
             logApiUsage({
               user_id: user.id,
-              service: "group_chat",
+              service: "team_chat",
               model: "claude-haiku-4-5-20251001",
               tokens_in: casualTokensIn,
               tokens_out: casualTokensOut,
@@ -281,10 +301,8 @@ export async function POST(request: Request) {
             allResponses.push(`[${agent.name}] ${text}`);
             priorResponses += `[${agent.name}]: ${text}\n`;
           }
-          console.log(`${LOG} Casual: ${casualAgents.length} agent(s)`);
-
         } else {
-          // ── EVALUATE PHASE (parallel) ──────────────────────────────────
+          // EVALUATE PHASE
           const recentForEval = messages.slice(-4).map(
             (m) => `${m.role === "user" ? "User" : "Team"}: ${m.content.slice(0, 150)}`
           );
@@ -295,21 +313,10 @@ export async function POST(request: Request) {
             evalResults = nonMentionedAgents.map((a) => ({
               agentId: a.id, respond: true, urgency: "medium" as const, weight: "full" as const, reason: "team-wide",
             }));
-            console.log(`${LOG} Team-wide: all ${agents.length} agents respond`);
           } else if (nonMentionedAgents.length > 0) {
-            console.log(`${LOG} Evaluating ${nonMentionedAgents.length} non-mentioned agent(s): [${nonMentionedAgents.map((a) => a.name).join(", ")}]`);
-            console.log(`${LOG} Recent context for eval (${recentForEval.length} msgs): ${recentForEval.map((m) => m.slice(0, 80)).join(" | ")}`);
             evalResults = await evaluateAgents(anthropic, nonMentionedAgents, recentForEval, message.trim());
-            const yesCount = evalResults.filter((r) => r.respond).length;
-            const noCount = evalResults.filter((r) => !r.respond).length;
-            console.log(`${LOG} Eval summary: ${yesCount} YES, ${noCount} NO out of ${evalResults.length} agents`);
-            for (const r of evalResults) {
-              const name = agents.find((a) => a.id === r.agentId)?.name ?? r.agentId;
-              console.log(`${LOG}   ${name} → ${r.respond ? "YES" : "NO"} urgency=${r.urgency} weight=${r.weight} (${r.reason})`);
-            }
           }
 
-          // Build ordered list: @mentioned (high urgency) first, then eval results sorted by urgency
           const urgencyOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
           const getUrgency = (id: string): "high" | "medium" | "low" =>
             allMentionedIds.includes(id) ? "high" : (evalResults.find((r) => r.agentId === id)?.urgency ?? "medium");
@@ -324,15 +331,13 @@ export async function POST(request: Request) {
             .filter((a) => respondingIds.has(a.id))
             .sort((a, b) => urgencyOrder[getUrgency(a.id)] - urgencyOrder[getUrgency(b.id)]);
 
-          console.log(`${LOG} Responding: [${respondingAgents.map((a) => a.name).join(", ") || "none"}]`);
-
           if (respondingAgents.length === 0) {
             send({ type: "done" });
             controller.close();
             return;
           }
 
-          // ── RESPOND PHASE (sequential) ─────────────────────────────────
+          // RESPOND PHASE (sequential)
           let priorResponses = "";
           for (const agent of respondingAgents) {
             await runAgent(agent, getUrgency(agent.id), getWeight(agent.id), priorResponses);
@@ -348,86 +353,21 @@ export async function POST(request: Request) {
 
         // Save combined to DB
         const combined = allResponses.join("\n");
-        const { error: saveMsgError } = await supabase.from("messages").insert({
+        await supabase.from("messages").insert({
           conversation_id: convId,
           role: "assistant",
           content: combined,
         });
-        if (saveMsgError) {
-          console.log(`${LOG} ✗ Failed to save to DB:`, saveMsgError);
-        } else {
-          console.log(`${LOG} ✓ Saved ${allResponses.length} response(s) to DB`);
-        }
         await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
 
-        // Forward schedule_request if any agent included one
         if (schedulePayload) {
-          console.log(`${LOG} Schedule request: ${JSON.stringify(schedulePayload)}`);
           send({ type: "schedule_request", ...(schedulePayload as Record<string, unknown>) });
-        }
-
-        // ── FOLLOW-UP DETECTION — agents responding to each other ────────
-        // After agents respond, check if any asked a question that should
-        // trigger other agents. Up to 2 follow-up rounds within the same SSE stream.
-        const respondedIds = new Set<string>(allResponses.map((r) => {
-          const m = r.match(/^\[([^\]]+)\]/);
-          return m ? agents.find((a) => a.name === m[1])?.id : undefined;
-        }).filter((id): id is string => Boolean(id)));
-        const hardExcludeIds = new Set<string>(); // no hard excludes for user-initiated flow
-
-        console.log(`${LOG} ── Follow-up detection ──`);
-        console.log(`${LOG} Responded so far: [${[...respondedIds].map((id) => agents.find((a) => a.id === id)?.name ?? id).join(", ")}]`);
-        console.log(`${LOG} Scanning combined response (${combined.length} chars) for questions...`);
-
-        let followUpRound = 0;
-        let lastCombined = combined;
-
-        while (followUpRound < 2) {
-          const followUp = detectFollowUpTriggers(lastCombined, agents, hardExcludeIds, respondedIds);
-          if (!followUp) {
-            console.log(`${LOG} No follow-up triggers after round ${followUpRound} — conversation complete`);
-            break;
-          }
-
-          followUpRound++;
-          const targetNames = agents
-            .filter((a) => followUp.targetAgentIds.includes(a.id))
-            .map((a) => a.name)
-            .join(", ");
-          console.log(`${LOG} Follow-up round ${followUpRound} → [${targetNames}] reason: ${followUp.reason}`);
-
-          const followUpAgents = agents.filter((a) => followUp.targetAgentIds.includes(a.id));
-          const followUpResponses: string[] = [];
-          // Full conversation context: all responses so far
-          let followUpPrior = allResponses.join("\n");
-
-          for (const agent of followUpAgents) {
-            await runAgent(agent, "medium", "full", followUpPrior);
-            const latestResponse = allResponses[allResponses.length - 1];
-            followUpResponses.push(latestResponse);
-            followUpPrior += "\n" + latestResponse;
-            respondedIds.add(agent.id);
-          }
-
-          // Save follow-up round to DB
-          if (followUpResponses.length > 0) {
-            const followUpCombined = followUpResponses.join("\n");
-            await supabase.from("messages").insert({
-              conversation_id: convId,
-              role: "assistant",
-              content: followUpCombined,
-            });
-            await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
-            console.log(`${LOG} ✓ Saved ${followUpResponses.length} follow-up response(s)`);
-            lastCombined = followUpCombined;
-          }
         }
 
         send({ type: "done" });
         controller.close();
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : "Stream error";
-        console.log(`${LOG} ✗ Error: ${errorMsg}`, err);
         controller.enqueue(
           encoder.encode(`data: ${JSON.stringify({ type: "error", error: errorMsg })}\n\n`)
         );

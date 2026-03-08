@@ -5,7 +5,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { HashIcon, GearIcon, XIcon, ClockIcon, PlusIcon, RepeatClockIcon, ActivityIcon, SunIcon, MoonIcon } from "./Icons";
 import { createClient } from "@/lib/supabase";
-import type { Agent } from "@/lib/types";
+import type { Agent, Team } from "@/lib/types";
+
+interface TeamWithAgents extends Team {
+  agent_ids: string[];
+}
 
 function NavItem({
   href,
@@ -60,6 +64,7 @@ function ThemeToggle() {
 
 export function SidebarContent({
   agents,
+  teams = [],
   showClose,
   onClose,
   activeTaskCount = 0,
@@ -68,6 +73,7 @@ export function SidebarContent({
   isAdmin = false,
 }: {
   agents: Agent[];
+  teams?: TeamWithAgents[];
   showClose?: boolean;
   onClose?: () => void;
   activeTaskCount?: number;
@@ -120,6 +126,35 @@ export function SidebarContent({
             </span>
           )}
         </NavItem>
+        {teams.map((team) => {
+          const teamUnread = unreadCounts[`team:${team.id}`] || 0;
+          return (
+            <NavItem
+              key={team.id}
+              href={`/team/${team.id}`}
+              isActive={pathname === `/team/${team.id}`}
+            >
+              <span className="opacity-60">
+                <HashIcon />
+              </span>
+              <span className="flex-1"># {team.name}</span>
+              {teamUnread > 0 && (
+                <span className="text-[11px] font-semibold bg-[var(--color-accent)] text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">
+                  {teamUnread}
+                </span>
+              )}
+            </NavItem>
+          );
+        })}
+        <Link
+          href="/team/new"
+          className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg w-full text-[13px] no-underline transition-colors font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] hover:bg-[var(--color-hover)]"
+        >
+          <span className="opacity-60">
+            <PlusIcon />
+          </span>
+          <span>New team</span>
+        </Link>
         <NavItem href="/history" isActive={pathname === "/history"}>
           <span className="opacity-60">
             <ClockIcon />
@@ -252,6 +287,7 @@ function LogOutButton() {
 
 export function Drawer({
   agents,
+  teams,
   open,
   onClose,
   activeTaskCount,
@@ -260,6 +296,7 @@ export function Drawer({
   isAdmin,
 }: {
   agents: Agent[];
+  teams?: TeamWithAgents[];
   open: boolean;
   onClose: () => void;
   activeTaskCount?: number;
@@ -286,6 +323,7 @@ export function Drawer({
       >
         <SidebarContent
           agents={agents}
+          teams={teams}
           showClose
           onClose={onClose}
           activeTaskCount={activeTaskCount}

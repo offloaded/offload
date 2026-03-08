@@ -11,7 +11,7 @@ import {
   XIcon,
   GlobeIcon,
 } from "@/components/Icons";
-import type { Document, SoftSkill } from "@/lib/types";
+import type { Document, SoftSkill, TeamExpectation } from "@/lib/types";
 
 const PALETTE = [
   "#2C5FF6",
@@ -69,6 +69,8 @@ export default function AgentEditorPage() {
   const [extractingVoice, setExtractingVoice] = useState(false);
   const [softSkills, setSoftSkills] = useState<SoftSkill[]>([]);
   const [newSkillName, setNewSkillName] = useState("");
+  const [teamExpectations, setTeamExpectations] = useState<TeamExpectation[]>([]);
+  const [newExpectation, setNewExpectation] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [uploads, setUploads] = useState<UploadItem[]>([]);
@@ -85,6 +87,7 @@ export default function AgentEditorPage() {
       setVoiceSamples(existing.voice_samples ?? []);
       setVoiceProfile(existing.voice_profile ?? "");
       setSoftSkills(existing.soft_skills ?? []);
+      setTeamExpectations(existing.team_expectations ?? []);
     } else if (isNew) {
       setColor(PALETTE[agents.length % PALETTE.length]);
     }
@@ -132,6 +135,7 @@ export default function AgentEditorPage() {
             voice_profile: voiceProfile || null,
           } : {}),
           ...(!isNew ? { soft_skills: softSkills.length > 0 ? softSkills : null } : {}),
+          ...(!isNew ? { team_expectations: teamExpectations.length > 0 ? teamExpectations : null } : {}),
         }),
       });
       if (!res.ok) {
@@ -608,6 +612,69 @@ export default function AgentEditorPage() {
               </div>
             )}
           </div>
+
+          {/* Team Expectations */}
+          {!isNew && (
+            <div className="mb-7">
+              <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-1">
+                Team Expectations
+              </label>
+              <p className="text-[12px] text-[var(--color-text-tertiary)] mb-2.5">
+                Working standards this agent should follow. These are injected into the agent's system prompt and shared with teammates.
+              </p>
+
+              {teamExpectations.length > 0 && (
+                <div className="flex flex-col gap-1.5 mb-2.5">
+                  {teamExpectations.map((exp, i) => (
+                    <div
+                      key={i}
+                      className="flex items-start gap-2 py-2 px-3 rounded-lg border border-[var(--color-border)] group"
+                    >
+                      <span className="text-[13px] text-[var(--color-text)] flex-1">{exp.expectation}</span>
+                      <button
+                        onClick={() => setTeamExpectations(teamExpectations.filter((_, j) => j !== i))}
+                        className="bg-transparent border-none cursor-pointer text-[var(--color-text-tertiary)] hover:text-[var(--color-red)] p-0 flex text-[10px] leading-none opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5"
+                      >
+                        <XIcon />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <input
+                  value={newExpectation}
+                  onChange={(e) => setNewExpectation(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const trimmed = newExpectation.trim();
+                      if (trimmed) {
+                        setTeamExpectations([...teamExpectations, { expectation: trimmed }]);
+                        setNewExpectation("");
+                      }
+                    }
+                  }}
+                  placeholder="e.g. Always provide data to back up claims"
+                  className="flex-1 py-2 px-3 border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
+                />
+                <button
+                  onClick={() => {
+                    const trimmed = newExpectation.trim();
+                    if (trimmed) {
+                      setTeamExpectations([...teamExpectations, { expectation: trimmed }]);
+                      setNewExpectation("");
+                    }
+                  }}
+                  disabled={!newExpectation.trim()}
+                  className="py-2 px-3 border border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[var(--color-accent)] text-[13px] font-medium disabled:opacity-30 hover:bg-[var(--color-hover)] transition-colors"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Knowledge (Documents) */}
           <div className="mb-7">
