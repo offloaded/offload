@@ -19,6 +19,7 @@ interface AppContextValue {
   markRead: (conversationId: string) => void;
   setActiveChatKey: (chatKey: string | null) => void;
   hasNewActivity: boolean;
+  isAdmin: boolean;
 }
 
 const AppContext = createContext<AppContextValue>({
@@ -33,6 +34,7 @@ const AppContext = createContext<AppContextValue>({
   markRead: () => {},
   setActiveChatKey: () => {},
   hasNewActivity: false,
+  isAdmin: false,
 });
 
 export function useApp() {
@@ -58,6 +60,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [hasNewActivity, setHasNewActivity] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [checked, setChecked] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const mobile = useIsMobile();
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -138,6 +141,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         refreshTaskCount();
         refreshUnreadCounts();
         checkNewActivity();
+        // Check admin status
+        fetch("/api/admin/check").then(r => r.ok ? r.json() : { isAdmin: false }).then(d => setIsAdmin(d.isAdmin)).catch(() => {});
       }
     });
   }, [supabase, router, refreshAgents, refreshTaskCount, refreshUnreadCounts, checkNewActivity]);
@@ -161,11 +166,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AppContext value={{ agents, refreshAgents, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity }}>
+    <AppContext value={{ agents, refreshAgents, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin }}>
       <div className="flex h-screen w-full bg-[var(--color-page-bg)] overflow-hidden">
         {/* Desktop sidebar — hidden below 768px via CSS */}
         <div className="hidden md:flex w-[220px] min-w-[220px] bg-[var(--color-bg)] border-r border-[var(--color-border)] flex-col">
-          <SidebarContent agents={agents} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} />
+          <SidebarContent agents={agents} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} isAdmin={isAdmin} />
         </div>
 
         {/* Mobile drawer — always mounted, visibility controlled by open state */}
@@ -176,6 +181,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           activeTaskCount={activeTaskCount}
           unreadCounts={unreadCounts}
           hasNewActivity={hasNewActivity}
+          isAdmin={isAdmin}
         />
 
         <div className="flex-1 flex flex-col overflow-hidden">
