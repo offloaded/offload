@@ -2,7 +2,7 @@ import { createServerSupabase, createServiceSupabase } from "@/lib/supabase-serv
 import { getAnthropicClient, buildSystemPrompt, cleanResponse } from "@/lib/anthropic";
 import { retrieveContext, type RetrievedChunk } from "@/lib/rag";
 import { webSearch, formatSearchResults } from "@/lib/web-search";
-import { logActivity } from "@/lib/activity";
+import { logActivity, isStandupQuestion, getAgentActivitySummary } from "@/lib/activity";
 import { runGroupOrchestration } from "@/lib/group-orchestration";
 import { logApiUsage, estimateCost } from "@/lib/api-usage";
 
@@ -210,6 +210,14 @@ export async function POST(request: Request) {
     });
   }
 
+  // Fetch activity summary for standup-style questions
+  let activitySummary: string | undefined;
+  if (isStandupQuestion(message.trim())) {
+    try {
+      activitySummary = await getAgentActivitySummary(supabase, agent_id, user.id);
+    } catch { /* non-fatal */ }
+  }
+
   // Stream response from Claude
   const anthropic = getAnthropicClient();
   const systemPrompt = buildSystemPrompt(
@@ -220,6 +228,7 @@ export async function POST(request: Request) {
       enableScheduleDetection: true,
       webSearchResults,
       disabledFeatures: disabledFeatures.length > 0 ? disabledFeatures : undefined,
+      activitySummary,
     }
   );
   console.log(`[Chat RAG] System prompt length: ${systemPrompt.length}`);

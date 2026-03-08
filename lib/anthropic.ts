@@ -82,6 +82,7 @@ export function buildSystemPrompt(
     enableScheduleDetection?: boolean;
     webSearchResults?: string;
     disabledFeatures?: Array<{ feature: string; label: string; description: string }>;
+    activitySummary?: string;
   }
 ): string {
   let prompt = `You are ${agent.name}.
@@ -187,6 +188,10 @@ Disabled features:`;
 [{"skill": "skill name", "confidence": "low|medium|high", "note": "why you have this skill"}]
 \`\`\`
 Only include this block when explicitly discussing your skills or when asked to develop a new capability.`;
+
+  if (options?.activitySummary) {
+    prompt += `\n\n${options.activitySummary}\n\nIMPORTANT: When asked about what you're working on, your status, progress, blockers, or for a standup update, answer ONLY from the activity summary above. Your purpose statement describes what you CAN do — the activity summary describes what you ARE doing. If you have no recent activity, say so honestly ("Nothing active on my end right now. Let me know if there's something I can pick up."). Do NOT fabricate work or talk generically about your role.`;
+  }
 
   prompt += `\n\nFORMATTING RULE: Never use markdown formatting. No **bold**, no *italic*, no # headers, no - bullet lists, no \`code blocks\`, no [links](url). Write in plain conversational text like a human in a chat app. To list things, use natural sentences or "1." "2." numbering.`;
 

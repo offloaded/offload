@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient, cleanResponse, buildStyleInstructions } from "./anthropic";
 import { retrieveContext } from "./rag";
+import { isStandupQuestion, getAgentActivitySummary } from "./activity";
 
 type MessageIntent = "casual" | "knowledge" | "action" | "search";
 
@@ -22,6 +23,8 @@ export function classifyIntent(text: string): MessageIntent {
     /^what'?s? up\b/,
     /^(lol|haha|nice one)\b/,
   ];
+  // Standup questions look casual but need the full pipeline for activity context
+  if (isStandupQuestion(lower)) return "knowledge";
   if (wordCount <= 12 && casualPatterns.some((p) => p.test(lower))) return "casual";
 
   if (/\b(latest (news|events?|updates?)|current (news|events?)|today'?s? (news|events?|updates?|headlines?|market|prices?|scores?)|this (morning|week|month)'?s? (news|updates?|headlines?)|breaking( news)?|just (happened|announced|released)|news about|search (for|the) (?!web)|look up|google|check online)\b/.test(lower)) {
@@ -254,7 +257,8 @@ function buildGroupAgentSystemPrompt(
   docNames?: string[],
   scheduleInstructions?: string,
   priorResponses?: string,
-  weight?: "full" | "brief"
+  weight?: "full" | "brief",
+  activitySummary?: string
 ): string {
   const otherMembers = teamMemberNames.filter((n) => n !== agent.name);
   const teamList = otherMembers.length > 0 ? otherMembers.join(", ") : "no other members";
@@ -301,6 +305,10 @@ CONTEXT: Only respond to the MOST RECENT message in the conversation. Ignore old
       prompt += `\n${header}:\n${c.content}`;
     });
     prompt += `\n\nReference relevant information from your knowledge base when applicable.`;
+  }
+
+  if (activitySummary) {
+    prompt += `\n\n${activitySummary}\n\nIMPORTANT: When asked about what you're working on, your status, progress, blockers, or for a standup update, answer ONLY from the activity summary above. Your purpose statement describes what you CAN do — the activity summary describes what you ARE doing. If you have no recent activity, say so honestly ("Nothing active on my end right now. Let me know if there's something I can pick up."). Do NOT fabricate work or talk generically about your role.`;
   }
 
   if (priorResponses) {
@@ -417,12 +425,21 @@ export async function generateAgentResponse(
   teamMemberNames: string[],
   scheduleInstructions?: string,
   priorResponses?: string,
-  weight?: "full" | "brief"
+  weight?: "full" | "brief",
+  userId?: string
 ): Promise<string> {
   let context: ContextChunk[] = [];
   if (docsByAgent.has(agent.id)) {
     try {
       context = await retrieveContext(supabase, agent.id, plainMessage, 5);
+    } catch { /* non-fatal */ }
+  }
+
+  // Fetch activity summary for standup-style questions
+  let activitySummary: string | undefined;
+  if (isStandupQuestion(plainMessage) && userId) {
+    try {
+      activitySummary = await getAgentActivitySummary(supabase, agent.id, userId);
     } catch { /* non-fatal */ }
   }
 
@@ -433,7 +450,8 @@ export async function generateAgentResponse(
     docsByAgent.get(agent.id),
     scheduleInstructions,
     priorResponses,
-    weight
+    weight,
+    activitySummary
   );
 
   const response = await anthropic.messages.create({
@@ -775,7 +793,11 @@ export async function runGroupOrchestration(
         messages,
         plainText,
         docsByAgent,
-        teamMemberNames
+        teamMemberNames,
+        undefined, // scheduleInstructions
+        undefined, // priorResponses
+        undefined, // weight
+        userId
       );
       return `[${agent.name}] ${text}`;
     })
