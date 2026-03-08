@@ -1,9 +1,10 @@
-import { createServerSupabase } from "@/lib/supabase-server";
+import { createServerSupabase, createServiceSupabase } from "@/lib/supabase-server";
 import { getAnthropicClient, buildSystemPrompt, cleanResponse } from "@/lib/anthropic";
 import { retrieveContext, type RetrievedChunk } from "@/lib/rag";
 import { webSearch, formatSearchResults } from "@/lib/web-search";
 import { logActivity } from "@/lib/activity";
 import { runGroupOrchestration } from "@/lib/group-orchestration";
+import { logApiUsage, estimateCost } from "@/lib/api-usage";
 
 export async function POST(request: Request) {
   const supabase = await createServerSupabase();
@@ -15,6 +16,36 @@ export async function POST(request: Request) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
     });
+  }
+
+  // Check suspension and usage limits
+  const serviceDb = createServiceSupabase();
+  const { data: profile } = await serviceDb
+    .from("user_profiles")
+    .select("suspended, monthly_token_limit")
+    .eq("id", user.id)
+    .single();
+
+  if (profile?.suspended) {
+    return new Response(JSON.stringify({ error: "Your account has been suspended." }), { status: 403 });
+  }
+
+  if (profile?.monthly_token_limit) {
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    const { data: usage } = await serviceDb
+      .from("api_usage")
+      .select("tokens_in, tokens_out")
+      .eq("user_id", user.id)
+      .gte("created_at", monthStart.toISOString());
+    const totalTokens = (usage || []).reduce((s, r) => s + (r.tokens_in || 0) + (r.tokens_out || 0), 0);
+    if (totalTokens >= profile.monthly_token_limit) {
+      return new Response(
+        JSON.stringify({ error: "You've reached your monthly usage limit. Contact support to upgrade." }),
+        { status: 429 }
+      );
+    }
   }
 
   const body = await request.json();
@@ -155,7 +186,7 @@ export async function POST(request: Request) {
   let webSearchResults: string | undefined;
   if (webSearchEnabled) {
     try {
-      const results = await webSearch(message.trim(), 5);
+      const results = await webSearch(message.trim(), 10, agent.purpose);
       if (results.length > 0) {
         webSearchResults = formatSearchResults(results);
         const queryPreview = message.trim().slice(0, 80) + (message.trim().length > 80 ? "..." : "");
@@ -203,6 +234,7 @@ export async function POST(request: Request) {
   // Create a ReadableStream that sends SSE events
   const encoder = new TextEncoder();
   let fullResponse = "";
+  const chatStartTime = Date.now();
 
   const readable = new ReadableStream({
     async start(controller) {
@@ -330,6 +362,26 @@ export async function POST(request: Request) {
           } catch {
             // Invalid JSON — ignore
           }
+        }
+
+        // Log API usage
+        const responseTimeMs = Date.now() - chatStartTime;
+        try {
+          const finalMessage = await stream.finalMessage();
+          const tokensIn = finalMessage.usage?.input_tokens || 0;
+          const tokensOut = finalMessage.usage?.output_tokens || 0;
+          const cost = estimateCost("claude-sonnet-4-5-20250929", tokensIn, tokensOut);
+          logApiUsage({
+            user_id: user.id,
+            service: "chat",
+            model: "claude-sonnet-4-5-20250929",
+            tokens_in: tokensIn,
+            tokens_out: tokensOut,
+            cost,
+            response_time_ms: responseTimeMs,
+          });
+        } catch {
+          // Don't block on usage logging failure
         }
 
         controller.enqueue(

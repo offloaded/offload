@@ -1,5 +1,6 @@
-import { createServerSupabase } from "@/lib/supabase-server";
+import { createServerSupabase, createServiceSupabase } from "@/lib/supabase-server";
 import { getAnthropicClient, cleanResponse } from "@/lib/anthropic";
+import { logApiUsage, estimateCost } from "@/lib/api-usage";
 import {
   classifyIntent,
   detectMessageAddressing,
@@ -38,6 +39,36 @@ export async function POST(request: Request) {
 
   if (!user) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+  }
+
+  // Check suspension and usage limits
+  const serviceDb = createServiceSupabase();
+  const { data: profile } = await serviceDb
+    .from("user_profiles")
+    .select("suspended, monthly_token_limit")
+    .eq("id", user.id)
+    .single();
+
+  if (profile?.suspended) {
+    return new Response(JSON.stringify({ error: "Your account has been suspended." }), { status: 403 });
+  }
+
+  if (profile?.monthly_token_limit) {
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    const { data: usage } = await serviceDb
+      .from("api_usage")
+      .select("tokens_in, tokens_out")
+      .eq("user_id", user.id)
+      .gte("created_at", monthStart.toISOString());
+    const totalTokens = (usage || []).reduce((s, r) => s + (r.tokens_in || 0) + (r.tokens_out || 0), 0);
+    if (totalTokens >= profile.monthly_token_limit) {
+      return new Response(
+        JSON.stringify({ error: "You've reached your monthly usage limit. Contact support to upgrade." }),
+        { status: 429 }
+      );
+    }
   }
 
   const body = await request.json();
@@ -231,6 +262,17 @@ export async function POST(request: Request) {
               }),
               new Promise<void>((r) => setTimeout(r, delay)),
             ]);
+            // Log API usage for casual response
+            const casualTokensIn = response.usage?.input_tokens || 0;
+            const casualTokensOut = response.usage?.output_tokens || 0;
+            logApiUsage({
+              user_id: user.id,
+              service: "group_chat",
+              model: "claude-haiku-4-5-20251001",
+              tokens_in: casualTokensIn,
+              tokens_out: casualTokensOut,
+              cost: estimateCost("claude-haiku-4-5-20251001", casualTokensIn, casualTokensOut),
+            });
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const text = cleanResponse(response.content.filter((b: any) => b.type === "text").map((b: any) => b.text as string).join("").trim());
             send({ type: "agent_text", agent_id: agent.id, agent_name: agent.name, agent_color: agent.color, text });

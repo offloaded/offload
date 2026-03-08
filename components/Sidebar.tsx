@@ -65,6 +65,7 @@ export function SidebarContent({
   activeTaskCount = 0,
   unreadCounts = {},
   hasNewActivity = false,
+  isAdmin = false,
 }: {
   agents: Agent[];
   showClose?: boolean;
@@ -72,6 +73,7 @@ export function SidebarContent({
   activeTaskCount?: number;
   unreadCounts?: Record<string, number>;
   hasNewActivity?: boolean;
+  isAdmin?: boolean;
 }) {
   const pathname = usePathname();
 
@@ -202,6 +204,14 @@ export function SidebarContent({
             </span>
             <span>Settings</span>
           </NavItem>
+          {isAdmin && (
+            <NavItem href="/admin" isActive={false}>
+              <span className="opacity-60">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+              </span>
+              <span>Admin</span>
+            </NavItem>
+          )}
           <ThemeToggle />
         </div>
       </div>
@@ -247,6 +257,7 @@ export function Drawer({
   activeTaskCount,
   unreadCounts,
   hasNewActivity,
+  isAdmin,
 }: {
   agents: Agent[];
   open: boolean;
@@ -254,6 +265,7 @@ export function Drawer({
   activeTaskCount?: number;
   unreadCounts?: Record<string, number>;
   hasNewActivity?: boolean;
+  isAdmin?: boolean;
 }) {
   return (
     <>
@@ -279,6 +291,7 @@ export function Drawer({
           activeTaskCount={activeTaskCount}
           unreadCounts={unreadCounts}
           hasNewActivity={hasNewActivity}
+          isAdmin={isAdmin}
         />
       </div>
     </>
