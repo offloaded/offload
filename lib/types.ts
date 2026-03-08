@@ -15,8 +15,31 @@ export interface Agent {
   voice_profile: string | null;
   // Soft skills
   soft_skills: SoftSkill[] | null;
+  // Team expectations
+  team_expectations: TeamExpectation[] | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface TeamExpectation {
+  expectation: string;
+  category?: string;
+}
+
+export interface Team {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TeamMember {
+  id: string;
+  team_id: string;
+  agent_id: string;
+  created_at: string;
 }
 
 export interface SoftSkill {
@@ -40,6 +63,7 @@ export interface Conversation {
   id: string;
   user_id: string;
   agent_id: string | null;
+  team_id: string | null;
   created_at: string;
   updated_at: string;
 }

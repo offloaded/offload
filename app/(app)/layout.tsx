@@ -4,12 +4,18 @@ import { useEffect, useState, useCallback, useMemo, useRef, createContext, useCo
 import { createClient } from "@/lib/supabase";
 import { SidebarContent, Drawer } from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
-import type { Agent } from "@/lib/types";
+import type { Agent, Team } from "@/lib/types";
 import { preloadAllChats } from "@/lib/chat-cache";
+
+interface TeamWithAgents extends Team {
+  agent_ids: string[];
+}
 
 interface AppContextValue {
   agents: Agent[];
   refreshAgents: () => Promise<void>;
+  teams: TeamWithAgents[];
+  refreshTeams: () => Promise<void>;
   activeTaskCount: number;
   refreshTaskCount: () => void;
   mobile: boolean;
@@ -25,6 +31,8 @@ interface AppContextValue {
 const AppContext = createContext<AppContextValue>({
   agents: [],
   refreshAgents: async () => {},
+  teams: [],
+  refreshTeams: async () => {},
   activeTaskCount: 0,
   refreshTaskCount: () => {},
   mobile: false,
@@ -55,6 +63,7 @@ function useIsMobile() {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [teams, setTeams] = useState<TeamWithAgents[]>([]);
   const [activeTaskCount, setActiveTaskCount] = useState(0);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [hasNewActivity, setHasNewActivity] = useState(false);
@@ -71,6 +80,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       const data = await res.json();
       setAgents(data);
       preloadAllChats(data.map((a: Agent) => a.id));
+    }
+  }, []);
+
+  const refreshTeams = useCallback(async () => {
+    const res = await fetch("/api/teams");
+    if (res.ok) {
+      const data = await res.json();
+      setTeams(data);
     }
   }, []);
 
@@ -138,6 +155,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       } else {
         setChecked(true);
         refreshAgents();
+        refreshTeams();
         refreshTaskCount();
         refreshUnreadCounts();
         checkNewActivity();
@@ -145,7 +163,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         fetch("/api/admin/check").then(r => r.ok ? r.json() : { isAdmin: false }).then(d => setIsAdmin(d.isAdmin)).catch(() => {});
       }
     });
-  }, [supabase, router, refreshAgents, refreshTaskCount, refreshUnreadCounts, checkNewActivity]);
+  }, [supabase, router, refreshAgents, refreshTeams, refreshTaskCount, refreshUnreadCounts, checkNewActivity]);
 
   // Poll for unread counts and new activity every 20 seconds
   useEffect(() => {
@@ -166,16 +184,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AppContext value={{ agents, refreshAgents, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin }}>
+    <AppContext value={{ agents, refreshAgents, teams, refreshTeams, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin }}>
       <div className="flex h-screen w-full bg-[var(--color-page-bg)] overflow-hidden">
         {/* Desktop sidebar — hidden below 768px via CSS */}
         <div className="hidden md:flex w-[220px] min-w-[220px] bg-[var(--color-bg)] border-r border-[var(--color-border)] flex-col">
-          <SidebarContent agents={agents} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} isAdmin={isAdmin} />
+          <SidebarContent agents={agents} teams={teams} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} isAdmin={isAdmin} />
         </div>
 
         {/* Mobile drawer — always mounted, visibility controlled by open state */}
         <Drawer
           agents={agents}
+          teams={teams}
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
           activeTaskCount={activeTaskCount}

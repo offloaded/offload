@@ -75,6 +75,7 @@ export function buildSystemPrompt(
     communication_style?: string[] | null;
     voice_profile?: string | null;
     soft_skills?: { skill: string; confidence: string; note?: string }[] | null;
+    team_expectations?: { expectation: string; category?: string }[] | null;
   },
   context?: ContextChunk[],
   documentNames?: string[],
@@ -183,7 +184,20 @@ Disabled features:`;
     prompt += `\n\nYOUR SOFT SKILLS:\n${skillsList}\nLean into these strengths when responding. For skills with low confidence, actively work on improving.`;
   }
 
-  prompt += `\n\nSKILLS SELF-ASSESSMENT: When asked about your skills, capabilities, or what you're good at, reflect on your purpose and experience. You can update your skills by including a JSON block at the END of your response:
+  if (agent.team_expectations && agent.team_expectations.length > 0) {
+    const expList = agent.team_expectations
+      .map((e) => `- ${e.expectation}`)
+      .join("\n");
+    prompt += `\n\nYOUR WORKING STANDARDS:\n${expList}\nFollow these expectations in every response. They define how you should approach your work.`;
+  }
+
+  prompt += `\n\nEXPECTATIONS: When the user sets a new working expectation for you (e.g. "from now on, always cite sources", "I expect you to flag risks proactively"), acknowledge it and include a JSON block at the END of your response:
+\`\`\`expectations_update
+[{"expectation": "Always cite sources when making claims"}]
+\`\`\`
+Only include this block when the user explicitly sets a new expectation or standard for how you should work.
+
+SKILLS SELF-ASSESSMENT: When asked about your skills, capabilities, or what you're good at, reflect on your purpose and experience. You can update your skills by including a JSON block at the END of your response:
 \`\`\`skills_update
 [{"skill": "skill name", "confidence": "low|medium|high", "note": "why you have this skill"}]
 \`\`\`
@@ -215,6 +229,7 @@ export function cleanResponse(text: string, streaming = false): string {
   cleaned = cleaned.replace(/```feature_request\s*\n[\s\S]*?\n```/g, "");
   cleaned = cleaned.replace(/```group_message_request\s*\n[\s\S]*?\n```/g, "");
   cleaned = cleaned.replace(/```skills_update\s*\n[\s\S]*?\n```/g, "");
+  cleaned = cleaned.replace(/```expectations_update\s*\n[\s\S]*?\n```/g, "");
 
   if (streaming) {
     // Remove incomplete opening tags whose closing tag hasn't arrived yet.
@@ -225,6 +240,7 @@ export function cleanResponse(text: string, streaming = false): string {
     cleaned = cleaned.replace(/```feature_request[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```group_message_request[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```skills_update[\s\S]*$/g, "");
+    cleaned = cleaned.replace(/```expectations_update[\s\S]*$/g, "");
   }
 
   // Strip leading [AgentName] or [You] bracket prefix that agents sometimes generate

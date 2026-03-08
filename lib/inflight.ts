@@ -275,6 +275,138 @@ export function sendGroup(
   _streamGroup(chatId, message, conversationId, mentions).catch(() => {});
 }
 
+// ─── Send Team chat ───
+
+export function sendTeam(
+  chatId: string,
+  teamId: string,
+  message: string,
+  conversationId: string | null,
+  mentions: string[]
+) {
+  const entry = getOrCreate(chatId);
+  entry.state = { ...EMPTY_STATE(), streaming: true, conversationId };
+
+  const userMsg: ChatMessage = {
+    role: "user",
+    content: message,
+    created_at: new Date().toISOString(),
+  };
+  updateMessages(chatId, (prev) => [...prev, userMsg]);
+  notify(chatId);
+
+  _streamTeam(chatId, teamId, message, conversationId, mentions).catch(() => {});
+}
+
+async function _streamTeam(
+  chatId: string,
+  teamId: string,
+  message: string,
+  conversationId: string | null,
+  mentions: string[]
+) {
+  const entry = getOrCreate(chatId);
+  const streamMessages: ChatMessage[] = [];
+
+  try {
+    const res = await fetch("/api/chat/team", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message,
+        conversation_id: conversationId,
+        team_id: teamId,
+        ...(mentions.length > 0 ? { mentions } : {}),
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Chat failed (${res.status})`);
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error("No response stream");
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const jsonStr = line.slice(6);
+        try {
+          const event = JSON.parse(jsonStr);
+          if (event.type === "conversation_id") {
+            entry.state.conversationId = event.conversation_id;
+            setCachedConvId(chatId, event.conversation_id);
+            notify(chatId);
+          } else if (event.type === "agent_typing") {
+            entry.state.typingAgentName = event.agent_name;
+            entry.state.typingAgentColor = event.agent_color;
+            notify(chatId);
+          } else if (event.type === "agent_text") {
+            entry.state.typingAgentName = null;
+            entry.state.typingAgentColor = null;
+            const msg: ChatMessage = {
+              role: "assistant",
+              content: `[${event.agent_name}] ${event.text}`,
+              created_at: new Date().toISOString(),
+            };
+            streamMessages.push(msg);
+            entry.state.streamMessages = [...streamMessages];
+            notify(chatId);
+          } else if (event.type === "schedule_request") {
+            entry.state.scheduleRequest = {
+              instruction: event.instruction,
+              cron: event.cron,
+              run_at: event.run_at,
+              timezone: event.timezone,
+              recurring: event.recurring !== false,
+              destination: event.destination === "group" ? "group" : "dm",
+              agent_id: event.agent_id,
+            };
+            notify(chatId);
+          } else if (event.type === "error") {
+            throw new Error(event.error);
+          }
+        } catch (e) {
+          if (e instanceof SyntaxError) continue;
+          throw e;
+        }
+      }
+    }
+
+    const ts = new Date().toISOString();
+    for (const msg of streamMessages) msg.created_at = ts;
+    if (streamMessages.length > 0) {
+      updateMessages(chatId, (prev) => [...prev, ...streamMessages]);
+    }
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : "Something went wrong";
+    const errMsg: ChatMessage = {
+      role: "assistant",
+      content: `Error: ${errorMsg}`,
+      created_at: new Date().toISOString(),
+    };
+    updateMessages(chatId, (prev) => [...prev, errMsg]);
+  } finally {
+    entry.state.streaming = false;
+    entry.state.streamText = "";
+    entry.state.typingAgentName = null;
+    entry.state.typingAgentColor = null;
+    entry.state.streamMessages = [];
+    notify(chatId);
+  }
+}
+
 async function _streamGroup(
   chatId: string,
   message: string,

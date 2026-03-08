@@ -11,9 +11,10 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data, error } = await supabase
-    .from("agents")
-    .select("*")
+  // Fetch teams with their member agent IDs
+  const { data: teams, error } = await supabase
+    .from("teams")
+    .select("*, team_members(agent_id)")
     .eq("user_id", user.id)
     .order("created_at", { ascending: true });
 
@@ -21,7 +22,18 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json(data);
+  // Flatten team_members into agent_ids array
+  const result = (teams || []).map((t) => ({
+    id: t.id,
+    user_id: t.user_id,
+    name: t.name,
+    description: t.description,
+    created_at: t.created_at,
+    updated_at: t.updated_at,
+    agent_ids: (t.team_members || []).map((m: { agent_id: string }) => m.agent_id),
+  }));
+
+  return NextResponse.json(result);
 }
 
 export async function POST(request: Request) {
@@ -35,20 +47,18 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { name, role, purpose, color } = body;
+  const { name, description, agent_ids } = body;
 
   if (!name?.trim()) {
     return NextResponse.json({ error: "Name is required" }, { status: 400 });
   }
 
-  const { data, error } = await supabase
-    .from("agents")
+  const { data: team, error } = await supabase
+    .from("teams")
     .insert({
       user_id: user.id,
       name: name.trim(),
-      role: role?.trim() || null,
-      purpose: purpose?.trim() || "",
-      color: color || "#2C5FF6",
+      description: description?.trim() || "",
     })
     .select()
     .single();
@@ -57,7 +67,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json(data, { status: 201 });
+  // Add members if provided
+  if (agent_ids?.length > 0) {
+    const members = agent_ids.map((agent_id: string) => ({
+      team_id: team.id,
+      agent_id,
+    }));
+    await supabase.from("team_members").insert(members);
+  }
+
+  return NextResponse.json({ ...team, agent_ids: agent_ids || [] }, { status: 201 });
 }
 
 export async function PUT(request: Request) {
@@ -71,29 +90,20 @@ export async function PUT(request: Request) {
   }
 
   const body = await request.json();
-  const { id, name, role, purpose, color, web_search_enabled, working_style, communication_style, voice_samples, voice_profile, soft_skills, team_expectations } = body;
+  const { id, name, description, agent_ids } = body;
 
   if (!id) {
-    return NextResponse.json({ error: "Agent ID required" }, { status: 400 });
+    return NextResponse.json({ error: "Team ID required" }, { status: 400 });
   }
 
   const updates: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
   if (name !== undefined) updates.name = name.trim();
-  if (role !== undefined) updates.role = role?.trim() || null;
-  if (purpose !== undefined) updates.purpose = purpose.trim();
-  if (color !== undefined) updates.color = color;
-  if (web_search_enabled !== undefined) updates.web_search_enabled = web_search_enabled;
-  if (working_style !== undefined) updates.working_style = working_style;
-  if (communication_style !== undefined) updates.communication_style = communication_style;
-  if (voice_samples !== undefined) updates.voice_samples = voice_samples;
-  if (voice_profile !== undefined) updates.voice_profile = voice_profile;
-  if (soft_skills !== undefined) updates.soft_skills = soft_skills;
-  if (team_expectations !== undefined) updates.team_expectations = team_expectations;
+  if (description !== undefined) updates.description = description.trim();
 
-  const { data, error } = await supabase
-    .from("agents")
+  const { data: team, error } = await supabase
+    .from("teams")
     .update(updates)
     .eq("id", id)
     .eq("user_id", user.id)
@@ -104,7 +114,19 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json(data);
+  // Update members if provided — replace all
+  if (agent_ids !== undefined) {
+    await supabase.from("team_members").delete().eq("team_id", id);
+    if (agent_ids.length > 0) {
+      const members = agent_ids.map((agent_id: string) => ({
+        team_id: id,
+        agent_id,
+      }));
+      await supabase.from("team_members").insert(members);
+    }
+  }
+
+  return NextResponse.json({ ...team, agent_ids: agent_ids || [] });
 }
 
 export async function DELETE(request: Request) {
@@ -121,11 +143,11 @@ export async function DELETE(request: Request) {
   const id = searchParams.get("id");
 
   if (!id) {
-    return NextResponse.json({ error: "Agent ID required" }, { status: 400 });
+    return NextResponse.json({ error: "Team ID required" }, { status: 400 });
   }
 
   const { error } = await supabase
-    .from("agents")
+    .from("teams")
     .delete()
     .eq("id", id)
     .eq("user_id", user.id);

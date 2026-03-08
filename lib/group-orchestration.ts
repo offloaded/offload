@@ -251,6 +251,7 @@ function buildGroupAgentSystemPrompt(
     communication_style?: string[] | null;
     voice_profile?: string | null;
     soft_skills?: { skill: string; confidence: string; note?: string }[] | null;
+    team_expectations?: { expectation: string; category?: string }[] | null;
   },
   context: ContextChunk[],
   teamMemberNames: string[],
@@ -258,7 +259,8 @@ function buildGroupAgentSystemPrompt(
   scheduleInstructions?: string,
   priorResponses?: string,
   weight?: "full" | "brief",
-  activitySummary?: string
+  activitySummary?: string,
+  teamExpectationsContext?: string
 ): string {
   const otherMembers = teamMemberNames.filter((n) => n !== agent.name);
   const teamList = otherMembers.length > 0 ? otherMembers.join(", ") : "no other members";
@@ -290,6 +292,17 @@ CONTEXT: Only respond to the MOST RECENT message in the conversation. Ignore old
       .map((s) => `- ${s.skill} (${s.confidence})${s.note ? ` — ${s.note}` : ""}`)
       .join("\n");
     prompt += `\n\nYOUR SOFT SKILLS:\n${skillsList}\nLean into these strengths when responding.`;
+  }
+
+  if (agent.team_expectations && agent.team_expectations.length > 0) {
+    const expList = agent.team_expectations
+      .map((e) => `- ${e.expectation}`)
+      .join("\n");
+    prompt += `\n\nYOUR WORKING STANDARDS:\n${expList}\nFollow these expectations in every response.`;
+  }
+
+  if (teamExpectationsContext) {
+    prompt += `\n\n${teamExpectationsContext}`;
   }
 
   if (docNames?.length) {
@@ -418,7 +431,7 @@ export async function generateAgentResponse(
   anthropic: Anthropic,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
-  agent: { id: string; name: string; purpose: string; working_style?: string[] | null; communication_style?: string[] | null; voice_profile?: string | null; soft_skills?: { skill: string; confidence: string; note?: string }[] | null },
+  agent: { id: string; name: string; purpose: string; working_style?: string[] | null; communication_style?: string[] | null; voice_profile?: string | null; soft_skills?: { skill: string; confidence: string; note?: string }[] | null; team_expectations?: { expectation: string; category?: string }[] | null },
   messages: { role: "user" | "assistant"; content: string }[],
   plainMessage: string,
   docsByAgent: Map<string, string[]>,
@@ -426,7 +439,8 @@ export async function generateAgentResponse(
   scheduleInstructions?: string,
   priorResponses?: string,
   weight?: "full" | "brief",
-  userId?: string
+  userId?: string,
+  teamExpectationsContext?: string
 ): Promise<string> {
   let context: ContextChunk[] = [];
   if (docsByAgent.has(agent.id)) {
@@ -451,7 +465,8 @@ export async function generateAgentResponse(
     scheduleInstructions,
     priorResponses,
     weight,
-    activitySummary
+    activitySummary,
+    teamExpectationsContext
   );
 
   const response = await anthropic.messages.create({
