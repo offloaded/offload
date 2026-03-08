@@ -254,7 +254,7 @@ export async function POST(request: Request) {
           const text = cleanResponse(rawText.replace(/YOUR_AGENT_ID/g, agent.id));
 
           if (!schedulePayload) {
-            const m = rawText.match(/```schedule_request\s*\n([\s\S]*?)\n```/);
+            const m = rawText.match(/```schedule_request\s*\n?([\s\S]*?)\n?```/);
             if (m) {
               try { schedulePayload = JSON.parse(m[1]); } catch { /* ignore */ }
             }

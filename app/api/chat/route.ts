@@ -283,21 +283,24 @@ export async function POST(request: Request) {
           }
         }
 
+        // Log full response for debugging cross-post detection
+        console.log(`[Chat] Full response length: ${fullResponse.length}, contains "group_message_request": ${fullResponse.includes("group_message_request")}, contains "channel": ${fullResponse.includes('"channel"')}`);
+
         // Detect schedule_request, feature_request, and group_message_request before cleaning
         const scheduleMatch = fullResponse.match(
-          /```schedule_request\s*\n([\s\S]*?)\n```/
+          /```schedule_request\s*\n?([\s\S]*?)\n?```/
         );
         const featureMatch = fullResponse.match(
-          /```feature_request\s*\n([\s\S]*?)\n```/
+          /```feature_request\s*\n?([\s\S]*?)\n?```/
         );
         const groupMsgMatch = fullResponse.match(
-          /```group_message_request\s*\n([\s\S]*?)\n```/
+          /```group_message_request\s*\n?([\s\S]*?)\n?```/
         );
         const skillsMatch = fullResponse.match(
-          /```skills_update\s*\n([\s\S]*?)\n```/
+          /```skills_update\s*\n?([\s\S]*?)\n?```/
         );
         const expectationsMatch = fullResponse.match(
-          /```expectations_update\s*\n([\s\S]*?)\n```/
+          /```expectations_update\s*\n?([\s\S]*?)\n?```/
         );
 
         // Clean the response: strip <search> blocks, schedule_request blocks, feature_request blocks, etc.
@@ -346,13 +349,16 @@ export async function POST(request: Request) {
         }
 
         if (groupMsgMatch) {
+          console.log(`[CrossPost] group_message_request block detected, raw JSON: ${groupMsgMatch[1].slice(0, 200)}`);
           try {
             const { message: groupMsg, channel: targetChannel } = JSON.parse(groupMsgMatch[1]);
+            console.log(`[CrossPost] Parsed — message: "${(groupMsg || "").slice(0, 80)}", channel: "${targetChannel}"`);
             if (groupMsg) {
               // Resolve target channel: match channel name to a team
               let targetTeamId: string | null = null;
               if (targetChannel) {
                 const channelLower = targetChannel.toLowerCase().replace(/^#/, "");
+                console.log(`[CrossPost] Looking up channel ID for: "${channelLower}"`);
                 const matchedTeam = agentTeams.find(
                   (t) => t.name.toLowerCase() === channelLower
                 );
@@ -367,19 +373,23 @@ export async function POST(request: Request) {
                     .single();
                   if (teamLookup) {
                     targetTeamId = teamLookup.id;
-                    console.log(`[Chat] Resolved channel "${targetChannel}" → team "${teamLookup.name}" (${teamLookup.id})`);
+                    console.log(`[CrossPost] Found channel via DB: "${teamLookup.name}" (${teamLookup.id})`);
                   } else {
-                    console.log(`[Chat] Channel "${targetChannel}" not found, falling back to #all`);
+                    console.log(`[CrossPost] Channel "${targetChannel}" not found in agentTeams or DB, falling back to #all`);
                   }
                 } else {
                   targetTeamId = matchedTeam.id;
-                  console.log(`[Chat] Resolved channel "${targetChannel}" → team "${matchedTeam.name}" (${matchedTeam.id})`);
+                  console.log(`[CrossPost] Found channel in agent's teams: "${matchedTeam.name}" (${matchedTeam.id})`);
                 }
+              } else {
+                console.log(`[CrossPost] No channel specified, posting to #all`);
               }
 
+              console.log(`[CrossPost] Calling crossPostToChannel — teamId=${targetTeamId}`);
               const postConvId = await crossPostToChannel(
                 supabase, user.id, agent, groupMsg, targetTeamId
               );
+              console.log(`[CrossPost] Cross-post complete — conversation=${postConvId}`);
               controller.enqueue(
                 encoder.encode(
                   `data: ${JSON.stringify({
@@ -389,9 +399,18 @@ export async function POST(request: Request) {
                   })}\n\n`
                 )
               );
+            } else {
+              console.log(`[CrossPost] No message content in group_message_request block`);
             }
           } catch (err) {
-            console.error("[Chat] Failed to cross-post:", err);
+            console.error("[CrossPost] Failed to cross-post:", err);
+          }
+        } else {
+          // Check if the agent tried to output a group_message_request but the regex didn't match
+          if (fullResponse.includes("group_message_request")) {
+            console.log(`[CrossPost] WARNING: "group_message_request" found in response but regex didn't match. Raw response snippet around it:`);
+            const idx = fullResponse.indexOf("group_message_request");
+            console.log(`[CrossPost] ...${fullResponse.slice(Math.max(0, idx - 30), idx + 100)}...`);
           }
         }
 
@@ -508,6 +527,9 @@ async function crossPostToChannel(
   messageContent: string,
   teamId: string | null
 ): Promise<string> {
+  const LOG = `[CrossPost:${teamId ? "team" : "#all"}]`;
+  console.log(`${LOG} Cross-post triggered — agent="${agent.name}", teamId=${teamId}, message="${messageContent.slice(0, 80)}"`);
+
   // Build the conversation lookup query
   let convQuery = supabase
     .from("conversations")
@@ -521,15 +543,21 @@ async function crossPostToChannel(
     convQuery = convQuery.is("team_id", null);
   }
 
-  const { data: existingConv } = await convQuery
+  const { data: existingConv, error: convLookupError } = await convQuery
     .order("updated_at", { ascending: false })
     .limit(1)
     .single();
 
+  if (convLookupError && convLookupError.code !== "PGRST116") {
+    console.error(`${LOG} Conversation lookup error:`, convLookupError);
+  }
+
   let convId: string;
   if (existingConv) {
     convId = existingConv.id;
+    console.log(`${LOG} Found existing conversation: ${convId}`);
   } else {
+    console.log(`${LOG} No existing conversation found, creating new one`);
     const insertData: Record<string, unknown> = { user_id: userId, agent_id: null };
     if (teamId) insertData.team_id = teamId;
     const { data: newConv, error: convError } = await supabase
@@ -537,17 +565,28 @@ async function crossPostToChannel(
       .insert(insertData)
       .select("id")
       .single();
-    if (convError || !newConv) throw new Error(`Failed to create conversation: ${convError?.message}`);
+    if (convError || !newConv) {
+      console.error(`${LOG} Failed to create conversation:`, convError);
+      throw new Error(`Failed to create conversation: ${convError?.message}`);
+    }
     convId = newConv.id;
+    console.log(`${LOG} Created new conversation: ${convId}`);
   }
 
   // Save the message tagged with the agent's name
   const taggedContent = `[${agent.name}] ${messageContent}`;
-  await supabase.from("messages").insert({
+  console.log(`${LOG} Saving message to conversation ${convId}`);
+  const { error: msgError } = await supabase.from("messages").insert({
     conversation_id: convId,
     role: "assistant",
     content: taggedContent,
   });
+  if (msgError) {
+    console.error(`${LOG} Failed to save message:`, msgError);
+    throw new Error(`Failed to save message: ${msgError.message}`);
+  }
+  console.log(`${LOG} Message saved successfully`);
+
   await supabase
     .from("conversations")
     .update({ updated_at: new Date().toISOString() })

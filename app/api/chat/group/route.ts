@@ -229,7 +229,7 @@ export async function POST(request: Request) {
 
           // Capture schedule block from raw text before cleaning
           if (!schedulePayload) {
-            const m = rawText.match(/```schedule_request\s*\n([\s\S]*?)\n```/);
+            const m = rawText.match(/```schedule_request\s*\n?([\s\S]*?)\n?```/);
             if (m) {
               try { schedulePayload = JSON.parse(m[1]); } catch { /* ignore */ }
             }

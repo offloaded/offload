@@ -236,11 +236,11 @@ export function cleanResponse(text: string, streaming = false): string {
   // Remove complete <tag>...</tag> blocks (search, tool_call, function_call, tool_use, invoke, antThinking, send_message, message, action)
   cleaned = cleaned.replace(/<(?:search|tool_call|function_call|tool_use|invoke|antThinking|send_message|message|action|delivery)[^>]*>[\s\S]*?<\/(?:search|tool_call|function_call|tool_use|invoke|antThinking|send_message|message|action|delivery)>/gi, "");
   // Remove ```schedule_request, ```feature_request, and ```group_message_request blocks (handled separately via SSE events)
-  cleaned = cleaned.replace(/```schedule_request\s*\n[\s\S]*?\n```/g, "");
-  cleaned = cleaned.replace(/```feature_request\s*\n[\s\S]*?\n```/g, "");
-  cleaned = cleaned.replace(/```group_message_request\s*\n[\s\S]*?\n```/g, "");
-  cleaned = cleaned.replace(/```skills_update\s*\n[\s\S]*?\n```/g, "");
-  cleaned = cleaned.replace(/```expectations_update\s*\n[\s\S]*?\n```/g, "");
+  cleaned = cleaned.replace(/```schedule_request\s*\n?[\s\S]*?\n?```/g, "");
+  cleaned = cleaned.replace(/```feature_request\s*\n?[\s\S]*?\n?```/g, "");
+  cleaned = cleaned.replace(/```group_message_request\s*\n?[\s\S]*?\n?```/g, "");
+  cleaned = cleaned.replace(/```skills_update\s*\n?[\s\S]*?\n?```/g, "");
+  cleaned = cleaned.replace(/```expectations_update\s*\n?[\s\S]*?\n?```/g, "");
 
   if (streaming) {
     // Remove incomplete opening tags whose closing tag hasn't arrived yet.
