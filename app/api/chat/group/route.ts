@@ -218,7 +218,8 @@ export async function POST(request: Request) {
           const [rawText] = await Promise.all([
             generateAgentResponse(
               anthropic, supabase, agent, messages, message.trim(),
-              docsByAgent, teamMemberNames, scheduleInstructions, priorResponses, weight
+              docsByAgent, teamMemberNames, scheduleInstructions, priorResponses, weight,
+              user.id
             ),
             new Promise<void>((r) => setTimeout(r, targetDelay)),
           ]);
