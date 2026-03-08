@@ -1,14 +1,6 @@
--- Fix unread count function to count across ALL conversations per chat key,
--- not just the single most-recently-updated one.
---
--- The original DISTINCT ON approach missed unread messages when:
--- 1. A new conversation was accidentally created (cache cleared → null conversation_id sent)
--- 2. The SQL picked the new empty conversation as "latest", hiding unread messages in the old one
---
--- The fix: sum unread messages across all conversations for each chat key.
--- Per-conversation last_read_at is still respected, so old conversations that were
--- fully read long ago won't contribute false unread counts.
--- We also limit to conversations active in the last 90 days to ignore truly abandoned history.
+-- Fix unread counts to support team channels.
+-- Previously, all conversations with agent_id = null were grouped as 'group'.
+-- Now: agent_id set → agent DM, team_id set → 'team:<id>', else → 'group' (#all).
 
 create or replace function public.get_unread_counts(p_user_id uuid)
 returns table(chat_key text, unread_count bigint) as $$

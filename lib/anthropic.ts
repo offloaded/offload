@@ -257,6 +257,16 @@ export function cleanResponse(text: string, streaming = false): string {
   // Strip leading [AgentName] or [You] bracket prefix that agents sometimes generate
   cleaned = cleaned.replace(/^\[[^\]]+\]\s*/, "");
 
+  // Strip horizontal rules (--- or more dashes on their own line)
+  cleaned = cleaned.replace(/^-{3,}\s*$/gm, "");
+
+  // Strip any HTML tags (e.g. <br>, <br/>, <p>, etc.)
+  cleaned = cleaned.replace(/<[^>]+>/g, "");
+
+  // Strip internal status messages like "(19 agents thinking...)" or "(processing...)"
+  cleaned = cleaned.replace(/\(\d+ agents? thinking\.{0,3}\)/gi, "");
+  cleaned = cleaned.replace(/\(processing\.{0,3}\)/gi, "");
+
   // Trim leftover whitespace from removals
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
   return cleaned;
