@@ -260,18 +260,29 @@ function buildGroupAgentSystemPrompt(
   priorResponses?: string,
   weight?: "full" | "brief",
   activitySummary?: string,
-  teamExpectationsContext?: string
+  teamExpectationsContext?: string,
+  channelContext?: { channelName: string; channelDescription?: string }
 ): string {
   const otherMembers = teamMemberNames.filter((n) => n !== agent.name);
   const teamList = otherMembers.length > 0 ? otherMembers.join(", ") : "no other members";
 
   const styleInstructions = buildStyleInstructions(agent);
 
-  let prompt = `You are ${agent.name}, a member of a team group chat.
+  const channelLabel = channelContext
+    ? `the #${channelContext.channelName} channel`
+    : "the #All channel (the main group chat with all agents)";
+  const channelNote = channelContext?.channelDescription
+    ? ` This channel is for: ${channelContext.channelDescription}.`
+    : "";
+  const membersNote = channelContext
+    ? ` Only members of the ${channelContext.channelName} team are in this channel.`
+    : " Every agent on the team is in this channel.";
+
+  let prompt = `You are ${agent.name}, responding in ${channelLabel}.${channelNote}${membersNote}
 
 Your role: ${agent.purpose}
 
-Team members you can address: ${teamList}. Address the user as @You.
+Team members in this channel: ${teamList}. Address the user as @You.
 When referencing someone, use @Name (e.g. @${otherMembers[0] ?? "Alice"}, @You). Never use markdown like **replies to Name** or "replies to".
 
 ${styleInstructions ? `${styleInstructions}\n\n` : "Write a concise, natural response (1-3 sentences) from your perspective.\n"}Do NOT prefix your response with your name or "[${agent.name}]".
@@ -440,7 +451,8 @@ export async function generateAgentResponse(
   priorResponses?: string,
   weight?: "full" | "brief",
   userId?: string,
-  teamExpectationsContext?: string
+  teamExpectationsContext?: string,
+  channelContext?: { channelName: string; channelDescription?: string }
 ): Promise<string> {
   let context: ContextChunk[] = [];
   if (docsByAgent.has(agent.id)) {
@@ -466,7 +478,8 @@ export async function generateAgentResponse(
     priorResponses,
     weight,
     activitySummary,
-    teamExpectationsContext
+    teamExpectationsContext,
+    channelContext
   );
 
   const response = await anthropic.messages.create({

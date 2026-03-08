@@ -24,6 +24,7 @@ export interface FeatureRequest {
 
 export interface GroupMessageRequest {
   conversation_id: string;
+  team_id?: string | null;
 }
 
 interface InflightState {
@@ -215,6 +216,7 @@ async function _streamDM(
           } else if (event.type === "group_message_request") {
             entry.state.groupMessageRequest = {
               conversation_id: event.conversation_id,
+              team_id: event.team_id || null,
             };
             notify(chatId);
           } else if (event.type === "error") {

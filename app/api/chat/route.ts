@@ -72,6 +72,18 @@ export async function POST(request: Request) {
     });
   }
 
+  // Load agent's team memberships for channel-aware messaging
+  const { data: agentTeamRows } = await supabase
+    .from("team_members")
+    .select("team_id, teams(id, name)")
+    .eq("agent_id", agent_id);
+
+  const agentTeams: Array<{ id: string; name: string }> = (agentTeamRows || [])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .filter((r: any) => r.teams)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .map((r: any) => ({ id: r.teams.id, name: r.teams.name }));
+
   // Use existing conversation or create a new one.
   // If no conversation_id provided, reuse the most recent conversation for this agent
   // rather than creating a new one — prevents orphaned conversations when the cache is cleared.
@@ -229,6 +241,7 @@ export async function POST(request: Request) {
       webSearchResults,
       disabledFeatures: disabledFeatures.length > 0 ? disabledFeatures : undefined,
       activitySummary,
+      teamMemberships: agentTeams.length > 0 ? agentTeams : undefined,
     }
   );
   console.log(`[Chat RAG] System prompt length: ${systemPrompt.length}`);
@@ -334,17 +347,51 @@ export async function POST(request: Request) {
 
         if (groupMsgMatch) {
           try {
-            const { message: groupMsg } = JSON.parse(groupMsgMatch[1]);
+            const { message: groupMsg, channel: targetChannel } = JSON.parse(groupMsgMatch[1]);
             if (groupMsg) {
-              const groupConvId = await crossPostToGroupChat(supabase, user.id, agent, groupMsg);
+              // Resolve target channel: match channel name to a team
+              let targetTeamId: string | null = null;
+              if (targetChannel) {
+                const channelLower = targetChannel.toLowerCase().replace(/^#/, "");
+                const matchedTeam = agentTeams.find(
+                  (t) => t.name.toLowerCase() === channelLower
+                );
+                if (!matchedTeam) {
+                  // Try a broader lookup — the agent might reference a team they're not in
+                  const { data: teamLookup } = await supabase
+                    .from("teams")
+                    .select("id, name")
+                    .eq("user_id", user.id)
+                    .ilike("name", channelLower)
+                    .limit(1)
+                    .single();
+                  if (teamLookup) {
+                    targetTeamId = teamLookup.id;
+                    console.log(`[Chat] Resolved channel "${targetChannel}" → team "${teamLookup.name}" (${teamLookup.id})`);
+                  } else {
+                    console.log(`[Chat] Channel "${targetChannel}" not found, falling back to #all`);
+                  }
+                } else {
+                  targetTeamId = matchedTeam.id;
+                  console.log(`[Chat] Resolved channel "${targetChannel}" → team "${matchedTeam.name}" (${matchedTeam.id})`);
+                }
+              }
+
+              const postConvId = await crossPostToChannel(
+                supabase, user.id, agent, groupMsg, targetTeamId
+              );
               controller.enqueue(
                 encoder.encode(
-                  `data: ${JSON.stringify({ type: "group_message_request", conversation_id: groupConvId })}\n\n`
+                  `data: ${JSON.stringify({
+                    type: "group_message_request",
+                    conversation_id: postConvId,
+                    team_id: targetTeamId,
+                  })}\n\n`
                 )
               );
             }
           } catch (err) {
-            console.error("[Chat] Failed to cross-post to group:", err);
+            console.error("[Chat] Failed to cross-post:", err);
           }
         }
 
@@ -447,24 +494,34 @@ export async function POST(request: Request) {
 }
 
 /**
- * Cross-post a message to the user's group chat conversation, then trigger
- * other agents to react (same orchestration as the group chat route).
- * Returns the group conversation ID.
+ * Cross-post a message to a channel (team or #all), then trigger
+ * the appropriate agents to respond.
+ *
+ * @param teamId — if provided, targets the team channel; null → #all
+ * Returns the conversation ID.
  */
-async function crossPostToGroupChat(
+async function crossPostToChannel(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
   userId: string,
   agent: { id: string; name: string; purpose: string },
-  messageContent: string
+  messageContent: string,
+  teamId: string | null
 ): Promise<string> {
-  // Find or create the group conversation (agent_id = null, no team)
-  const { data: existingConv } = await supabase
+  // Build the conversation lookup query
+  let convQuery = supabase
     .from("conversations")
     .select("id")
     .eq("user_id", userId)
-    .is("agent_id", null)
-    .is("team_id", null)
+    .is("agent_id", null);
+
+  if (teamId) {
+    convQuery = convQuery.eq("team_id", teamId);
+  } else {
+    convQuery = convQuery.is("team_id", null);
+  }
+
+  const { data: existingConv } = await convQuery
     .order("updated_at", { ascending: false })
     .limit(1)
     .single();
@@ -473,12 +530,14 @@ async function crossPostToGroupChat(
   if (existingConv) {
     convId = existingConv.id;
   } else {
+    const insertData: Record<string, unknown> = { user_id: userId, agent_id: null };
+    if (teamId) insertData.team_id = teamId;
     const { data: newConv, error: convError } = await supabase
       .from("conversations")
-      .insert({ user_id: userId, agent_id: null })
+      .insert(insertData)
       .select("id")
       .single();
-    if (convError || !newConv) throw new Error(`Failed to create group conversation: ${convError?.message}`);
+    if (convError || !newConv) throw new Error(`Failed to create conversation: ${convError?.message}`);
     convId = newConv.id;
   }
 
@@ -494,9 +553,37 @@ async function crossPostToGroupChat(
     .update({ updated_at: new Date().toISOString() })
     .eq("id", convId);
 
-  console.log(`[Chat] Agent message saved to group chat, triggering orchestration for conv=${convId}`);
-  // Await so serverless doesn't kill it before Claude responds
-  await runGroupOrchestration(supabase, userId, convId, taggedContent, agent.id);
+  if (teamId) {
+    // Team channel: only trigger agents in that team
+    const { data: teamMembers } = await supabase
+      .from("team_members")
+      .select("agent_id")
+      .eq("team_id", teamId);
+
+    const teamAgentIds = (teamMembers || [])
+      .map((m: { agent_id: string }) => m.agent_id)
+      .filter((id: string) => id !== agent.id);
+
+    console.log(`[Chat] Agent message saved to team channel (${teamId}), triggering ${teamAgentIds.length} team agent(s)`);
+
+    if (teamAgentIds.length > 0) {
+      // Exclude agents NOT in the team + the posting agent
+      const { data: allAgents } = await supabase
+        .from("agents")
+        .select("id")
+        .eq("user_id", userId);
+
+      const excludeIds = (allAgents || [])
+        .map((a: { id: string }) => a.id)
+        .filter((id: string) => !teamAgentIds.includes(id) || id === agent.id);
+
+      await runGroupOrchestration(supabase, userId, convId, taggedContent, excludeIds);
+    }
+  } else {
+    // #all channel
+    console.log(`[Chat] Agent message saved to #all, triggering orchestration for conv=${convId}`);
+    await runGroupOrchestration(supabase, userId, convId, taggedContent, agent.id);
+  }
 
   return convId;
 }

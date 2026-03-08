@@ -254,7 +254,7 @@ export async function POST(request: Request) {
             const agent = casualAgents[i];
             const delay = i === 0 ? 2000 + Math.random() * 2000 : 3000 + Math.random() * 5000;
             send({ type: "agent_typing", agent_id: agent.id, agent_name: agent.name, agent_color: agent.color });
-            const systemPrompt = `You are ${agent.name}, a member of a team group chat.\nYour role: ${agent.purpose}\n\nWrite a brief, natural response (1-2 sentences). Plain text only, no markdown.\nNEVER prefix your response with your name or anyone else's name in brackets like [Name]. NEVER speak as the user or write [You]. The system handles attribution — just write your response naturally.${priorResponses ? `\n\nColleagues already said:\n${priorResponses}\nDon't repeat them.` : ""}`;
+            const systemPrompt = `You are ${agent.name}, responding in the #All channel (the main group chat with all agents). Every agent on the team is in this channel.\nYour role: ${agent.purpose}\n\nWrite a brief, natural response (1-2 sentences). Plain text only, no markdown.\nNEVER prefix your response with your name or anyone else's name in brackets like [Name]. NEVER speak as the user or write [You]. The system handles attribution — just write your response naturally.${priorResponses ? `\n\nColleagues already said:\n${priorResponses}\nDon't repeat them.` : ""}`;
             const [response] = await Promise.all([
               anthropic.messages.create({
                 model: "claude-haiku-4-5-20251001",

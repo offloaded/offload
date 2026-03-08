@@ -749,14 +749,14 @@ export function ChatView({
           </div>
         )}
 
-        {/* Group message posted banner */}
+        {/* Group/team message posted banner */}
         {groupMessageRequest && (
           <div className="mx-3 my-2 md:mx-5 p-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-hover)] flex items-center gap-3">
             <div className="flex-1 min-w-0 text-[13px] text-[var(--color-text-secondary)]">
-              Posted to group chat.
+              Posted to {groupMessageRequest.team_id ? "team channel" : "group chat"}.
             </div>
             <a
-              href="/chat"
+              href={groupMessageRequest.team_id ? `/team/${groupMessageRequest.team_id}` : "/chat"}
               className="py-1.5 px-3 rounded-md border-none text-[12px] font-semibold cursor-pointer bg-[var(--color-accent)] text-white no-underline"
             >
               View

@@ -84,6 +84,7 @@ export function buildSystemPrompt(
     webSearchResults?: string;
     disabledFeatures?: Array<{ feature: string; label: string; description: string }>;
     activitySummary?: string;
+    teamMemberships?: Array<{ id: string; name: string }>;
   }
 ): string {
   let prompt = `You are ${agent.name}.
@@ -143,12 +144,22 @@ For ONE-OFF tasks ("in 5 minutes", "at 3pm today", "tomorrow at noon", "in an ho
 
 Current date/time: ${new Date().toISOString()}. Only include a schedule_request block when the user is explicitly requesting a future scheduled or delayed task.
 
-IMMEDIATE GROUP MESSAGES (post to group chat right now, not scheduled):
-When the user asks you to message/post something to the group or team immediately (not at a future time), write your visible reply naturally (e.g. "I'll post that to the group now."), then include at the END of your response:
+IMMEDIATE CHANNEL MESSAGES (post to a channel right now, not scheduled):
+When the user asks you to message/post something to a channel or team immediately (not at a future time), write your visible reply naturally (e.g. "I'll post that to the scrum channel now."), then include at the END of your response:
 \`\`\`group_message_request
-{"message": "the exact message to post to the group chat"}
+{"message": "the exact message to post", "channel": "channel name or null"}
 \`\`\`
-The message content is just plain text — no XML, no tags. Only use this block when the user explicitly wants something posted to the group right now.`;
+The "channel" field targets a specific team channel. Rules:
+- "message the scrum team", "post in #scrum", "tell the scrum channel" → {"channel": "scrum"}
+- "message the group", "post in #all", "tell the team" (no specific team) → {"channel": null}
+- If the user names a specific team/channel, use that name. If they just say "the team" or "the group" without specifying, use null for #all.
+The message content is just plain text — no XML, no tags. Only use this block when the user explicitly wants something posted right now.`;
+  }
+
+  // Team membership awareness
+  if (options?.teamMemberships && options.teamMemberships.length > 0) {
+    const teamList = options.teamMemberships.map((t) => `#${t.name}`).join(", ");
+    prompt += `\n\nYou are a member of these channels: #All (everyone), ${teamList}. When the user asks you to message a specific team, use the matching channel name.`;
   }
 
   // Disabled feature activation instructions
