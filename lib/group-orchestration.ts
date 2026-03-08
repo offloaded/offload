@@ -292,6 +292,10 @@ Plain conversational text only — no markdown, no bold, no headers, no bullet l
 
 CRITICAL: If you are asked a question, answer it directly from your own perspective and expertise. Do NOT redirect the question back to the group or ask others the same question. Do NOT say things like "Can everyone give me an update?" — instead, give YOUR OWN update or answer.
 
+Never @mention yourself or address yourself. You ARE yourself — just give your update directly.
+
+Don't tag every agent asking them to respond. Give your own update and let others respond naturally. The system will prompt other agents to contribute — that's not your job.
+
 CONTEXT: Only respond to the MOST RECENT message in the conversation. Ignore older topics that have already been discussed and resolved. If the latest message asks about risks, respond about risks — do not reference or answer questions from earlier in the conversation.`;
 
   if (agent.voice_profile) {
@@ -677,6 +681,48 @@ export async function runGroupOrchestration(
     return;
   }
 
+  // DB-level dedup: check who already responded to the latest user message in this conversation.
+  // This prevents duplicate responses when orchestration runs concurrently or in follow-up rounds.
+  if (_round === 0) {
+    // Find the most recent user message timestamp
+    const { data: latestUserMsg } = await supabase
+      .from("messages")
+      .select("created_at")
+      .eq("conversation_id", conversationId)
+      .eq("role", "user")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (latestUserMsg) {
+      // Find assistant messages after the latest user message
+      const { data: recentResponses } = await supabase
+        .from("messages")
+        .select("content")
+        .eq("conversation_id", conversationId)
+        .eq("role", "assistant")
+        .gt("created_at", latestUserMsg.created_at);
+
+      if (recentResponses && recentResponses.length > 0) {
+        // Parse agent names from [AgentName] prefixes
+        const alreadyPosted = new Set<string>();
+        for (const msg of recentResponses) {
+          const blocks = parseAgentBlocks(msg.content);
+          for (const b of blocks) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const found = allAgents.find((a: any) => a.name === b.name);
+            if (found) alreadyPosted.add(found.id);
+          }
+        }
+        if (alreadyPosted.size > 0) {
+          // Merge into _respondedIds so they're skipped
+          for (const id of alreadyPosted) _respondedIds.add(id);
+          console.log(`${LOG} DB dedup: ${alreadyPosted.size} agent(s) already responded to this message`);
+        }
+      }
+    }
+  }
+
   // 2. Parse message
   const plainText = triggerMessage.replace(/^\[[^\]]+\]\s*/, "").trim();
 
@@ -723,7 +769,8 @@ export async function runGroupOrchestration(
   // 6. CASUAL SHORTCUT — no evaluate, no RAG, Haiku model
   if (effectiveIntent === "casual" && mentionedAgentIds.length === 0) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const scored = agents
+    const eligibleAgents = agents.filter((a: any) => !_respondedIds.has(a.id));
+    const scored = eligibleAgents
       .map((a: any) => ({ agent: a, score: scoreAgentRelevance(plainText, a) }))
       .sort((a: any, b: any) => b.score - a.score);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -799,6 +846,8 @@ export async function runGroupOrchestration(
       ...mentionedAgents.map((a: any) => a.id as string),
       ...evalResults.filter((r) => r.respond).map((r) => r.agentId),
     ]);
+    // Remove agents who already responded (DB dedup)
+    for (const id of _respondedIds) respondingIds.delete(id);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     respondingAgents = agents.filter((a: any) => respondingIds.has(a.id));
   }
