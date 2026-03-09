@@ -156,7 +156,59 @@ export async function POST(request: Request) {
     }
   }
 
-  // Save the user message
+  // ─── Explicit channel routing: extract #channel-name before LLM ───
+  // This replaces the unreliable LLM-based group_message_request detection.
+  // When a user types "#Scrum do standup", we extract the channel, resolve it,
+  // and will cross-post the agent's response there after generation.
+  let explicitChannelId: string | null = null;
+  let explicitChannelName: string | null = null;
+  let messageForLLM = message.trim();
+
+  // Load all user's teams for channel resolution
+  const { data: allUserTeams } = await supabase
+    .from("teams")
+    .select("id, name")
+    .eq("user_id", user.id);
+  const userTeams: Array<{ id: string; name: string }> = allUserTeams || [];
+
+  // Match #ChannelName at word boundaries (channel names from autocomplete)
+  const channelPattern = /#([A-Za-z0-9][A-Za-z0-9 _-]*?)(?=\s|$|[.,!?;:])/;
+  const channelMatch = messageForLLM.match(channelPattern);
+  if (channelMatch) {
+    const channelRef = channelMatch[1].trim();
+    const channelLower = channelRef.toLowerCase();
+    console.log(`[ChannelRoute] Detected #${channelRef} in user message`);
+
+    if (channelLower === "all") {
+      // #All means post to the group chat
+      explicitChannelId = "all";
+      explicitChannelName = "All";
+      console.log(`[ChannelRoute] Resolved to #All (group chat)`);
+    } else {
+      // Look up team by name
+      const matchedTeam = userTeams.find(
+        (t) => t.name.toLowerCase() === channelLower
+      );
+      if (matchedTeam) {
+        explicitChannelId = matchedTeam.id;
+        explicitChannelName = matchedTeam.name;
+        console.log(`[ChannelRoute] Resolved to team "${matchedTeam.name}" (${matchedTeam.id})`);
+      } else {
+        console.log(`[ChannelRoute] No team found for #${channelRef}, treating as plain text`);
+      }
+    }
+
+    // Strip the #channel reference from the message sent to the LLM
+    if (explicitChannelId) {
+      messageForLLM = messageForLLM.replace(channelMatch[0], "").trim();
+      if (!messageForLLM) {
+        messageForLLM = message.trim(); // Don't send empty — keep original
+      }
+      console.log(`[ChannelRoute] Message for LLM: "${messageForLLM.slice(0, 80)}"`);
+    }
+  }
+
+  // Save the user message (original, with #channel for display)
   const { error: userMsgError } = await supabase.from("messages").insert({
     conversation_id: convId,
     role: "user",
@@ -188,6 +240,16 @@ export async function POST(request: Request) {
     role: m.role as "user" | "assistant",
     content: m.content,
   }));
+
+  // If explicit channel routing is active, replace the last user message
+  // with the cleaned version (without #channel reference) so the LLM doesn't
+  // try to handle routing itself
+  if (explicitChannelId && messages.length > 0) {
+    const lastIdx = messages.length - 1;
+    if (messages[lastIdx].role === "user") {
+      messages[lastIdx] = { ...messages[lastIdx], content: messageForLLM };
+    }
+  }
 
   // Load previous conversation summary if this is a continuation
   const { data: convRecord } = await supabase
@@ -227,7 +289,7 @@ export async function POST(request: Request) {
     // Scale retrieval with document set size: 5 for small sets, up to 25 for large
     const topK = docCount > 20 ? 25 : docCount > 5 ? 15 : 5;
     try {
-      ragContext = await retrieveContext(supabase, agent_id, message.trim(), topK);
+      ragContext = await retrieveContext(supabase, agent_id, messageForLLM, topK);
       console.log(`[Chat RAG] Retrieved ${ragContext.length} context chunks (topK=${topK})`);
     } catch (err) {
       console.error("RAG retrieval failed:", err);
@@ -241,10 +303,10 @@ export async function POST(request: Request) {
   let webSearchResults: string | undefined;
   if (webSearchEnabled) {
     try {
-      const results = await webSearch(message.trim(), 10, agent.purpose);
+      const results = await webSearch(messageForLLM, 10, agent.purpose);
       if (results.length > 0) {
         webSearchResults = formatSearchResults(results);
-        const queryPreview = message.trim().slice(0, 80) + (message.trim().length > 80 ? "..." : "");
+        const queryPreview = messageForLLM.slice(0, 80) + (messageForLLM.length > 80 ? "..." : "");
         logActivity(supabase, user.id, agent_id, "web_search",
           `${agent.name} searched the web for: ${queryPreview}`,
           { conversation_id: convId, result_count: results.length }
@@ -267,7 +329,7 @@ export async function POST(request: Request) {
 
   // Fetch activity summary for standup-style questions
   let activitySummary: string | undefined;
-  if (isStandupQuestion(message.trim())) {
+  if (isStandupQuestion(messageForLLM)) {
     try {
       activitySummary = await getAgentActivitySummary(supabase, agent_id, user.id);
     } catch { /* non-fatal */ }
@@ -290,6 +352,11 @@ export async function POST(request: Request) {
       teamMemberships: agentTeams.length > 0 ? agentTeams : undefined,
     }
   );
+
+  // If explicit channel routing is active, tell the agent where its response will go
+  if (explicitChannelId && explicitChannelName) {
+    systemPrompt += `\n\nThe user's message will be cross-posted to #${explicitChannelName}. Write your response as if addressing that channel. Do NOT include any group_message_request blocks — the system handles routing automatically.`;
+  }
 
   // Inject previous conversation summary if available
   if (previousSummary) {
@@ -425,7 +492,29 @@ export async function POST(request: Request) {
           }
         }
 
-        if (groupMsgMatch) {
+        // ─── Explicit channel routing (from #channel in user message) ───
+        // This takes priority over LLM-generated group_message_request blocks
+        if (explicitChannelId && cleaned) {
+          console.log(`[ChannelRoute] Cross-posting response to #${explicitChannelName}`);
+          try {
+            const targetTeamId = explicitChannelId === "all" ? null : explicitChannelId;
+            const postConvId = await crossPostToChannel(
+              supabase, user.id, agent, cleaned, targetTeamId
+            );
+            console.log(`[ChannelRoute] Cross-post complete — conversation=${postConvId}`);
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  type: "group_message_request",
+                  conversation_id: postConvId,
+                  team_id: targetTeamId,
+                })}\n\n`
+              )
+            );
+          } catch (err) {
+            console.error("[ChannelRoute] Cross-post failed:", err);
+          }
+        } else if (groupMsgMatch) {
           console.log(`[CrossPost] group_message_request block detected, raw JSON: ${groupMsgMatch[1].slice(0, 200)}`);
           try {
             const { message: groupMsg, channel: targetChannel } = JSON.parse(groupMsgMatch[1]);

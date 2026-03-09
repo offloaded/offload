@@ -24,6 +24,11 @@ import {
 import { useApp } from "@/app/(app)/layout";
 import { useRouter } from "next/navigation";
 import { describeCron } from "@/lib/cron";
+import {
+  ChannelDropdown,
+  buildChannelOptions,
+  type ChannelOption,
+} from "./ChannelDropdown";
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -222,8 +227,9 @@ export function TeamChatView({
   teamAgents: Agent[];
   openDrawer: () => void;
 }) {
-  const { markRead, setActiveChatKey, unreadCounts } = useApp();
+  const { markRead, setActiveChatKey, unreadCounts, teams } = useApp();
   const router = useRouter();
+  const channels = buildChannelOptions(teams);
   const CHAT_ID = `team:${teamId}`;
   const inflight = getInflightState(CHAT_ID);
 
@@ -255,6 +261,10 @@ export function TeamChatView({
   const [mentionFilter, setMentionFilter] = useState("");
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionStart, setMentionStart] = useState(-1);
+  const [channelOpen, setChannelOpen] = useState(false);
+  const [channelFilter, setChannelFilter] = useState("");
+  const [channelIndex, setChannelIndex] = useState(0);
+  const [channelStart, setChannelStart] = useState(-1);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const endRef = useRef<HTMLDivElement>(null);
@@ -267,6 +277,12 @@ export function TeamChatView({
   const filteredMentionAgents = mentionOpen
     ? teamAgents.filter((a) =>
         a.name.toLowerCase().includes(mentionFilter.toLowerCase())
+      )
+    : [];
+
+  const filteredChannels = channelOpen
+    ? channels.filter((c) =>
+        c.name.toLowerCase().includes(channelFilter.toLowerCase())
       )
     : [];
 
@@ -433,6 +449,30 @@ export function TeamChatView({
     [input, mentionStart, mentionFilter]
   );
 
+  const insertChannel = useCallback(
+    (channel: ChannelOption) => {
+      if (channelStart < 0) return;
+      const before = input.slice(0, channelStart);
+      const after = input.slice(channelStart + 1 + channelFilter.length);
+      const newInput = `${before}#${channel.name} ${after}`;
+      setInput(newInput);
+      setChannelOpen(false);
+      setChannelFilter("");
+      setChannelStart(-1);
+      setChannelIndex(0);
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        if (el) {
+          const pos = before.length + channel.name.length + 2;
+          el.focus();
+          el.setSelectionRange(pos, pos);
+          autoResize(el);
+        }
+      });
+    },
+    [input, channelStart, channelFilter]
+  );
+
   const send = useCallback(() => {
     const text = input.trim();
     if (!text || streaming) return;
@@ -450,6 +490,8 @@ export function TeamChatView({
     autoResize(e.target);
 
     const textBeforeCursor = val.slice(0, cursorPos);
+
+    // Check for @ mentions
     const atIndex = textBeforeCursor.lastIndexOf("@");
     if (atIndex >= 0 && (atIndex === 0 || textBeforeCursor[atIndex - 1] === " " || textBeforeCursor[atIndex - 1] === "\n")) {
       const query = textBeforeCursor.slice(atIndex + 1);
@@ -458,10 +500,27 @@ export function TeamChatView({
         setMentionFilter(query);
         setMentionStart(atIndex);
         setMentionIndex(0);
+        setChannelOpen(false);
         return;
       }
     }
+
+    // Check for # channels
+    const hashIndex = textBeforeCursor.lastIndexOf("#");
+    if (hashIndex >= 0 && (hashIndex === 0 || textBeforeCursor[hashIndex - 1] === " " || textBeforeCursor[hashIndex - 1] === "\n")) {
+      const query = textBeforeCursor.slice(hashIndex + 1);
+      if (!query.includes("\n") && query.length <= 30) {
+        setChannelOpen(true);
+        setChannelFilter(query);
+        setChannelStart(hashIndex);
+        setChannelIndex(0);
+        setMentionOpen(false);
+        return;
+      }
+    }
+
     setMentionOpen(false);
+    setChannelOpen(false);
   }, []);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -471,8 +530,14 @@ export function TeamChatView({
       if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); insertMention(filteredMentionAgents[mentionIndex]); return; }
       if (e.key === "Escape") { e.preventDefault(); setMentionOpen(false); return; }
     }
+    if (channelOpen && filteredChannels.length > 0) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setChannelIndex((i) => i < filteredChannels.length - 1 ? i + 1 : 0); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); setChannelIndex((i) => i > 0 ? i - 1 : filteredChannels.length - 1); return; }
+      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); insertChannel(filteredChannels[channelIndex]); return; }
+      if (e.key === "Escape") { e.preventDefault(); setChannelOpen(false); return; }
+    }
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
-  }, [mentionOpen, filteredMentionAgents, mentionIndex, insertMention, send]);
+  }, [mentionOpen, filteredMentionAgents, mentionIndex, insertMention, channelOpen, filteredChannels, channelIndex, insertChannel, send]);
 
   useEffect(() => {
     if (!streaming) inputRef.current?.focus();
@@ -695,13 +760,22 @@ export function TeamChatView({
             />
           )}
 
+          {channelOpen && filteredChannels.length > 0 && (
+            <ChannelDropdown
+              channels={channels}
+              filter={channelFilter}
+              onSelect={insertChannel}
+              selectedIndex={channelIndex}
+            />
+          )}
+
           <div className="flex gap-2 items-end bg-[var(--color-input-bg)] rounded-xl pl-4 pr-1.5 py-1.5 border border-[var(--color-border)]">
             <textarea
               ref={inputRef}
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              onBlur={() => { setTimeout(() => setMentionOpen(false), 150); }}
+              onBlur={() => { setTimeout(() => { setMentionOpen(false); setChannelOpen(false); }, 150); }}
               placeholder={`Message #${teamName}... (@ to mention)`}
               rows={1}
               className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[15px] outline-none py-2 resize-none leading-relaxed"

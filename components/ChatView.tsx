@@ -27,6 +27,11 @@ import {
 } from "@/lib/inflight";
 import { useApp } from "@/app/(app)/layout";
 import { describeCron } from "@/lib/cron";
+import {
+  ChannelDropdown,
+  buildChannelOptions,
+  type ChannelOption,
+} from "./ChannelDropdown";
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -216,24 +221,79 @@ const MessageList = memo(function MessageList({
   );
 });
 
-// Isolated input component — manages its own state, doesn't re-render parent
+function autoResize(el: HTMLTextAreaElement) {
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, 120) + "px";
+}
+
+// Isolated input component with #channel support
 function ChatInput({
   agentName,
+  channels,
   streaming,
   onSend,
 }: {
   agentName: string;
+  channels: ChannelOption[];
   streaming: boolean;
   onSend: (text: string) => void;
 }) {
   const [input, setInput] = useState("");
+  const [channelOpen, setChannelOpen] = useState(false);
+  const [channelFilter, setChannelFilter] = useState("");
+  const [channelIndex, setChannelIndex] = useState(0);
+  const [channelStart, setChannelStart] = useState(-1);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  const filteredChannels = channelOpen
+    ? channels.filter((c) =>
+        c.name.toLowerCase().includes(channelFilter.toLowerCase())
+      )
+    : [];
+
+  const insertChannel = useCallback(
+    (channel: ChannelOption) => {
+      if (channelStart < 0) return;
+      const before = input.slice(0, channelStart);
+      const after = input.slice(channelStart + 1 + channelFilter.length);
+      const newInput = `${before}#${channel.name} ${after}`;
+      setInput(newInput);
+      setChannelOpen(false);
+      setChannelFilter("");
+      setChannelStart(-1);
+      setChannelIndex(0);
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        if (el) {
+          const pos = before.length + channel.name.length + 2;
+          el.focus();
+          el.setSelectionRange(pos, pos);
+          autoResize(el);
+        }
+      });
+    },
+    [input, channelStart, channelFilter]
+  );
+
   const handleInput = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value);
-    const el = e.target;
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 120) + "px";
+    const val = e.target.value;
+    const cursorPos = e.target.selectionStart || val.length;
+    setInput(val);
+    autoResize(e.target);
+
+    const textBeforeCursor = val.slice(0, cursorPos);
+    const hashIndex = textBeforeCursor.lastIndexOf("#");
+    if (hashIndex >= 0 && (hashIndex === 0 || textBeforeCursor[hashIndex - 1] === " " || textBeforeCursor[hashIndex - 1] === "\n")) {
+      const query = textBeforeCursor.slice(hashIndex + 1);
+      if (!query.includes("\n") && query.length <= 30) {
+        setChannelOpen(true);
+        setChannelFilter(query);
+        setChannelStart(hashIndex);
+        setChannelIndex(0);
+        return;
+      }
+    }
+    setChannelOpen(false);
   }, []);
 
   const send = useCallback(() => {
@@ -241,19 +301,25 @@ function ChatInput({
     if (!text || streaming) return;
     onSend(text);
     setInput("");
+    setChannelOpen(false);
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
     }
   }, [input, streaming, onSend]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (channelOpen && filteredChannels.length > 0) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setChannelIndex((i) => i < filteredChannels.length - 1 ? i + 1 : 0); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); setChannelIndex((i) => i > 0 ? i - 1 : filteredChannels.length - 1); return; }
+      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); insertChannel(filteredChannels[channelIndex]); return; }
+      if (e.key === "Escape") { e.preventDefault(); setChannelOpen(false); return; }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       send();
     }
-  }, [send]);
+  }, [channelOpen, filteredChannels, channelIndex, insertChannel, send]);
 
-  // Refocus after streaming ends
   useEffect(() => {
     if (!streaming) {
       inputRef.current?.focus();
@@ -266,29 +332,41 @@ function ChatInput({
     <div
       className="fixed bottom-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 bg-[var(--color-surface)] px-3 pt-2 pb-[max(16px,env(safe-area-inset-bottom))] md:px-5 md:pb-5"
     >
-      <div className="flex gap-2 items-end bg-[var(--color-input-bg)] rounded-xl pl-4 pr-1.5 py-1.5 border border-[var(--color-border)]">
-        <textarea
-          ref={inputRef}
-          value={input}
-          onChange={handleInput}
-          onKeyDown={handleKeyDown}
-          placeholder={`Message ${agentName}...`}
-          rows={1}
-          className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[15px] outline-none py-2 resize-none leading-relaxed"
-          style={{ maxHeight: 120 }}
-        />
-        <button
-          onClick={send}
-          disabled={!canSend}
-          className="w-9 h-9 rounded-lg border-none shrink-0 flex items-center justify-center transition-all duration-150 mb-0.5"
-          style={{
-            background: canSend ? "var(--color-accent)" : "transparent",
-            color: canSend ? "#fff" : "var(--color-text-tertiary)",
-            cursor: canSend ? "pointer" : "default",
-          }}
-        >
-          <SendIcon />
-        </button>
+      <div className="relative">
+        {channelOpen && filteredChannels.length > 0 && (
+          <ChannelDropdown
+            channels={channels}
+            filter={channelFilter}
+            onSelect={insertChannel}
+            selectedIndex={channelIndex}
+          />
+        )}
+
+        <div className="flex gap-2 items-end bg-[var(--color-input-bg)] rounded-xl pl-4 pr-1.5 py-1.5 border border-[var(--color-border)]">
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={handleInput}
+            onKeyDown={handleKeyDown}
+            onBlur={() => { setTimeout(() => setChannelOpen(false), 150); }}
+            placeholder={`Message ${agentName}... (# for channels)`}
+            rows={1}
+            className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[15px] outline-none py-2 resize-none leading-relaxed"
+            style={{ maxHeight: 120 }}
+          />
+          <button
+            onClick={send}
+            disabled={!canSend}
+            className="w-9 h-9 rounded-lg border-none shrink-0 flex items-center justify-center transition-all duration-150 mb-0.5"
+            style={{
+              background: canSend ? "var(--color-accent)" : "transparent",
+              color: canSend ? "#fff" : "var(--color-text-tertiary)",
+              cursor: canSend ? "pointer" : "default",
+            }}
+          >
+            <SendIcon />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -303,7 +381,8 @@ export function ChatView({
   openDrawer: () => void;
   initialConversationId?: string | null;
 }) {
-  const { refreshAgents, markRead, setActiveChatKey, unreadCounts } = useApp();
+  const { refreshAgents, markRead, setActiveChatKey, unreadCounts, teams } = useApp();
+  const channels = buildChannelOptions(teams);
   const chatId = initialConversationId
     ? `conv:${initialConversationId}`
     : `agent:${agent.id}`;
@@ -789,6 +868,7 @@ export function ChatView({
       {/* Input — isolated component with own state */}
       <ChatInput
         agentName={agent.name}
+        channels={channels}
         streaming={streaming}
         onSend={handleSend}
       />
