@@ -398,17 +398,26 @@ export function ChatView({
       .then((r) => (r.ok ? r.json() : { messages: [] }))
       .then((data) => {
         const convId = data.conversation_id || null;
-        const msgs: ChatMessage[] = (data.messages || []).map((m: Message) => ({
+        const allMsgs: ChatMessage[] = [];
+        // If there's a previous conversation summary, show a divider at the top
+        if (data.previous_summary) {
+          allMsgs.push({
+            role: "assistant",
+            content: `--- Earlier messages archived --- \n${data.previous_summary}`,
+            created_at: new Date(0).toISOString(), // sort to top
+          });
+        }
+        allMsgs.push(...(data.messages || []).map((m: Message) => ({
           id: m.id,
           role: m.role,
           content: m.content,
           created_at: m.created_at,
-        }));
+        })));
         const more = data.has_more ?? false;
         setConversationId(convId);
-        setMessages(msgs);
+        setMessages(allMsgs);
         setHasMore(more);
-        setCache(chatId, { conversationId: convId, messages: msgs, hasMore: more });
+        setCache(chatId, { conversationId: convId, messages: allMsgs, hasMore: more });
         if (convId) markRead(convId);
       })
       .catch(() => {})

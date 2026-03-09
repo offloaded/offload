@@ -61,11 +61,12 @@ export async function GET(request: Request) {
     );
   }
 
-  // Find the most recent conversation
+  // Find the most recent non-archived conversation
   let query = supabase
     .from("conversations")
     .select("id")
     .eq("user_id", user.id)
+    .eq("archived", false)
     .order("updated_at", { ascending: false })
     .limit(1);
 
@@ -95,10 +96,10 @@ async function loadConversation(
   before: string | null,
   limit: number
 ) {
-  // Verify the conversation belongs to the user
+  // Verify the conversation belongs to the user and get archival info
   const { data: conv } = await supabase
     .from("conversations")
-    .select("id")
+    .select("id, previous_conversation_id, archived")
     .eq("id", conversationId)
     .eq("user_id", userId)
     .single();
@@ -109,6 +110,19 @@ async function loadConversation(
       messages: [],
       has_more: false,
     });
+  }
+
+  // Check if there's a previous conversation summary
+  let previousSummary: string | null = null;
+  if (conv.previous_conversation_id) {
+    const { data: prevConv } = await supabase
+      .from("conversations")
+      .select("summary")
+      .eq("id", conv.previous_conversation_id)
+      .single();
+    if (prevConv?.summary) {
+      previousSummary = prevConv.summary;
+    }
   }
 
   // Build messages query with pagination
@@ -140,6 +154,8 @@ async function loadConversation(
     conversation_id: conversationId,
     messages: page,
     has_more: hasMore,
+    previous_summary: previousSummary,
+    previous_conversation_id: conv.previous_conversation_id,
   });
 }
 

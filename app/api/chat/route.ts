@@ -5,6 +5,7 @@ import { webSearch, formatSearchResults } from "@/lib/web-search";
 import { logActivity, isStandupQuestion, getAgentActivitySummary } from "@/lib/activity";
 import { runGroupOrchestration } from "@/lib/group-orchestration";
 import { logApiUsage, estimateCost } from "@/lib/api-usage";
+import { estimateTokens, trimHistory, trimRagChunks, shouldArchive, calculateBudget } from "@/lib/context-manager";
 
 export async function POST(request: Request) {
   const supabase = await createServerSupabase();
@@ -85,14 +86,14 @@ export async function POST(request: Request) {
     .map((r: any) => ({ id: r.teams.id, name: r.teams.name }));
 
   // Use existing conversation or create a new one.
-  // If no conversation_id provided, reuse the most recent conversation for this agent
-  // rather than creating a new one — prevents orphaned conversations when the cache is cleared.
+  // Prefer non-archived conversations. If the given conversation is archived,
+  // look for or create a continuation.
   let convId = conversation_id;
   if (convId) {
     // Verify the conversation belongs to this user
     const { data: existingConv } = await supabase
       .from("conversations")
-      .select("id")
+      .select("id, archived")
       .eq("id", convId)
       .eq("user_id", user.id)
       .single();
@@ -102,13 +103,36 @@ export async function POST(request: Request) {
         { status: 404 }
       );
     }
+    // If the client sent an archived conversation ID, find or create the continuation
+    if (existingConv.archived) {
+      const { data: continuation } = await supabase
+        .from("conversations")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("agent_id", agent_id)
+        .eq("archived", false)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .single();
+      if (continuation) {
+        convId = continuation.id;
+      } else {
+        const { data: newConv } = await supabase
+          .from("conversations")
+          .insert({ user_id: user.id, agent_id, previous_conversation_id: convId })
+          .select("id")
+          .single();
+        if (newConv) convId = newConv.id;
+      }
+    }
   } else {
-    // Try to find the most recent conversation for this agent first
+    // Try to find the most recent non-archived conversation for this agent
     const { data: existing } = await supabase
       .from("conversations")
       .select("id")
       .eq("user_id", user.id)
       .eq("agent_id", agent_id)
+      .eq("archived", false)
       .order("updated_at", { ascending: false })
       .limit(1)
       .single();
@@ -152,18 +176,37 @@ export async function POST(request: Request) {
     .update({ updated_at: new Date().toISOString() })
     .eq("id", convId);
 
-  // Load message history for context
+  // Load message history for context — fetch more than we'll use, then trim by tokens
   const { data: history } = await supabase
     .from("messages")
     .select("role, content")
     .eq("conversation_id", convId)
     .order("created_at", { ascending: true })
-    .limit(50);
+    .limit(60);
 
-  const messages = (history || []).map((m) => ({
+  let messages = (history || []).map((m) => ({
     role: m.role as "user" | "assistant",
     content: m.content,
   }));
+
+  // Load previous conversation summary if this is a continuation
+  const { data: convRecord } = await supabase
+    .from("conversations")
+    .select("previous_conversation_id, summary")
+    .eq("id", convId)
+    .single();
+
+  let previousSummary: string | null = null;
+  if (convRecord?.previous_conversation_id) {
+    const { data: prevConv } = await supabase
+      .from("conversations")
+      .select("summary")
+      .eq("id", convRecord.previous_conversation_id)
+      .single();
+    if (prevConv?.summary) {
+      previousSummary = prevConv.summary;
+    }
+  }
 
   // RAG: retrieve relevant document context
   let ragContext: RetrievedChunk[] = [];
@@ -230,9 +273,12 @@ export async function POST(request: Request) {
     } catch { /* non-fatal */ }
   }
 
+  // Trim RAG chunks if too many — keep top 10, max 30k tokens
+  ragContext = trimRagChunks(ragContext, 30_000, 10);
+
   // Stream response from Claude
   const anthropic = getAnthropicClient();
-  const systemPrompt = buildSystemPrompt(
+  let systemPrompt = buildSystemPrompt(
     agent,
     ragContext.length > 0 ? ragContext : undefined,
     documentNames.length > 0 ? documentNames : undefined,
@@ -244,7 +290,22 @@ export async function POST(request: Request) {
       teamMemberships: agentTeams.length > 0 ? agentTeams : undefined,
     }
   );
-  console.log(`[Chat RAG] System prompt length: ${systemPrompt.length}`);
+
+  // Inject previous conversation summary if available
+  if (previousSummary) {
+    systemPrompt += `\n\nSummary of your previous conversation with this user: ${previousSummary}\n\nUse this context when relevant, but focus on the current conversation.`;
+  }
+
+  // Trim history to fit within context window
+  messages = trimHistory(systemPrompt, messages);
+
+  // Log context budget
+  const budget = calculateBudget(systemPrompt, messages);
+  console.log(`[Chat] Context budget: system=${budget.systemTokens} history=${budget.historyTokens} total=${budget.totalTokens} msgs=${messages.length} remaining=${budget.remainingForOutput} overBudget=${budget.overBudget}`);
+
+  if (budget.overBudget) {
+    console.warn(`[Chat] WARNING: Context may be over budget even after trimming. Remaining for output: ${budget.remainingForOutput}`);
+  }
 
   const stream = anthropic.messages.stream({
     model: "claude-sonnet-4-5-20250929",
@@ -306,12 +367,28 @@ export async function POST(request: Request) {
         // Clean the response: strip <search> blocks, schedule_request blocks, feature_request blocks, etc.
         const cleaned = cleanResponse(fullResponse);
 
-        // Save the cleaned response
-        await supabase.from("messages").insert({
-          conversation_id: convId,
-          role: "assistant",
-          content: cleaned,
-        });
+        // Never save empty responses — show error instead
+        if (!cleaned) {
+          console.warn(`[Chat] Empty response from API. Raw length: ${fullResponse.length}`);
+          const fallbackMsg = "I'm having trouble responding right now. Please try again.";
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ type: "replace", text: fallbackMsg })}\n\n`
+            )
+          );
+          await supabase.from("messages").insert({
+            conversation_id: convId,
+            role: "assistant",
+            content: fallbackMsg,
+          });
+        } else {
+          // Save the cleaned response
+          await supabase.from("messages").insert({
+            conversation_id: convId,
+            role: "assistant",
+            content: cleaned,
+          });
+        }
 
         // If cleaning changed the text, send a replace event so the client shows clean text
         if (cleaned !== fullResponse) {
@@ -381,8 +458,12 @@ export async function POST(request: Request) {
                   targetTeamId = matchedTeam.id;
                   console.log(`[CrossPost] Found channel in agent's teams: "${matchedTeam.name}" (${matchedTeam.id})`);
                 }
+              } else if (agentTeams.length === 1) {
+                // Agent is in exactly one team and didn't specify a channel — default to their team
+                targetTeamId = agentTeams[0].id;
+                console.log(`[CrossPost] No channel specified, agent in 1 team — defaulting to #${agentTeams[0].name} (${targetTeamId})`);
               } else {
-                console.log(`[CrossPost] No channel specified, posting to #all`);
+                console.log(`[CrossPost] No channel specified, agent in ${agentTeams.length} teams — posting to #all`);
               }
 
               console.log(`[CrossPost] Calling crossPostToChannel — teamId=${targetTeamId}`);
@@ -466,24 +547,43 @@ export async function POST(request: Request) {
           }
         }
 
-        // Log API usage
+        // Log API usage and actual token counts
         const responseTimeMs = Date.now() - chatStartTime;
+        let actualTokensIn = 0;
+        let actualTokensOut = 0;
         try {
           const finalMessage = await stream.finalMessage();
-          const tokensIn = finalMessage.usage?.input_tokens || 0;
-          const tokensOut = finalMessage.usage?.output_tokens || 0;
-          const cost = estimateCost("claude-sonnet-4-5-20250929", tokensIn, tokensOut);
+          actualTokensIn = finalMessage.usage?.input_tokens || 0;
+          actualTokensOut = finalMessage.usage?.output_tokens || 0;
+          const cost = estimateCost("claude-sonnet-4-5-20250929", actualTokensIn, actualTokensOut);
+          console.log(`[Chat] API response: tokensIn=${actualTokensIn} tokensOut=${actualTokensOut} responseLen=${fullResponse.length} cleanedLen=${cleaned?.length ?? 0} time=${responseTimeMs}ms`);
           logApiUsage({
             user_id: user.id,
             service: "chat",
             model: "claude-sonnet-4-5-20250929",
-            tokens_in: tokensIn,
-            tokens_out: tokensOut,
+            tokens_in: actualTokensIn,
+            tokens_out: actualTokensOut,
             cost,
             response_time_ms: responseTimeMs,
           });
-        } catch {
-          // Don't block on usage logging failure
+        } catch (usageErr) {
+          console.error("[Chat] Usage logging failed:", usageErr);
+        }
+
+        // Auto-archival: if conversation is getting long, archive and start fresh
+        try {
+          if (shouldArchive(estimateTokens(systemPrompt), messages)) {
+            console.log(`[Chat] Conversation ${convId} reached archive threshold, archiving...`);
+            const newConvId = await archiveConversation(supabase, anthropic, convId!, agent_id, user.id);
+            // Send archive event so client can show divider and switch to new conversation
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: "archived", conversation_id: convId, new_conversation_id: newConvId })}\n\n`
+              )
+            );
+          }
+        } catch (archiveErr) {
+          console.error("[Chat] Auto-archive failed (non-fatal):", archiveErr);
         }
 
         controller.enqueue(
@@ -493,6 +593,7 @@ export async function POST(request: Request) {
       } catch (err) {
         const errorMsg =
           err instanceof Error ? err.message : "Stream error";
+        console.error(`[Chat] Stream error:`, err);
         controller.enqueue(
           encoder.encode(
             `data: ${JSON.stringify({ type: "error", error: errorMsg })}\n\n`
@@ -510,6 +611,86 @@ export async function POST(request: Request) {
       Connection: "keep-alive",
     },
   });
+}
+
+/**
+ * Archive a conversation: generate a summary, mark as archived,
+ * and create a new continuation conversation.
+ */
+async function archiveConversation(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  anthropic: ReturnType<typeof getAnthropicClient>,
+  conversationId: string,
+  agentId: string,
+  userId: string
+): Promise<string> {
+  // Load recent messages for summarization
+  const { data: msgs } = await supabase
+    .from("messages")
+    .select("role, content")
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: true })
+    .limit(50);
+
+  const messageCount = msgs?.length || 0;
+  if (messageCount < 5) return conversationId; // too few to archive
+
+  // Build conversation text for summarization
+  const convText = (msgs || [])
+    .map((m: { role: string; content: string }) =>
+      `${m.role === "user" ? "User" : "Agent"}: ${m.content.slice(0, 300)}`
+    )
+    .join("\n");
+
+  // Generate summary using fast model
+  let summary: string;
+  try {
+    const response = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 200,
+      system: "Summarize this conversation in 3-4 sentences covering the key topics discussed, decisions made, and any outstanding items. Be concise and factual.",
+      messages: [{ role: "user", content: convText.slice(0, 8000) }],
+    });
+    summary = response.content
+      .filter((b) => b.type === "text")
+      .map((b) => b.text)
+      .join("")
+      .trim();
+  } catch (err) {
+    console.error("[Archive] Summary generation failed:", err);
+    summary = `Conversation with ${messageCount} messages (summary unavailable).`;
+  }
+
+  console.log(`[Archive] Generated summary for conv=${conversationId}: "${summary.slice(0, 100)}..."`);
+
+  // Mark conversation as archived with summary
+  await supabase
+    .from("conversations")
+    .update({ archived: true, summary, updated_at: new Date().toISOString() })
+    .eq("id", conversationId);
+
+  // Save to conversation_summaries table
+  await supabase.from("conversation_summaries").insert({
+    conversation_id: conversationId,
+    summary,
+    message_count: messageCount,
+  });
+
+  // Create a new continuation conversation
+  const { data: newConv } = await supabase
+    .from("conversations")
+    .insert({
+      user_id: userId,
+      agent_id: agentId,
+      previous_conversation_id: conversationId,
+    })
+    .select("id")
+    .single();
+
+  const newConvId = newConv?.id || conversationId;
+  console.log(`[Archive] Archived conv=${conversationId}, new conv=${newConvId}`);
+  return newConvId;
 }
 
 /**

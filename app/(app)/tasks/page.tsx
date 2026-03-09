@@ -89,7 +89,7 @@ function formatFutureTime(dateStr: string): string {
 // ─── Page component ───
 
 export default function TasksPage() {
-  const { agents, openDrawer, refreshTaskCount } = useApp();
+  const { agents, teams, openDrawer, refreshTaskCount } = useApp();
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -178,6 +178,7 @@ export default function TasksPage() {
           {showAddForm && (
             <AddTaskForm
               agents={agents}
+              teams={teams}
               onCreated={onTaskCreated}
               onCancel={() => setShowAddForm(false)}
             />
@@ -310,7 +311,7 @@ function TaskCard({
         <span>&middot;</span>
         <span>{task.timezone}</span>
         <span>&middot;</span>
-        <span>{task.destination === "group" ? "Group chat" : "DM"}</span>
+        <span>{task.destination === "group" ? "# All" : task.destination?.startsWith("team:") ? "Team channel" : "DM"}</span>
         {task.last_run_at && (
           <>
             <span>&middot;</span>
@@ -332,10 +333,12 @@ function TaskCard({
 
 function AddTaskForm({
   agents,
+  teams,
   onCreated,
   onCancel,
 }: {
   agents: { id: string; name: string; color: string }[];
+  teams: { id: string; name: string }[];
   onCreated: () => void;
   onCancel: () => void;
 }) {
@@ -349,7 +352,7 @@ function AddTaskForm({
   const [timezone, setTimezone] = useState(
     Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
   );
-  const [destination, setDestination] = useState<"dm" | "group">("dm");
+  const [destination, setDestination] = useState<string>("dm");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -634,11 +637,16 @@ function AddTaskForm({
         <div className="relative">
           <select
             value={destination}
-            onChange={(e) => setDestination(e.target.value as "dm" | "group")}
+            onChange={(e) => setDestination(e.target.value)}
             className="w-full py-2.5 pl-3 pr-8 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)]"
           >
             <option value="dm">Direct message</option>
-            <option value="group">Group chat</option>
+            <option value="group"># All (group chat)</option>
+            {teams.map((t) => (
+              <option key={t.id} value={`team:${t.id}`}>
+                # {t.name}
+              </option>
+            ))}
           </select>
           <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--color-text-tertiary)]">
             <ChevronDownIcon />

@@ -151,15 +151,20 @@ When the user asks you to message/post something to a channel or team immediatel
 \`\`\`
 The "channel" field targets a specific team channel. Rules:
 - "message the scrum team", "post in #scrum", "tell the scrum channel" → {"channel": "scrum"}
-- "message the group", "post in #all", "tell the team" (no specific team) → {"channel": null}
-- If the user names a specific team/channel, use that name. If they just say "the team" or "the group" without specifying, use null for #all.
+- "message the group", "post in #all" → {"channel": null}
+- "tell the team", "message the team", "post to the team" → use your team's channel name if you belong to exactly one team. Only use null (#all) if you belong to no teams or multiple teams and the user didn't specify which one.
 The message content is just plain text — no XML, no tags. Only use this block when the user explicitly wants something posted right now.`;
   }
 
   // Team membership awareness
   if (options?.teamMemberships && options.teamMemberships.length > 0) {
     const teamList = options.teamMemberships.map((t) => `#${t.name}`).join(", ");
-    prompt += `\n\nYou are a member of these channels: #All (everyone), ${teamList}. When the user asks you to message a specific team, use the matching channel name.`;
+    if (options.teamMemberships.length === 1) {
+      const teamName = options.teamMemberships[0].name;
+      prompt += `\n\nYou are a member of these channels: #All (everyone), ${teamList}. When the user says "message the team", "tell the team", or similar without specifying a channel, default to #${teamName} (your team). Only use #All if the user explicitly says "everyone", "#all", or "the group".`;
+    } else {
+      prompt += `\n\nYou are a member of these channels: #All (everyone), ${teamList}. When the user asks you to message a specific team, use the matching channel name. If they just say "the team" without specifying, ask which channel they mean.`;
+    }
   }
 
   // Disabled feature activation instructions

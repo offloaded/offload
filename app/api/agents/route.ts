@@ -124,6 +124,34 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Agent ID required" }, { status: 400 });
   }
 
+  // Verify ownership before cascading deletes
+  const { data: agent } = await supabase
+    .from("agents")
+    .select("id")
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!agent) {
+    return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+  }
+
+  // Explicit cleanup before agent delete (safety net alongside FK cascades).
+  // Delete conversations + their messages (messages cascade from conversations).
+  await supabase
+    .from("conversations")
+    .delete()
+    .eq("agent_id", id)
+    .eq("user_id", user.id);
+
+  // Delete activity log entries
+  await supabase
+    .from("activity_log")
+    .delete()
+    .eq("agent_id", id)
+    .eq("user_id", user.id);
+
+  // Now delete the agent (cascades: documents, document_chunks, scheduled_tasks, team_members)
   const { error } = await supabase
     .from("agents")
     .delete()

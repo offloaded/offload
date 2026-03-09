@@ -13,7 +13,7 @@ export interface ScheduleRequest {
   run_at?: string;  // one-off tasks: ISO datetime string
   timezone: string;
   recurring: boolean;
-  destination: "dm" | "group";
+  destination: string;
   agent_id?: string;
 }
 
@@ -218,6 +218,20 @@ async function _streamDM(
               conversation_id: event.conversation_id,
               team_id: event.team_id || null,
             };
+            notify(chatId);
+          } else if (event.type === "archived") {
+            // Conversation was auto-archived — add a divider message
+            const dividerMsg: ChatMessage = {
+              role: "assistant",
+              content: "--- Earlier messages archived — searchable in history ---",
+              created_at: new Date().toISOString(),
+            };
+            updateMessages(chatId, (prev) => [...prev, dividerMsg]);
+            // Update conversation ID to the new continuation
+            if (event.new_conversation_id) {
+              entry.state.conversationId = event.new_conversation_id;
+              setCachedConvId(chatId, event.new_conversation_id);
+            }
             notify(chatId);
           } else if (event.type === "error") {
             throw new Error(event.error);

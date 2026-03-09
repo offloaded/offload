@@ -128,7 +128,7 @@ export async function POST(request: Request) {
       cron: cronToStore,
       timezone: timezone || "UTC",
       recurring: isRecurring,
-      destination: destination === "group" ? "group" : "dm",
+      destination: destination || "dm",
       next_run_at: nextRun,
     })
     .select()

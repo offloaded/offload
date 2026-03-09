@@ -100,6 +100,8 @@ async function runTask(
 
   // 1. Find existing conversation based on destination, or create one
   const isGroupDest = task.destination === "group";
+  const isTeamDest = task.destination?.startsWith("team:") ?? false;
+  const teamId = isTeamDest ? task.destination!.replace("team:", "") : null;
   let convId: string;
 
   let convQuery = supabase
@@ -110,7 +112,9 @@ async function runTask(
     .limit(1);
 
   if (isGroupDest) {
-    convQuery = convQuery.is("agent_id", null);
+    convQuery = convQuery.is("agent_id", null).is("team_id", null);
+  } else if (isTeamDest) {
+    convQuery = convQuery.is("agent_id", null).eq("team_id", teamId);
   } else {
     convQuery = convQuery.eq("agent_id", task.agent_id);
   }
@@ -120,8 +124,12 @@ async function runTask(
   if (existingConv) {
     convId = existingConv.id;
   } else {
-    const insertData: { user_id: string; agent_id?: string } = { user_id: task.user_id };
-    if (!isGroupDest) {
+    const insertData: Record<string, unknown> = { user_id: task.user_id };
+    if (isGroupDest) {
+      // agent_id null, team_id null → #all
+    } else if (isTeamDest) {
+      insertData.team_id = teamId;
+    } else {
       insertData.agent_id = task.agent_id;
     }
     const { data: newConv, error: convError } = await supabase
@@ -201,8 +209,9 @@ async function runTask(
   const responseText = cleanResponse(rawText);
 
   // 7. Save response as assistant message
-  // For group chat, prefix with [AgentName] so the UI renders with correct name/color
-  const savedContent = isGroupDest
+  // For group/team chat, prefix with [AgentName] so the UI renders with correct name/color
+  const isChannelDest = isGroupDest || isTeamDest;
+  const savedContent = isChannelDest
     ? `[${agent.name}] ${responseText}`
     : responseText;
 
@@ -218,13 +227,34 @@ async function runTask(
     .update({ updated_at: new Date().toISOString() })
     .eq("id", convId);
 
-  // 8b. For group chat, trigger other agents to react via full orchestration
-  if (isGroupDest) {
-    console.log(`[Cron] Agent message saved to group chat, triggering orchestration for conv=${convId}`);
+  // 8b. For group/team chat, trigger other agents to react via full orchestration
+  if (isChannelDest) {
+    console.log(`[Cron] Agent message saved to ${isTeamDest ? `team channel (${teamId})` : "#all"}, triggering orchestration for conv=${convId}`);
     try {
-      await runGroupOrchestration(supabase, task.user_id, convId, savedContent, task.agent_id);
+      if (isTeamDest) {
+        // Team channel: only trigger agents in that team
+        const { data: teamMembers } = await supabase
+          .from("team_members")
+          .select("agent_id")
+          .eq("team_id", teamId);
+        const teamAgentIds = (teamMembers || [])
+          .map((m: { agent_id: string }) => m.agent_id)
+          .filter((id: string) => id !== task.agent_id);
+        if (teamAgentIds.length > 0) {
+          const { data: allAgents } = await supabase
+            .from("agents")
+            .select("id")
+            .eq("user_id", task.user_id);
+          const excludeIds = (allAgents || [])
+            .map((a: { id: string }) => a.id)
+            .filter((id: string) => !teamAgentIds.includes(id) || id === task.agent_id);
+          await runGroupOrchestration(supabase, task.user_id, convId, savedContent, excludeIds);
+        }
+      } else {
+        await runGroupOrchestration(supabase, task.user_id, convId, savedContent, task.agent_id);
+      }
     } catch (err) {
-      console.error("[Cron] Group reactions failed:", err);
+      console.error("[Cron] Channel reactions failed:", err);
       // Non-fatal — the original message was already saved
     }
   }

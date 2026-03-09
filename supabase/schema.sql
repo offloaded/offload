@@ -99,7 +99,7 @@ create policy "Users can view chunks for own agents"
 create table if not exists public.conversations (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users(id) on delete cascade not null,
-  agent_id uuid references public.agents(id) on delete set null,
+  agent_id uuid references public.agents(id) on delete cascade,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
