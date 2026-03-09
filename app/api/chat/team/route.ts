@@ -4,6 +4,7 @@ import { logApiUsage, estimateCost } from "@/lib/api-usage";
 import {
   classifyIntent,
   detectMessageAddressing,
+  detectFollowUpTriggers,
   evaluateAgents,
   generateAgentResponse,
   scoreAgentRelevance,
@@ -363,6 +364,61 @@ export async function POST(request: Request) {
 
         if (schedulePayload) {
           send({ type: "schedule_request", ...(schedulePayload as Record<string, unknown>) });
+        }
+
+        // ── FOLLOW-UP DETECTION — agents responding to each other ────────
+        // After agents respond, check if any asked a question that should
+        // trigger other agents. Up to 2 follow-up rounds within the same SSE stream.
+        const respondedIds = new Set<string>(allResponses.map((r) => {
+          const m = r.match(/^\[([^\]]+)\]/);
+          return m ? agents.find((a) => a.name === m[1])?.id : undefined;
+        }).filter((id): id is string => Boolean(id)));
+        const hardExcludeIds = new Set<string>(); // no hard excludes for user-initiated flow
+
+        console.log(`${LOG} ── Follow-up detection ──`);
+        console.log(`${LOG} Responded so far: [${[...respondedIds].map((id) => agents.find((a) => a.id === id)?.name ?? id).join(", ")}]`);
+
+        let followUpRound = 0;
+        let lastCombined = combined;
+
+        while (followUpRound < 2) {
+          const followUp = detectFollowUpTriggers(lastCombined, agents, hardExcludeIds, respondedIds);
+          if (!followUp) {
+            console.log(`${LOG} No follow-up triggers after round ${followUpRound} — conversation complete`);
+            break;
+          }
+
+          followUpRound++;
+          const targetNames = agents
+            .filter((a) => followUp.targetAgentIds.includes(a.id))
+            .map((a) => a.name)
+            .join(", ");
+          console.log(`${LOG} Follow-up round ${followUpRound} → [${targetNames}] reason: ${followUp.reason}`);
+
+          const followUpAgents = agents.filter((a) => followUp.targetAgentIds.includes(a.id));
+          const followUpResponses: string[] = [];
+          let followUpPrior = allResponses.join("\n");
+
+          for (const agent of followUpAgents) {
+            await runAgent(agent, "medium", "full", followUpPrior);
+            const latestResponse = allResponses[allResponses.length - 1];
+            followUpResponses.push(latestResponse);
+            followUpPrior += "\n" + latestResponse;
+            respondedIds.add(agent.id);
+          }
+
+          // Save follow-up round to DB
+          if (followUpResponses.length > 0) {
+            const followUpCombined = followUpResponses.join("\n");
+            await supabase.from("messages").insert({
+              conversation_id: convId,
+              role: "assistant",
+              content: followUpCombined,
+            });
+            await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
+            console.log(`${LOG} Saved ${followUpResponses.length} follow-up response(s)`);
+            lastCombined = followUpCombined;
+          }
         }
 
         send({ type: "done" });

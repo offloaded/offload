@@ -681,27 +681,29 @@ export async function runGroupOrchestration(
     return;
   }
 
-  // DB-level dedup: check who already responded to the latest user message in this conversation.
+  // DB-level dedup: check who already responded to the trigger message in this conversation.
   // This prevents duplicate responses when orchestration runs concurrently or in follow-up rounds.
+  // We look for the most recent message (user or assistant) as the trigger — not just user
+  // messages — so that agent-initiated messages (cross-posts, scheduled tasks) also work.
   if (_round === 0) {
-    // Find the most recent user message timestamp
-    const { data: latestUserMsg } = await supabase
+    // Find the trigger message — the most recent message in the conversation
+    // (could be a user message or an agent cross-post)
+    const { data: latestMsg } = await supabase
       .from("messages")
       .select("created_at")
       .eq("conversation_id", conversationId)
-      .eq("role", "user")
       .order("created_at", { ascending: false })
       .limit(1)
       .single();
 
-    if (latestUserMsg) {
-      // Find assistant messages after the latest user message
+    if (latestMsg) {
+      // Find assistant messages after the trigger (concurrent responses already in flight)
       const { data: recentResponses } = await supabase
         .from("messages")
         .select("content")
         .eq("conversation_id", conversationId)
         .eq("role", "assistant")
-        .gt("created_at", latestUserMsg.created_at);
+        .gt("created_at", latestMsg.created_at);
 
       if (recentResponses && recentResponses.length > 0) {
         // Parse agent names from [AgentName] prefixes
