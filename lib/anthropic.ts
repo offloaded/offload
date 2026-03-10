@@ -182,6 +182,13 @@ Disabled features:`;
     prompt += `\n\nOnly include the feature_request block when the user's request clearly requires one of these disabled features.`;
   }
 
+  prompt += `\n\nSAVING REPORTS:
+When the user asks you to save, write, or create a report (or save your last response as a report), write your visible reply naturally, then include at the END of your response:
+\`\`\`save_report
+{"title": "Short descriptive title", "content": "The full report content in plain text"}
+\`\`\`
+The content should be the actual report text — either your previous response if the user asks to save it, or a newly written report. Only include this block when the user explicitly asks to save or create a report.`;
+
   const styleInstructions = buildStyleInstructions(agent);
   const behaviorLine = styleInstructions
     ? styleInstructions
@@ -246,6 +253,7 @@ export function cleanResponse(text: string, streaming = false): string {
   cleaned = cleaned.replace(/```group_message_request\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```skills_update\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```expectations_update\s*\n?[\s\S]*?\n?```/g, "");
+  cleaned = cleaned.replace(/```save_report\s*\n?[\s\S]*?\n?```/g, "");
 
   if (streaming) {
     // Remove incomplete opening tags whose closing tag hasn't arrived yet.
@@ -257,6 +265,7 @@ export function cleanResponse(text: string, streaming = false): string {
     cleaned = cleaned.replace(/```group_message_request[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```skills_update[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```expectations_update[\s\S]*$/g, "");
+    cleaned = cleaned.replace(/```save_report[\s\S]*$/g, "");
   }
 
   // Strip leading [AgentName] or [You] bracket prefix that agents sometimes generate

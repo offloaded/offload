@@ -37,7 +37,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
-          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=Satoshi:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=Satoshi:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&family=Press+Start+2P&family=Space+Mono:wght@400;700&display=swap"
           rel="stylesheet"
         />
         <meta name="theme-color" content="#2C5FF6" />

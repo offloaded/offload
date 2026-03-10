@@ -430,6 +430,9 @@ export async function POST(request: Request) {
         const expectationsMatch = fullResponse.match(
           /```expectations_update\s*\n?([\s\S]*?)\n?```/
         );
+        const saveReportMatch = fullResponse.match(
+          /```save_report\s*\n?([\s\S]*?)\n?```/
+        );
 
         // Clean the response: strip <search> blocks, schedule_request blocks, feature_request blocks, etc.
         const cleaned = cleanResponse(fullResponse);
@@ -470,6 +473,29 @@ export async function POST(request: Request) {
               source: "agent",
               conversation_id: convId,
             });
+          } catch { /* ignore report save failures */ }
+        }
+
+        // Handle explicit save_report request from agent
+        if (saveReportMatch) {
+          try {
+            const report = JSON.parse(saveReportMatch[1]);
+            if (report.title && report.content) {
+              await supabase.from("reports").insert({
+                workspace_id: ctx.workspaceId,
+                user_id: user.id,
+                agent_id: agent.id,
+                title: report.title,
+                content: report.content,
+                source: "agent",
+                conversation_id: convId,
+              });
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ type: "report_saved", title: report.title })}\n\n`
+                )
+              );
+            }
           } catch { /* ignore report save failures */ }
         }
 

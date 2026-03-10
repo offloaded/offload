@@ -245,6 +245,26 @@ export async function POST(request: Request) {
             }
           }
 
+          // Capture save_report block from raw text before cleaning
+          const reportMatch = rawText.match(/```save_report\s*\n?([\s\S]*?)\n?```/);
+          if (reportMatch) {
+            try {
+              const report = JSON.parse(reportMatch[1]);
+              if (report.title && report.content) {
+                await supabase.from("reports").insert({
+                  workspace_id: ctx.workspaceId,
+                  user_id: user.id,
+                  agent_id: agent.id,
+                  title: report.title,
+                  content: report.content,
+                  source: "agent",
+                  conversation_id: convId,
+                });
+                send({ type: "report_saved", title: report.title });
+              }
+            } catch { /* ignore report save failures */ }
+          }
+
           // Content dedup: check against already-saved responses
           const tagged = `[${agent.name}] ${text}`;
           if (isDuplicateResponse(tagged, allResponses)) {
