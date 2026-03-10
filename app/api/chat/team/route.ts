@@ -9,6 +9,8 @@ import {
   generateAgentResponse,
   scoreAgentRelevance,
   buildSmartHistory,
+  isDuplicateResponse,
+  stripSelfMentions,
 } from "@/lib/group-orchestration";
 import { getWorkspaceContext } from "@/lib/workspace";
 
@@ -259,7 +261,8 @@ export async function POST(request: Request) {
             new Promise<void>((r) => setTimeout(r, targetDelay)),
           ]);
 
-          const text = cleanResponse(rawText.replace(/YOUR_AGENT_ID/g, agent.id));
+          let text = cleanResponse(rawText.replace(/YOUR_AGENT_ID/g, agent.id));
+          text = stripSelfMentions(text, agent.name);
 
           if (!schedulePayload) {
             const m = rawText.match(/```schedule_request\s*\n?([\s\S]*?)\n?```/);
@@ -268,9 +271,19 @@ export async function POST(request: Request) {
             }
           }
 
+          // Content dedup: check against already-saved responses
+          const tagged = `[${agent.name}] ${text}`;
+          if (isDuplicateResponse(tagged, allResponses)) {
+            console.log(`${LOG} DEDUP: Discarded duplicate from ${agent.name}`);
+            return;
+          }
+
           send({ type: "agent_text", agent_id: agent.id, agent_name: agent.name, agent_color: agent.color, text });
-          allResponses.push(`[${agent.name}] ${text}`);
+          allResponses.push(tagged);
         };
+
+        // @MENTION-ONLY SHORTCUT: if @mentions present and not team-wide, skip evaluate
+        const hasMentions = allMentionedIds.length > 0;
 
         // CASUAL SHORTCUT
         if (effectiveIntent === "casual" && allMentionedIds.length === 0) {
@@ -305,10 +318,20 @@ export async function POST(request: Request) {
               cost: estimateCost("claude-haiku-4-5-20251001", casualTokensIn, casualTokensOut),
             });
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const text = cleanResponse(response.content.filter((b: any) => b.type === "text").map((b: any) => b.text as string).join("").trim());
+            let text = cleanResponse(response.content.filter((b: any) => b.type === "text").map((b: any) => b.text as string).join("").trim());
+            text = stripSelfMentions(text, agent.name);
             send({ type: "agent_text", agent_id: agent.id, agent_name: agent.name, agent_color: agent.color, text });
             allResponses.push(`[${agent.name}] ${text}`);
             priorResponses += `[${agent.name}]: ${text}\n`;
+          }
+        } else if (hasMentions && !isTeamWide) {
+          // @MENTION-ONLY MODE: only mentioned agents respond
+          console.log(`${LOG} @mention-only mode: [${mentionedAgents.map((a) => a.name).join(", ")}]`);
+
+          let priorResponses = "";
+          for (const agent of mentionedAgents) {
+            await runAgent(agent, "high", "full", priorResponses);
+            priorResponses += `[${agent.name}]: ${allResponses[allResponses.length - 1]?.replace(/^\[[^\]]+\] /, "") ?? ""}\n`;
           }
         } else {
           // EVALUATE PHASE
@@ -350,7 +373,7 @@ export async function POST(request: Request) {
           let priorResponses = "";
           for (const agent of respondingAgents) {
             await runAgent(agent, getUrgency(agent.id), getWeight(agent.id), priorResponses);
-            priorResponses += `[${agent.name}]: ${allResponses[allResponses.length - 1].replace(/^\[[^\]]+\] /, "")}\n`;
+            priorResponses += `[${agent.name}]: ${allResponses[allResponses.length - 1]?.replace(/^\[[^\]]+\] /, "") ?? ""}\n`;
           }
         }
 

@@ -243,6 +243,70 @@ type ContextChunk = {
   metadata?: { document_date?: string | null; section_heading?: string | null };
 };
 
+// ─── Helpers: dedup, self-mention strip, long-form detection ──────────────
+
+/**
+ * Detect whether a user request is asking for long-form content.
+ * Returns a higher max_tokens value when detected.
+ */
+export function detectLongFormRequest(message: string): number {
+  const lower = message.toLowerCase();
+  const longFormPatterns = [
+    /\b(detailed|comprehensive|thorough|in-depth|full)\s+(report|analysis|review|brief|breakdown|assessment|summary)\b/,
+    /\b(report|analysis|backlog|research|brief|whitepaper|proposal|plan|strategy)\b/,
+    /\b(write|create|draft|prepare|compile|build)\s+(a |an |the )?(report|analysis|backlog|research|brief|document|plan)\b/,
+    /\bbacklog\b/,
+    /\blong[\s-]?form\b/,
+  ];
+  if (longFormPatterns.some((p) => p.test(lower))) return 4096;
+  return 2048;
+}
+
+/**
+ * Check if a response was truncated mid-sentence (hit token limit).
+ */
+export function isResponseTruncated(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  const lastChar = trimmed[trimmed.length - 1];
+  // Ends with terminal punctuation or closing bracket — not truncated
+  if (".!?\"')]}".includes(lastChar)) return false;
+  // Ends with a colon/semicolon after a complete word — likely intentional
+  if (":;".includes(lastChar) && trimmed.length > 20) return false;
+  // Otherwise, likely truncated
+  return true;
+}
+
+/**
+ * Strip self-mentions from an agent's response.
+ * e.g. if agent is "Finance Advisor", remove "@Finance Advisor" from its own text.
+ */
+export function stripSelfMentions(text: string, agentName: string): string {
+  const escaped = agentName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text
+    .replace(new RegExp(`@${escaped}\\b`, "gi"), "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+/**
+ * Check if a response is a near-duplicate of any existing responses.
+ * Compares the first 100 characters of the content body (after removing [AgentName] prefix).
+ */
+export function isDuplicateResponse(
+  newResponse: string,
+  existingResponses: string[]
+): boolean {
+  const normalize = (s: string) =>
+    s.replace(/^\[[^\]]+\]\s*/, "").trim().slice(0, 100).toLowerCase();
+  const newNorm = normalize(newResponse);
+  if (!newNorm) return false;
+  return existingResponses.some((r) => {
+    const existingNorm = normalize(r);
+    return existingNorm && newNorm === existingNorm;
+  });
+}
+
 function buildGroupAgentSystemPrompt(
   agent: {
     name: string;
@@ -282,6 +346,8 @@ function buildGroupAgentSystemPrompt(
 
 Your role: ${agent.purpose}
 
+ROLE BOUNDARIES: You are the ${agent.name}. ONLY provide analysis, opinions, and information within YOUR area of expertise as defined by your role above. If a question is outside your domain, say so briefly and defer to the appropriate team member by name. Do NOT attempt to cover other agents' areas — that is their job, not yours.
+
 Team members in this channel: ${teamList}. Address the user as @You.
 When referencing someone, use @Name (e.g. @${otherMembers[0] ?? "Alice"}, @You). Never use markdown like **replies to Name** or "replies to".
 
@@ -292,9 +358,9 @@ Plain conversational text only — no markdown, no bold, no headers, no bullet l
 
 CRITICAL: If you are asked a question, answer it directly from your own perspective and expertise. Do NOT redirect the question back to the group or ask others the same question. Do NOT say things like "Can everyone give me an update?" — instead, give YOUR OWN update or answer.
 
-Never @mention yourself or address yourself. You ARE yourself — just give your update directly.
+NEVER @mention yourself (@${agent.name}) or address yourself. You ARE yourself — just give your response directly.
 
-Don't tag every agent asking them to respond. Give your own update and let others respond naturally. The system will prompt other agents to contribute — that's not your job.
+Do NOT tag every agent asking them to respond. Do NOT list agents and ask each one to contribute. Give your own contribution and move on. The system handles prompting other agents automatically — that is NOT your job.
 
 CONTEXT: Only respond to the MOST RECENT message in the conversation. Ignore older topics that have already been discussed and resolved. If the latest message asks about risks, respond about risks — do not reference or answer questions from earlier in the conversation.`;
 
@@ -462,6 +528,7 @@ export async function generateAgentResponse(
   if (docsByAgent.has(agent.id)) {
     try {
       context = await retrieveContext(supabase, agent.id, plainMessage, 5);
+      console.log(`[RAG] Agent "${agent.name}" (${agent.id}) queried own docs, got ${context.length} chunks`);
     } catch { /* non-fatal */ }
   }
 
@@ -486,21 +553,60 @@ export async function generateAgentResponse(
     channelContext
   );
 
+  // Dynamic max_tokens: higher for long-form requests, standard otherwise
+  const maxTokens = weight === "brief" ? 512 : detectLongFormRequest(plainMessage);
+
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-5-20250929",
-    max_tokens: 512,
+    max_tokens: maxTokens,
     system: systemPrompt,
     messages,
   });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const text = response.content
+  let text = response.content
     .filter((b: any) => b.type === "text")
     .map((b: any) => b.text as string)
     .join("")
     .trim();
 
-  return cleanResponse(text);
+  text = cleanResponse(text);
+
+  // Strip self-mentions (bug: agents @mentioning themselves)
+  text = stripSelfMentions(text, agent.name);
+
+  // Auto-continuation: if the response was truncated mid-sentence, generate a follow-up
+  if (isResponseTruncated(text) && text.length > 50) {
+    console.log(`[Generate] ${agent.name}: response truncated (${text.length} chars), generating continuation...`);
+    try {
+      const contMessages = [
+        ...messages,
+        { role: "assistant" as const, content: text },
+        { role: "user" as const, content: "Continue from where you left off. Do not repeat anything you already said." },
+      ];
+      const contResponse = await anthropic.messages.create({
+        model: "claude-sonnet-4-5-20250929",
+        max_tokens: maxTokens,
+        system: systemPrompt,
+        messages: contMessages,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const contText = contResponse.content
+        .filter((b: any) => b.type === "text")
+        .map((b: any) => b.text as string)
+        .join("")
+        .trim();
+      if (contText) {
+        text = text + " " + cleanResponse(contText);
+        text = stripSelfMentions(text, agent.name);
+        console.log(`[Generate] ${agent.name}: continuation added, total ${text.length} chars`);
+      }
+    } catch (err) {
+      console.error(`[Generate] ${agent.name}: continuation failed:`, err);
+    }
+  }
+
+  return text;
 }
 
 // ─── Topic boundary detection ─────────────────────────────────────────────
@@ -774,6 +880,13 @@ export async function runGroupOrchestration(
     }
   }
 
+  // 5b. @MENTION-ONLY ROUTING — if @mentions are present and it's NOT team-wide,
+  // ONLY let the mentioned agents respond. Skip evaluate phase entirely for everyone else.
+  const hasMentions = mentionedAgentIds.length > 0;
+  if (hasMentions && !isTeamWide && _round === 0) {
+    console.log(`${LOG} @mention-only mode: restricting to [${mentionedAgentIds.map((id) => allAgents.find((a: any) => a.id === id)?.name ?? id).join(", ")}]`);
+  }
+
   // 6. CASUAL SHORTCUT — no evaluate, no RAG, Haiku model
   if (effectiveIntent === "casual" && mentionedAgentIds.length === 0) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -827,6 +940,10 @@ export async function runGroupOrchestration(
     // they can see they've already contributed to the conversation.
     respondingAgents = agents;
     console.log(`${LOG} Follow-up round: ${agents.length} targeted agent(s) respond without re-evaluation`);
+  } else if (hasMentions && !isTeamWide) {
+    // @MENTION-ONLY: Skip evaluate phase entirely. Only mentioned agents respond.
+    respondingAgents = mentionedAgents.filter((a: any) => !_respondedIds.has(a.id));
+    console.log(`${LOG} @mention-only: [${respondingAgents.map((a: any) => a.name).join(", ")}] (skipping evaluate for ${nonMentionedAgents.length} other agents)`);
   } else {
     // EVALUATE PHASE — parallel cheap calls
     const recentForEval = messages.slice(-4).map(
@@ -888,16 +1005,28 @@ export async function runGroupOrchestration(
     })
   );
 
-  const combined = agentResponses.filter((r) => r.trim()).join("\n");
+  // Content dedup: discard responses that are near-duplicates of earlier ones
+  const dedupedResponses: string[] = [];
+  for (const resp of agentResponses) {
+    if (!resp.trim()) continue;
+    if (isDuplicateResponse(resp, dedupedResponses)) {
+      const agentName = resp.match(/^\[([^\]]+)\]/)?.[1] ?? "?";
+      console.log(`${LOG} DEDUP: Discarded duplicate from ${agentName}`);
+      continue;
+    }
+    dedupedResponses.push(resp);
+  }
+
+  const combined = dedupedResponses.join("\n");
   if (!combined) {
-    console.log(`${LOG} All responses empty — done`);
+    console.log(`${LOG} All responses empty or duplicated — done`);
     return;
   }
 
   // 9. Save
+  console.log(`${LOG} Saving ${dedupedResponses.length} response(s) (${agentResponses.length - dedupedResponses.length} duplicates discarded)`);
   await supabase.from("messages").insert({ conversation_id: conversationId, role: "assistant", content: combined });
   await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", conversationId);
-  console.log(`${LOG} Saved ${respondingAgents.length} agent response(s)`);
 
   // 10. FOLLOW-UP DETECTION — cap at 2 extra rounds
   if (_round < 2) {

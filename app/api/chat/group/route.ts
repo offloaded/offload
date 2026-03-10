@@ -9,6 +9,8 @@ import {
   generateAgentResponse,
   scoreAgentRelevance,
   buildSmartHistory,
+  isDuplicateResponse,
+  stripSelfMentions,
 } from "@/lib/group-orchestration";
 import { getWorkspaceContext } from "@/lib/workspace";
 
@@ -232,7 +234,8 @@ export async function POST(request: Request) {
             new Promise<void>((r) => setTimeout(r, targetDelay)),
           ]);
 
-          const text = cleanResponse(rawText.replace(/YOUR_AGENT_ID/g, agent.id));
+          let text = cleanResponse(rawText.replace(/YOUR_AGENT_ID/g, agent.id));
+          text = stripSelfMentions(text, agent.name);
 
           // Capture schedule block from raw text before cleaning
           if (!schedulePayload) {
@@ -242,8 +245,15 @@ export async function POST(request: Request) {
             }
           }
 
+          // Content dedup: check against already-saved responses
+          const tagged = `[${agent.name}] ${text}`;
+          if (isDuplicateResponse(tagged, allResponses)) {
+            console.log(`${LOG} DEDUP: Discarded duplicate from ${agent.name}`);
+            return;
+          }
+
           send({ type: "agent_text", agent_id: agent.id, agent_name: agent.name, agent_color: agent.color, text });
-          allResponses.push(`[${agent.name}] ${text}`);
+          allResponses.push(tagged);
           console.log(`${LOG} ${agent.name} (${urgency}/${weight}): ${text.slice(0, 80)}`);
         };
 
@@ -283,13 +293,25 @@ export async function POST(request: Request) {
               cost: estimateCost("claude-haiku-4-5-20251001", casualTokensIn, casualTokensOut),
             });
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const text = cleanResponse(response.content.filter((b: any) => b.type === "text").map((b: any) => b.text as string).join("").trim());
+            let text = cleanResponse(response.content.filter((b: any) => b.type === "text").map((b: any) => b.text as string).join("").trim());
+            text = stripSelfMentions(text, agent.name);
             send({ type: "agent_text", agent_id: agent.id, agent_name: agent.name, agent_color: agent.color, text });
             allResponses.push(`[${agent.name}] ${text}`);
             priorResponses += `[${agent.name}]: ${text}\n`;
           }
           console.log(`${LOG} Casual: ${casualAgents.length} agent(s)`);
 
+        } else if (allMentionedIds.length > 0 && !isTeamWide) {
+          // ── @MENTION-ONLY MODE ─────────────────────────────────────────
+          // When @mentions are present, ONLY let mentioned agents respond.
+          // Skip evaluate phase entirely for everyone else.
+          console.log(`${LOG} @mention-only mode: [${mentionedAgents.map((a) => a.name).join(", ")}]`);
+
+          let priorResponses = "";
+          for (const agent of mentionedAgents) {
+            await runAgent(agent, "high", "full", priorResponses);
+            priorResponses += `[${agent.name}]: ${allResponses[allResponses.length - 1].replace(/^\[[^\]]+\] /, "")}\n`;
+          }
         } else {
           // ── EVALUATE PHASE (parallel) ──────────────────────────────────
           const recentForEval = messages.slice(-4).map(
