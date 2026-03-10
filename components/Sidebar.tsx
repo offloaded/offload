@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
-import { HashIcon, GearIcon, XIcon, ClockIcon, PlusIcon, RepeatClockIcon, ActivityIcon, SunIcon, MoonIcon, PeopleIcon, LockIcon } from "./Icons";
+import { HashIcon, GearIcon, XIcon, ClockIcon, PlusIcon, RepeatClockIcon, ActivityIcon, SunIcon, MoonIcon, PeopleIcon, LockIcon, StorefrontIcon } from "./Icons";
 import { createClient } from "@/lib/supabase";
 import type { Agent, Team, Workspace } from "@/lib/types";
 
@@ -276,6 +276,12 @@ export function SidebarContent({
             <ClockIcon />
           </span>
           <span>History</span>
+        </NavItem>
+        <NavItem href="/marketplace" isActive={pathname === "/marketplace" || pathname.startsWith("/marketplace/")}>
+          <span className="opacity-60">
+            <StorefrontIcon />
+          </span>
+          <span>Marketplace</span>
         </NavItem>
 
         {agents.length > 0 && (

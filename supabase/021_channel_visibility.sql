@@ -78,10 +78,11 @@ declare
   ws record;
 begin
   for ws in
-    select id, owner_id from workspaces
+    select w.id, w.owner_id
+    from workspaces w
     where not exists (
       select 1 from teams t
-      where t.workspace_id = ws.id
+      where t.workspace_id = w.id
       and t.name = 'All Humans'
       and t.is_system = true
     )

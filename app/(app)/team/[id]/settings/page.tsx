@@ -28,6 +28,14 @@ export default function TeamSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  // Marketplace
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [publishDesc, setPublishDesc] = useState("");
+  const [publishCategory, setPublishCategory] = useState("Custom");
+  const [publishing, setPublishing] = useState(false);
+  const [publishedId, setPublishedId] = useState<string | null>(null);
+  const [unpublishing, setUnpublishing] = useState(false);
+
   // Private channel member management
   const [channelMembers, setChannelMembers] = useState<ChannelMember[]>([]);
   const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
@@ -40,6 +48,18 @@ export default function TeamSettingsPage() {
       setSelectedAgentIds(team.agent_ids);
     }
   }, [team]);
+
+  // Check if team is published to marketplace
+  useEffect(() => {
+    if (!team || team.is_system) return;
+    fetch(`/api/marketplace?type=team&q=${encodeURIComponent(team.name)}`)
+      .then((r) => (r.ok ? r.json() : { listings: [] }))
+      .then(({ listings }) => {
+        const match = (listings || []).find((l: { source_team_id: string }) => l.source_team_id === teamId);
+        if (match) setPublishedId(match.id);
+      })
+      .catch(() => {});
+  }, [team, teamId]);
 
   // Load channel members for private channels
   useEffect(() => {
@@ -386,6 +406,103 @@ export default function TeamSettingsPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Marketplace */}
+          {canManage && (
+            <div className="mb-7">
+              <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-2.5">
+                Marketplace
+              </label>
+              {publishedId ? (
+                <div className="flex items-center gap-3 py-3 px-4 border border-[var(--color-border)] rounded-lg">
+                  <span className="text-[14px] text-[var(--color-green)] font-medium flex-1">Published to Marketplace</span>
+                  <button
+                    onClick={async () => {
+                      setUnpublishing(true);
+                      const res = await fetch(`/api/marketplace/publish?id=${publishedId}`, { method: "DELETE" });
+                      if (res.ok) setPublishedId(null);
+                      setUnpublishing(false);
+                    }}
+                    disabled={unpublishing}
+                    className="text-[13px] text-[var(--color-red)] bg-transparent border-none cursor-pointer hover:underline disabled:opacity-50"
+                  >
+                    {unpublishing ? "..." : "Unpublish"}
+                  </button>
+                </div>
+              ) : publishOpen ? (
+                <div className="border border-[var(--color-border)] rounded-lg p-4">
+                  <div className="mb-3 p-3 bg-[var(--color-accent-soft)] rounded-lg text-[12px] text-[var(--color-text-secondary)] leading-relaxed">
+                    <div className="font-semibold text-[var(--color-text)] mb-1">Before publishing, please note:</div>
+                    Publishing shares this team&apos;s full configuration, all agent configurations, AND knowledge base documents with all Offloaded users who adopt it.
+                    Review each agent&apos;s knowledge base and remove any confidential, client-specific, or copyrighted material.
+                    Conversation history, scheduled tasks, and API keys are never shared.
+                  </div>
+                  <div className="mb-3">
+                    <label className="block text-[12px] font-medium text-[var(--color-text-tertiary)] mb-1">Description (required)</label>
+                    <textarea
+                      value={publishDesc}
+                      onChange={(e) => setPublishDesc(e.target.value)}
+                      maxLength={500}
+                      rows={2}
+                      placeholder="Describe what this team does and who it's for..."
+                      className="w-full py-2 px-3 border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-none focus:border-[var(--color-accent)]"
+                    />
+                    <div className="text-[11px] text-[var(--color-text-tertiary)] text-right mt-0.5">{publishDesc.length}/500</div>
+                  </div>
+                  <div className="mb-3">
+                    <label className="block text-[12px] font-medium text-[var(--color-text-tertiary)] mb-1">Category (required)</label>
+                    <select
+                      value={publishCategory}
+                      onChange={(e) => setPublishCategory(e.target.value)}
+                      className="w-full py-2 px-3 border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none"
+                    >
+                      {["Business Advisory","Coaching & Training","Operations","Research & Analysis","Health & Fitness","Legal & Compliance","Finance","Marketing","Custom"].map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={async () => {
+                        if (!publishDesc.trim() || publishing) return;
+                        setPublishing(true);
+                        setError("");
+                        try {
+                          const res = await fetch("/api/marketplace/publish", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ type: "team", team_id: teamId, description: publishDesc.trim(), category: publishCategory }),
+                          });
+                          if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Publish failed"); }
+                          const listing = await res.json();
+                          setPublishedId(listing.id);
+                          setPublishOpen(false);
+                        } catch (err) { setError(err instanceof Error ? err.message : "Publish failed"); }
+                        finally { setPublishing(false); }
+                      }}
+                      disabled={!publishDesc.trim() || publishing}
+                      className="flex-1 py-2.5 border-none rounded-lg text-[13px] font-semibold cursor-pointer disabled:opacity-50 bg-[var(--color-accent)] text-white"
+                    >
+                      {publishing ? "Publishing..." : "Publish to Marketplace"}
+                    </button>
+                    <button
+                      onClick={() => setPublishOpen(false)}
+                      className="py-2.5 px-4 border border-[var(--color-border)] rounded-lg bg-transparent text-[13px] text-[var(--color-text-secondary)] cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setPublishOpen(true)}
+                  className="w-full py-3 px-4 border border-dashed border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[14px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-hover)] transition-colors"
+                >
+                  Publish to Marketplace
+                </button>
+              )}
             </div>
           )}
 
