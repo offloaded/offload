@@ -86,6 +86,7 @@ export function buildSystemPrompt(
     activitySummary?: string;
     teamMemberships?: Array<{ id: string; name: string }>;
     reportEdits?: Array<{ title: string; original: string; edited: string }>;
+    reportTemplates?: Array<{ name: string; description: string }>;
   }
 ): string {
   let prompt = `You are ${agent.name}.
@@ -194,6 +195,13 @@ The full report content goes here.
 Multiple lines are fine.
 \`\`\`
 The content after the --- line should be the actual report text. IMPORTANT: You must ALWAYS include this block when you generate any report or deliverable — do not just say "I've saved it", the block is what actually saves it. Without the block, nothing is saved.`;
+
+  if (options?.reportTemplates && options.reportTemplates.length > 0) {
+    prompt += `\n\nAVAILABLE REPORT TEMPLATES:\nThe user has configured these report templates. When they ask for a report that matches a template, mention you can format it using that template. The system will handle template application after you save the report.\n`;
+    for (const t of options.reportTemplates) {
+      prompt += `- ${t.name}${t.description ? `: ${t.description}` : ""}\n`;
+    }
+  }
 
   if (options?.reportEdits && options.reportEdits.length > 0) {
     prompt += `\n\nREPORT FEEDBACK — The user has edited your previous reports. Study these corrections carefully and apply the same improvements to future reports:\n`;

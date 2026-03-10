@@ -21,9 +21,11 @@ import {
   clearScheduleRequest,
   clearFeatureRequest,
   clearGroupMessageRequest,
+  clearReportSaved,
   type ScheduleRequest,
   type FeatureRequest,
   type GroupMessageRequest,
+  type ReportSavedEvent,
 } from "@/lib/inflight";
 import { useApp } from "@/app/(app)/layout";
 import { describeCron } from "@/lib/cron";
@@ -441,6 +443,8 @@ export function ChatView({
   const [featureRequest, setFeatureRequest] = useState<FeatureRequest | null>(null);
   const [confirmingFeature, setConfirmingFeature] = useState(false);
   const [groupMessageRequest, setGroupMessageRequest] = useState<GroupMessageRequest | null>(null);
+  const [reportSaved, setReportSaved] = useState<ReportSavedEvent | null>(null);
+  const [applyingTemplate, setApplyingTemplate] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -470,6 +474,9 @@ export function ChatView({
       }
       if (state.groupMessageRequest) {
         setGroupMessageRequest(state.groupMessageRequest);
+      }
+      if (state.reportSaved) {
+        setReportSaved(state.reportSaved);
       }
       // Sync messages from cache when streaming state changes
       const c = getCached(chatId);
@@ -748,6 +755,33 @@ export function ChatView({
     refreshReportCount();
   }, [refreshReportCount]);
 
+  const handleApplyTemplate = useCallback(async (templateId: string) => {
+    if (!reportSaved?.report_id || applyingTemplate) return;
+    setApplyingTemplate(true);
+    try {
+      const res = await fetch("/api/report-templates/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          report_id: reportSaved.report_id,
+          template_id: templateId,
+          agent_id: agent.id,
+        }),
+      });
+      if (res.ok) {
+        setReportSaved(null);
+        clearReportSaved(chatId);
+      } else {
+        const err = await res.json();
+        console.error("Template apply failed:", err.error);
+      }
+    } catch (err) {
+      console.error("Template apply error:", err);
+    } finally {
+      setApplyingTemplate(false);
+    }
+  }, [reportSaved, applyingTemplate, agent.id, chatId]);
+
   const handleNewChat = useCallback(() => {
     // Clear cache and inflight for current chat
     clearCache(chatId);
@@ -903,6 +937,63 @@ export function ChatView({
             >
               Dismiss
             </button>
+          </div>
+        )}
+
+        {/* Report saved with template picker */}
+        {reportSaved && (
+          <div className="mx-3 my-2 md:mx-5 p-3 rounded-lg border border-[var(--color-accent)] bg-[var(--color-accent-soft)] flex items-start gap-3">
+            <span className="text-[var(--color-accent)] mt-0.5">
+              <SaveIcon />
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-semibold text-[var(--color-text)] mb-0.5">
+                Report saved: {reportSaved.title}
+              </div>
+              {reportSaved.templates && reportSaved.templates.length > 0 ? (
+                <>
+                  <div className="text-[12px] text-[var(--color-text-secondary)] mb-2">
+                    Apply a template to format this report?
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {reportSaved.templates.map((t) => (
+                      <button
+                        key={t.id}
+                        onClick={() => handleApplyTemplate(t.id)}
+                        disabled={applyingTemplate}
+                        className="py-1 px-2.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] text-[12px] text-[var(--color-text)] hover:border-[var(--color-accent)] hover:bg-[var(--color-hover)] cursor-pointer transition-colors disabled:opacity-50"
+                        title={t.description || t.name}
+                      >
+                        {t.name}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="text-[12px] text-[var(--color-text-secondary)]">
+                  <a href={`/reports/${reportSaved.report_id}`} className="text-[var(--color-accent)] no-underline hover:underline">
+                    View report
+                  </a>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <a
+                  href={reportSaved.report_id ? `/reports/${reportSaved.report_id}` : "/reports"}
+                  className="py-1.5 px-3 rounded-md border-none text-[12px] font-semibold cursor-pointer bg-[var(--color-accent)] text-white no-underline"
+                >
+                  View
+                </a>
+                <button
+                  onClick={() => {
+                    setReportSaved(null);
+                    clearReportSaved(chatId);
+                  }}
+                  className="py-1.5 px-3 rounded-md bg-transparent border border-[var(--color-border)] text-[12px] text-[var(--color-text-secondary)] cursor-pointer"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

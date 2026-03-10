@@ -308,6 +308,17 @@ export async function POST(request: Request) {
       const teamMemberNames = agents.map((a) => a.name);
       const scheduleInstructions = intent === "action" ? buildScheduleInstructions() : undefined;
 
+      // Fetch report templates
+      let reportTemplatesList: Array<{ name: string; description: string }> = [];
+      try {
+        const { data: templates } = await serviceDb
+          .from("report_templates")
+          .select("name, description")
+          .eq("workspace_id", ctx.workspaceId)
+          .limit(20);
+        if (templates) reportTemplatesList = templates;
+      } catch { /* non-fatal */ }
+
       try {
         send({ type: "conversation_id", conversation_id: convId });
 
@@ -330,7 +341,9 @@ export async function POST(request: Request) {
               anthropic, supabase, agent, messages, message.trim(),
               docsByAgent, teamMemberNames, scheduleInstructions, priorResponses, weight,
               user.id, buildTeamExpectationsForAgent(agent.id),
-              { channelName: team.name, channelDescription: team.description || undefined }
+              { channelName: team.name, channelDescription: team.description || undefined },
+              undefined, // reportEdits
+              reportTemplatesList
             ),
             new Promise<void>((r) => setTimeout(r, targetDelay)),
           ]);

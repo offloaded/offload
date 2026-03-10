@@ -27,6 +27,12 @@ export interface GroupMessageRequest {
   team_id?: string | null;
 }
 
+export interface ReportSavedEvent {
+  title: string;
+  report_id: string | null;
+  templates?: Array<{ id: string; name: string; description: string }>;
+}
+
 interface InflightState {
   streaming: boolean;
   streamText: string;
@@ -34,6 +40,7 @@ interface InflightState {
   scheduleRequest: ScheduleRequest | null;
   featureRequest: FeatureRequest | null;
   groupMessageRequest: GroupMessageRequest | null;
+  reportSaved: ReportSavedEvent | null;
   // Group chat: per-agent sequential delivery
   typingAgentName: string | null;
   typingAgentColor: string | null;
@@ -51,7 +58,7 @@ const inflights = new Map<string, InflightEntry>();
 
 const EMPTY_STATE: () => InflightState = () => ({
   streaming: false, streamText: "", conversationId: null,
-  scheduleRequest: null, featureRequest: null, groupMessageRequest: null,
+  scheduleRequest: null, featureRequest: null, groupMessageRequest: null, reportSaved: null,
   typingAgentName: null, typingAgentColor: null, streamMessages: [],
 });
 
@@ -106,6 +113,13 @@ export function clearFeatureRequest(chatId: string) {
   const entry = inflights.get(chatId);
   if (entry) {
     entry.state.featureRequest = null;
+  }
+}
+
+export function clearReportSaved(chatId: string) {
+  const entry = inflights.get(chatId);
+  if (entry) {
+    entry.state.reportSaved = null;
   }
 }
 
@@ -217,6 +231,13 @@ async function _streamDM(
             entry.state.groupMessageRequest = {
               conversation_id: event.conversation_id,
               team_id: event.team_id || null,
+            };
+            notify(chatId);
+          } else if (event.type === "report_saved") {
+            entry.state.reportSaved = {
+              title: event.title,
+              report_id: event.report_id || null,
+              templates: event.templates,
             };
             notify(chatId);
           } else if (event.type === "archived") {

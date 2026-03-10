@@ -120,6 +120,17 @@ export async function POST(request: Request) {
     }
   } catch { /* non-fatal */ }
 
+  // Fetch available report templates
+  let reportTemplatesList: Array<{ name: string; description: string }> = [];
+  try {
+    const { data: templates } = await serviceDb
+      .from("report_templates")
+      .select("name, description")
+      .eq("workspace_id", ctx.workspaceId)
+      .limit(20);
+    if (templates) reportTemplatesList = templates;
+  } catch { /* non-fatal */ }
+
   // Classify intent and detect addressing
   const intent = classifyIntent(message.trim());
   const { isTeamWide, mentionedAgentIds: detectedMentionIds } = detectMessageAddressing(message.trim(), agents);
@@ -252,7 +263,8 @@ export async function POST(request: Request) {
               anthropic, supabase, agent, messages, message.trim(),
               docsByAgent, teamMemberNames, scheduleInstructions, priorResponses, weight,
               user.id, undefined, undefined,
-              reportEditsByAgent.get(agent.id)
+              reportEditsByAgent.get(agent.id),
+              reportTemplatesList
             ),
             new Promise<void>((r) => setTimeout(r, targetDelay)),
           ]);
@@ -288,7 +300,7 @@ export async function POST(request: Request) {
               }
 
               if (reportTitle && reportContent) {
-                const { error: reportError } = await serviceDb.from("reports").insert({
+                const { data: reportData, error: reportError } = await serviceDb.from("reports").insert({
                   workspace_id: ctx.workspaceId,
                   user_id: user.id,
                   agent_id: agent.id,
@@ -296,11 +308,22 @@ export async function POST(request: Request) {
                   content: reportContent,
                   source: "agent",
                   conversation_id: convId,
-                });
+                }).select("id").single();
                 if (reportError) {
                   console.error("[GroupChat] Failed to save report:", reportError.message);
                 } else {
-                  send({ type: "report_saved", title: reportTitle });
+                  // Fetch templates for the picker
+                  const { data: templates } = await serviceDb
+                    .from("report_templates")
+                    .select("id, name, description")
+                    .eq("workspace_id", ctx.workspaceId)
+                    .limit(20);
+                  send({
+                    type: "report_saved",
+                    title: reportTitle,
+                    report_id: reportData?.id || null,
+                    templates: templates && templates.length > 0 ? templates : undefined,
+                  });
                 }
               }
             } catch (e) {

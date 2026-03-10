@@ -360,6 +360,18 @@ export async function POST(request: Request) {
     }
   } catch { /* non-fatal */ }
 
+  // Fetch available report templates for this workspace
+  let reportTemplates: Array<{ id: string; name: string; description: string }> = [];
+  try {
+    const { data: templates } = await serviceDb
+      .from("report_templates")
+      .select("id, name, description")
+      .eq("workspace_id", ctx.workspaceId)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (templates) reportTemplates = templates;
+  } catch { /* non-fatal */ }
+
   // Stream response from Claude
   const anthropic = getAnthropicClient();
   let systemPrompt = buildSystemPrompt(
@@ -373,6 +385,7 @@ export async function POST(request: Request) {
       activitySummary,
       teamMemberships: agentTeams.length > 0 ? agentTeams : undefined,
       reportEdits: reportEdits.length > 0 ? reportEdits : undefined,
+      reportTemplates: reportTemplates.length > 0 ? reportTemplates : undefined,
     }
   );
 
@@ -521,7 +534,7 @@ export async function POST(request: Request) {
             }
 
             if (reportTitle && reportContent) {
-              const { error: reportError } = await serviceDb.from("reports").insert({
+              const { data: reportData, error: reportError } = await serviceDb.from("reports").insert({
                 workspace_id: ctx.workspaceId,
                 user_id: user.id,
                 agent_id: agent.id,
@@ -529,13 +542,18 @@ export async function POST(request: Request) {
                 content: reportContent,
                 source: "agent",
                 conversation_id: convId,
-              });
+              }).select("id").single();
               if (reportError) {
                 console.error("[Chat] Failed to save report:", reportError.message);
               } else {
                 controller.enqueue(
                   encoder.encode(
-                    `data: ${JSON.stringify({ type: "report_saved", title: reportTitle })}\n\n`
+                    `data: ${JSON.stringify({
+                      type: "report_saved",
+                      title: reportTitle,
+                      report_id: reportData?.id || null,
+                      templates: reportTemplates.length > 0 ? reportTemplates : undefined,
+                    })}\n\n`
                   )
                 );
               }

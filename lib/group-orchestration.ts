@@ -326,7 +326,8 @@ function buildGroupAgentSystemPrompt(
   activitySummary?: string,
   teamExpectationsContext?: string,
   channelContext?: { channelName: string; channelDescription?: string },
-  reportEdits?: Array<{ title: string; original: string; edited: string }>
+  reportEdits?: Array<{ title: string; original: string; edited: string }>,
+  reportTemplates?: Array<{ name: string; description: string }>
 ): string {
   const otherMembers = teamMemberNames.filter((n) => n !== agent.name);
   const teamList = otherMembers.length > 0 ? otherMembers.join(", ") : "no other members";
@@ -424,6 +425,14 @@ CONTEXT: Only respond to the MOST RECENT message in the conversation. Ignore old
       prompt += `\nReport: "${edit.title}"\nYour original:\n${edit.original.slice(0, 600)}${edit.original.length > 600 ? "..." : ""}\nUser's edited version:\n${edit.edited.slice(0, 600)}${edit.edited.length > 600 ? "..." : ""}\n`;
     }
     prompt += `\nApply these preferences to all future reports.`;
+  }
+
+  if (reportTemplates && reportTemplates.length > 0) {
+    prompt += `\n\nAVAILABLE REPORT TEMPLATES:\n`;
+    for (const t of reportTemplates) {
+      prompt += `- ${t.name}${t.description ? `: ${t.description}` : ""}\n`;
+    }
+    prompt += `When the user asks for a report that matches a template, mention you can format it using that template.`;
   }
 
   return prompt;
@@ -532,7 +541,8 @@ export async function generateAgentResponse(
   userId?: string,
   teamExpectationsContext?: string,
   channelContext?: { channelName: string; channelDescription?: string },
-  reportEdits?: Array<{ title: string; original: string; edited: string }>
+  reportEdits?: Array<{ title: string; original: string; edited: string }>,
+  reportTemplates?: Array<{ name: string; description: string }>
 ): Promise<string> {
   let context: ContextChunk[] = [];
   if (docsByAgent.has(agent.id)) {
@@ -561,7 +571,8 @@ export async function generateAgentResponse(
     activitySummary,
     teamExpectationsContext,
     channelContext,
-    reportEdits
+    reportEdits,
+    reportTemplates
   );
 
   // Dynamic max_tokens: higher for long-form requests, standard otherwise

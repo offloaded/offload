@@ -20,6 +20,7 @@ vi.mock("@/lib/chat-cache", async () => {
 const testAgent: Agent = {
   id: "agent-1",
   user_id: "user-1",
+  workspace_id: "workspace-1",
   name: "HR Advisor",
   purpose: "Advise on HR policy",
   color: "#2C5FF6",
@@ -30,6 +31,8 @@ const testAgent: Agent = {
   voice_samples: null,
   voice_profile: null,
   soft_skills: null,
+  team_expectations: null,
+  last_message_at: null,
   created_at: "2024-01-01T00:00:00Z",
   updated_at: "2024-01-01T00:00:00Z",
 };

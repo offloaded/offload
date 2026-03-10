@@ -128,3 +128,17 @@ export interface ScheduledTask {
   created_at: string;
   updated_at: string;
 }
+
+export interface ReportTemplate {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  name: string;
+  description: string;
+  structure: Array<{ heading: string; description: string }>;
+  file_name: string | null;
+  file_size: number | null;
+  storage_path: string | null;
+  created_at: string;
+  updated_at: string;
+}
