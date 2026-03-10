@@ -1,20 +1,28 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { agents, NEON_PINK } from "@/lib/landing-data";
+import { heroChatMessages, NEON_PINK } from "@/lib/landing-data";
 import Cursor from "./Cursor";
 
-function ChatBubble({ agent, index }: { agent: typeof agents[number]; index: number }) {
+interface ChatEntry {
+  name: string;
+  icon: string;
+  color: string;
+  msg: string;
+  isHuman?: boolean;
+}
+
+function ChatBubble({ entry, index }: { entry: ChatEntry; index: number }) {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    const t = setTimeout(() => setVisible(true), 600 + index * 450);
+    const t = setTimeout(() => setVisible(true), 400 + index * 500);
     return () => clearTimeout(t);
   }, [index]);
 
   return (
     <div
-      className="flex gap-3 items-start mb-3 transition-all duration-500"
+      className="flex gap-3 items-start mb-2.5 transition-all duration-500"
       style={{
         opacity: visible ? 1 : 0,
         transform: visible ? "translateY(0)" : "translateY(16px)",
@@ -22,24 +30,36 @@ function ChatBubble({ agent, index }: { agent: typeof agents[number]; index: num
       }}
     >
       <div
-        className="w-10 h-10 rounded-lg flex items-center justify-center text-xl shrink-0"
+        className="w-9 h-9 flex items-center justify-center text-base shrink-0"
         style={{
-          background: `linear-gradient(135deg, ${agent.color}30, ${agent.color}10)`,
-          border: `1px solid ${agent.color}60`,
-          boxShadow: `0 0 12px ${agent.color}30`,
+          borderRadius: entry.isHuman ? "50%" : "8px",
+          background: `linear-gradient(135deg, ${entry.color}${entry.isHuman ? "50" : "30"}, ${entry.color}${entry.isHuman ? "20" : "10"})`,
+          border: `1px solid ${entry.color}60`,
+          boxShadow: `0 0 12px ${entry.color}30`,
         }}
       >
-        {agent.icon}
+        {entry.icon}
       </div>
       <div className="flex-1 min-w-0">
         <div
-          className="font-['Press_Start_2P'] text-[9px] mb-1.5 tracking-wider"
-          style={{ color: agent.color, textShadow: `0 0 8px ${agent.color}80` }}
+          className="font-['Press_Start_2P'] text-[7px] mb-1.5 tracking-wider flex items-center gap-2"
+          style={{ color: entry.color, textShadow: `0 0 8px ${entry.color}80` }}
         >
-          {agent.name}
+          {entry.name}
+          {entry.isHuman && (
+            <span className="text-[6px] text-white/30 border border-white/15 px-1.5 py-px rounded-sm">
+              HUMAN
+            </span>
+          )}
         </div>
-        <div className="bg-white/[0.04] border border-white/[0.08] rounded-[0_12px_12px_12px] px-4 py-3 font-['Space_Mono'] text-[13px] text-white/85 leading-relaxed">
-          {agent.msg}
+        <div
+          className="rounded-[0_10px_10px_10px] px-3.5 py-2.5 font-['Space_Mono'] text-xs text-white/80 leading-relaxed"
+          style={{
+            background: entry.isHuman ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.03)",
+            border: `1px solid ${entry.isHuman ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)"}`,
+          }}
+        >
+          {entry.msg}
         </div>
       </div>
     </div>
@@ -47,30 +67,40 @@ function ChatBubble({ agent, index }: { agent: typeof agents[number]; index: num
 }
 
 export default function HeroChatDemo() {
+  const humans = heroChatMessages.filter((m) => m.isHuman).length;
+  const agents = heroChatMessages.filter((m) => !m.isHuman).length;
+
   return (
-    <div className="bg-white/[0.02] border border-white/[0.06] rounded p-6 relative">
+    <div className="bg-white/[0.02] border border-white/[0.06] rounded p-5 relative">
       {/* Chat header */}
-      <div className="flex justify-between items-center mb-5 pb-4 border-b border-white/[0.06]">
+      <div className="flex justify-between items-center mb-4 pb-3 border-b border-white/[0.06]">
         <div
-          className="font-['Press_Start_2P'] text-[9px] tracking-[2px]"
+          className="font-['Press_Start_2P'] text-[8px] tracking-[2px]"
           style={{ color: "#00f0ff", textShadow: "0 0 8px rgba(0,240,255,0.4)" }}
         >
           # OPERATIONS CREW
         </div>
-        <div className="flex gap-1.5">
-          {agents.map((a, i) => (
+        <div className="flex gap-1 items-center">
+          <span className="font-['Space_Mono'] text-[9px] text-white/25 mr-1.5">
+            {humans} humans &bull; {agents} agents
+          </span>
+          {heroChatMessages.map((a, i) => (
             <div
               key={i}
-              className="w-2 h-2 rounded-full opacity-70"
-              style={{ backgroundColor: a.color, boxShadow: `0 0 6px ${a.color}` }}
+              className="w-[7px] h-[7px] opacity-70"
+              style={{
+                borderRadius: a.isHuman ? "50%" : "2px",
+                backgroundColor: a.color,
+                boxShadow: `0 0 6px ${a.color}`,
+              }}
             />
           ))}
         </div>
       </div>
 
       {/* Messages */}
-      {agents.map((agent, i) => (
-        <ChatBubble key={i} agent={agent} index={i} />
+      {heroChatMessages.map((entry, i) => (
+        <ChatBubble key={i} entry={entry} index={i} />
       ))}
 
       {/* Typing indicator */}

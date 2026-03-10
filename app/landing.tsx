@@ -3,18 +3,20 @@
 import { useEffect, useState, FormEvent } from "react";
 import Link from "next/link";
 import {
-  NEON_PINK, NEON_CYAN, NEON_YELLOW, NEON_GREEN, DARK_BG,
-  features, marketplaceAgents, builderBullets,
+  NEON_PINK, NEON_CYAN, NEON_YELLOW, NEON_GREEN, NEON_PURPLE, DARK_BG,
+  powerUps, marketplaceAgents, builderBullets,
 } from "@/lib/landing-data";
 import Scanlines from "@/components/landing/Scanlines";
 import Stars from "@/components/landing/Stars";
 import GridFloor from "@/components/landing/GridFloor";
 import GlowText from "@/components/landing/GlowText";
 import HeroChatDemo from "@/components/landing/HeroChatDemo";
-import FeatureCard from "@/components/landing/FeatureCard";
+import PowerUpCard from "@/components/landing/PowerUpCard";
 import Ticker from "@/components/landing/Ticker";
 import MarketplaceCard from "@/components/landing/MarketplaceCard";
 import AgentBuilderDemo from "@/components/landing/AgentBuilderDemo";
+import ReportsDemo from "@/components/landing/ReportsDemo";
+import SchedulerDemo from "@/components/landing/SchedulerDemo";
 
 export default function LandingPage() {
   const [heroVisible, setHeroVisible] = useState(false);
@@ -63,7 +65,7 @@ export default function LandingPage() {
       <Scanlines />
       <Stars />
 
-      {/* NAV */}
+      {/* ═══ NAV ═══ */}
       <nav
         className="fixed top-0 left-0 w-full z-[100] px-6 py-5 md:px-10 flex justify-between items-center backdrop-blur-lg"
         style={{ background: `linear-gradient(to bottom, ${DARK_BG}, transparent)` }}
@@ -92,10 +94,22 @@ export default function LandingPage() {
         </div>
         <div className="hidden md:flex gap-8 items-center font-['Space_Mono'] text-xs">
           <a
-            href="#how-it-works"
+            href="#features"
             className="text-white/50 tracking-[2px] no-underline transition-colors duration-300 hover:text-[#00f0ff]"
           >
-            HOW IT WORKS
+            FEATURES
+          </a>
+          <a
+            href="#marketplace"
+            className="text-white/50 tracking-[2px] no-underline transition-colors duration-300 hover:text-[#00f0ff]"
+          >
+            MARKETPLACE
+          </a>
+          <a
+            href="#pricing"
+            className="text-white/50 tracking-[2px] no-underline transition-colors duration-300 hover:text-[#00f0ff]"
+          >
+            PRICING
           </a>
           <Link
             href="/auth"
@@ -111,7 +125,7 @@ export default function LandingPage() {
         </div>
       </nav>
 
-      {/* HERO */}
+      {/* ═══ HERO ═══ */}
       <section className="min-h-screen flex items-center justify-center relative px-6 pt-[120px] pb-20 md:px-10">
         <GridFloor />
 
@@ -129,22 +143,22 @@ export default function LandingPage() {
               className="font-['Press_Start_2P'] text-[10px] mb-5 tracking-[4px]"
               style={{ color: NEON_PINK, textShadow: `0 0 10px ${NEON_PINK}80` }}
             >
-              ▸ INSERT COIN TO BEGIN
+              &#9654; INSERT COIN TO BEGIN
             </div>
 
             <h1
-              className="font-['Press_Start_2P'] text-2xl md:text-[32px] leading-[1.6] mb-6"
+              className="font-['Press_Start_2P'] text-xl sm:text-2xl md:text-[30px] leading-[1.6] mb-6"
               style={{ animation: "chromatic 4s ease-in-out infinite" }}
             >
-              <span className="text-white">BUILD YOUR</span>
+              <span className="text-white">YOUR TEAM.</span>
               <br />
               <span style={{ color: NEON_CYAN, textShadow: `0 0 20px ${NEON_CYAN}, 0 0 40px ${NEON_CYAN}60` }}>
-                AI CREW
+                AI + HUMANS.
               </span>
             </h1>
 
             <p className="font-['Space_Mono'] text-base text-white/65 leading-[1.8] mb-9 max-w-[440px]">
-              Assemble a team of AI agents. Talk to them in a group chat. Watch them get your work done.
+              Build a crew of AI agents. Invite your teammates. Talk in a group chat. Get work done — together.
               <br /><br />
               <span className="text-white/40 text-sm">No code. No complexity. Just results.</span>
             </p>
@@ -171,7 +185,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* TICKER */}
+      {/* ═══ TICKER ═══ */}
       <div className="border-t border-b border-white/[0.04]">
         <div className="max-w-[1100px] mx-auto py-2">
           <div className="font-['Press_Start_2P'] text-[8px] text-white/20 text-center mb-1 tracking-[4px]">
@@ -181,36 +195,39 @@ export default function LandingPage() {
         </div>
       </div>
 
-      {/* HOW IT WORKS */}
-      <section id="how-it-works" className="max-w-[1100px] mx-auto px-6 py-20 md:px-10 md:py-[120px] scroll-mt-20">
+      {/* ═══ POWER-UPS: ALL 6 FEATURES ═══ */}
+      <section id="features" className="max-w-[1100px] mx-auto px-6 py-20 md:px-10 md:py-[120px] scroll-mt-20">
         <div className="text-center mb-16">
           <div
             className="font-['Press_Start_2P'] text-[10px] mb-4 tracking-[4px]"
             style={{ color: NEON_GREEN, textShadow: `0 0 10px ${NEON_GREEN}80` }}
           >
-            ▸ SELECT YOUR LOADOUT
+            &#9654; SELECT YOUR POWER-UPS
           </div>
           <h2 className="font-['Press_Start_2P'] text-lg md:text-[22px] leading-[1.6]">
-            <span className="text-white">THREE MOVES. </span>
-            <GlowText color={NEON_YELLOW} className="text-lg md:text-[22px]">GAME ON.</GlowText>
+            <span className="text-white">SIX WAYS TO </span>
+            <GlowText color={NEON_YELLOW} className="text-lg md:text-[22px]">LEVEL UP</GlowText>
           </h2>
+          <p className="font-['Space_Mono'] text-sm text-white/45 leading-7 max-w-[520px] mx-auto mt-3">
+            Everything you need to build, run, and scale your AI-powered team.
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {features.map((f, i) => (
-            <FeatureCard key={i} feature={f} index={i} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
+          {powerUps.map((item, i) => (
+            <PowerUpCard key={i} item={item} />
           ))}
         </div>
       </section>
 
-      {/* AGENT MARKETPLACE */}
-      <section className="max-w-[1100px] mx-auto px-6 pt-10 pb-20 md:px-10 md:pb-[120px]">
+      {/* ═══ AGENT MARKETPLACE ═══ */}
+      <section id="marketplace" className="max-w-[1100px] mx-auto px-6 pt-10 pb-20 md:px-10 md:pb-[120px] scroll-mt-20">
         <div className="text-center mb-14">
           <div
             className="font-['Press_Start_2P'] text-[10px] mb-4 tracking-[4px]"
             style={{ color: NEON_YELLOW, textShadow: `0 0 10px ${NEON_YELLOW}80` }}
           >
-            ▸ CHARACTER SELECT
+            &#9654; CHARACTER SELECT
           </div>
           <h2 className="font-['Press_Start_2P'] text-lg md:text-xl leading-[1.6] mb-3">
             <span className="text-white">THE </span>
@@ -218,7 +235,7 @@ export default function LandingPage() {
           </h2>
           <p className="font-['Space_Mono'] text-sm text-white/45 leading-7 max-w-[520px] mx-auto">
             Browse pre-built agents ready to join your crew. Install in one click.
-            Customise to fit your workflow. New agents dropping weekly.
+            Or build your own from scratch.
           </p>
         </div>
 
@@ -278,7 +295,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* CUSTOM AGENT BUILDER */}
+      {/* ═══ CUSTOM AGENT BUILDER ═══ */}
       <section className="max-w-[1100px] mx-auto px-6 pt-10 pb-20 md:px-10 md:pb-[120px]">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-[60px] items-center">
           {/* Left: Copy */}
@@ -287,7 +304,7 @@ export default function LandingPage() {
               className="font-['Press_Start_2P'] text-[10px] mb-4 tracking-[4px]"
               style={{ color: NEON_CYAN, textShadow: `0 0 10px ${NEON_CYAN}80` }}
             >
-              ▸ CREATE-A-CHARACTER
+              &#9654; CREATE-A-CHARACTER
             </div>
             <h2 className="font-['Press_Start_2P'] text-lg md:text-xl leading-[1.6] mb-5">
               <span className="text-white">CAN&apos;T FIND IT?</span>
@@ -314,13 +331,64 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* VALUE PROP CTA */}
-      <section className="max-w-[800px] mx-auto px-6 pt-20 pb-20 md:pb-[120px] text-center">
+      {/* ═══ REPORTS + SCHEDULER: BONUS ROUNDS ═══ */}
+      <section className="max-w-[1100px] mx-auto px-6 pt-10 pb-20 md:px-10 md:pb-[120px]">
+        <div className="text-center mb-14">
+          <div
+            className="font-['Press_Start_2P'] text-[10px] mb-4 tracking-[4px]"
+            style={{ color: NEON_PURPLE, textShadow: `0 0 10px ${NEON_PURPLE}80` }}
+          >
+            &#9654; BONUS ROUNDS
+          </div>
+          <h2 className="font-['Press_Start_2P'] text-lg md:text-xl leading-[1.6] mb-3">
+            <span className="text-white">WORK </span>
+            <GlowText color={NEON_YELLOW} className="text-lg md:text-xl">WHILE YOU SLEEP</GlowText>
+          </h2>
+          <p className="font-['Space_Mono'] text-sm text-white/45 leading-7 max-w-[520px] mx-auto">
+            Save any conversation as a polished report. Set agents to run on autopilot. Your crew never clocks out.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Reports */}
+          <div>
+            <div
+              className="font-['Press_Start_2P'] text-[9px] mb-4 tracking-[2px]"
+              style={{ color: NEON_YELLOW, textShadow: `0 0 8px ${NEON_YELLOW}60` }}
+            >
+              &#128196; SAVED REPORTS
+            </div>
+            <p className="font-['Space_Mono'] text-[13px] text-white/45 leading-relaxed mb-5">
+              Say &ldquo;save as report&rdquo; and your agent compiles, formats, and stores the output.
+              Every report is searchable, shareable, and ready when you need it.
+            </p>
+            <ReportsDemo />
+          </div>
+
+          {/* Scheduler */}
+          <div>
+            <div
+              className="font-['Press_Start_2P'] text-[9px] mb-4 tracking-[2px]"
+              style={{ color: NEON_PURPLE, textShadow: `0 0 8px ${NEON_PURPLE}60` }}
+            >
+              &#9200; SCHEDULED TASKS
+            </div>
+            <p className="font-['Space_Mono'] text-[13px] text-white/45 leading-relaxed mb-5">
+              Set any agent to run on a schedule. Morning briefs, weekly reports, pipeline
+              updates — they fire automatically and drop results in your chat or reports.
+            </p>
+            <SchedulerDemo />
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ CLOSING CTA ═══ */}
+      <section id="pricing" className="max-w-[800px] mx-auto px-6 pt-20 pb-20 md:pb-[120px] text-center scroll-mt-20">
         <div
           className="font-['Press_Start_2P'] text-[9px] mb-6 tracking-[4px]"
           style={{ color: NEON_PINK, textShadow: `0 0 10px ${NEON_PINK}80` }}
         >
-          ▸ FINAL BOSS: YOUR TO-DO LIST
+          &#9654; FINAL BOSS: YOUR TO-DO LIST
         </div>
         <h2 className="font-['Press_Start_2P'] text-lg md:text-xl leading-[1.8] mb-6">
           <span className="text-white/90">STOP DOING EVERYTHING.</span>
@@ -333,10 +401,10 @@ export default function LandingPage() {
           focus on the work that actually matters.
         </p>
 
-        <WaitlistForm id="cta" />
+        <WaitlistForm id="cta" ctaLabel="PLAY NOW" />
       </section>
 
-      {/* FOOTER */}
+      {/* ═══ FOOTER ═══ */}
       <footer className="border-t border-white/[0.04] py-10 px-6 text-center">
         <div
           className="font-['Press_Start_2P'] text-[10px] mb-3"
@@ -352,7 +420,7 @@ export default function LandingPage() {
           &copy; 2026 OFFLOADED.LIFE — ALL RIGHTS RESERVED
         </div>
         <div className="font-['Space_Mono'] text-[9px] text-white/15 mt-2 tracking-[2px]">
-          GAME OVER? NEVER. ◆ PRESS START TO CONTINUE
+          GAME OVER? NEVER. &#9670; PRESS START TO CONTINUE
         </div>
         <Link
           href="/auth"
@@ -365,7 +433,7 @@ export default function LandingPage() {
   );
 }
 
-function WaitlistForm({ id }: { id: string }) {
+function WaitlistForm({ id, ctaLabel }: { id: string; ctaLabel?: string }) {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "already" | "error">("idle");
   const [message, setMessage] = useState("");
@@ -438,7 +506,7 @@ function WaitlistForm({ id }: { id: string }) {
             animation: "pulseGlow 2s ease-in-out infinite",
           }}
         >
-          {status === "loading" ? "JOINING..." : "START GAME"}
+          {status === "loading" ? "JOINING..." : (ctaLabel || "START GAME")}
         </button>
       </form>
       {status === "error" && (
