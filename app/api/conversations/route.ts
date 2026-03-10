@@ -34,6 +34,30 @@ export async function GET(request: Request) {
 
   // Load team conversation — shared across workspace members
   if (teamId) {
+    // Verify access for private channels
+    const { data: teamData } = await service
+      .from("teams")
+      .select("id, visibility")
+      .eq("id", teamId)
+      .eq("workspace_id", ctx.workspaceId)
+      .single();
+
+    if (!teamData) {
+      return NextResponse.json({ conversation_id: null, messages: [], has_more: false });
+    }
+
+    if (teamData.visibility === "private") {
+      const { data: membership } = await service
+        .from("channel_members")
+        .select("user_id")
+        .eq("channel_id", teamId)
+        .eq("user_id", user.id)
+        .single();
+      if (!membership) {
+        return NextResponse.json({ error: "Access denied" }, { status: 403 });
+      }
+    }
+
     const { data: teamConv } = await service
       .from("conversations")
       .select("id")

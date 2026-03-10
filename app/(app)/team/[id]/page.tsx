@@ -19,7 +19,7 @@ export default function TeamChatPage() {
     );
   }
 
-  const teamAgents = agents.filter((a) => team.agent_ids.includes(a.id));
+  const teamAgents = team.is_system ? [] : agents.filter((a) => team.agent_ids.includes(a.id));
 
   return (
     <TeamChatView
@@ -27,6 +27,7 @@ export default function TeamChatPage() {
       teamName={team.name}
       teamAgents={teamAgents}
       openDrawer={openDrawer}
+      isSystem={team.is_system}
     />
   );
 }

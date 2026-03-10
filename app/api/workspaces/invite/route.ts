@@ -3,8 +3,6 @@ import { getWorkspaceContext, hasPermission } from "@/lib/workspace";
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 export async function GET() {
   const ctx = await getWorkspaceContext();
   if (!ctx) {
@@ -102,6 +100,7 @@ export async function POST(request: Request) {
   }
 
   // Send invite email
+  const resend = new Resend(process.env.RESEND_API_KEY);
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://offloaded.ai";
 
   try {

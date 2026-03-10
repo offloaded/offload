@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
-import { HashIcon, GearIcon, XIcon, ClockIcon, PlusIcon, RepeatClockIcon, ActivityIcon, SunIcon, MoonIcon } from "./Icons";
+import { HashIcon, GearIcon, XIcon, ClockIcon, PlusIcon, RepeatClockIcon, ActivityIcon, SunIcon, MoonIcon, PeopleIcon, LockIcon } from "./Icons";
 import { createClient } from "@/lib/supabase";
 import type { Agent, Team, Workspace } from "@/lib/types";
 
@@ -217,7 +217,8 @@ export function SidebarContent({
             </span>
           )}
         </NavItem>
-        {teams.map((team) => {
+        {/* System channels first (e.g. #all-humans), then regular teams */}
+        {teams.filter((t) => t.is_system).map((team) => {
           const teamUnread = unreadCounts[`team:${team.id}`] || 0;
           return (
             <NavItem
@@ -226,7 +227,29 @@ export function SidebarContent({
               isActive={pathname === `/team/${team.id}`}
             >
               <span className="opacity-60">
-                <HashIcon />
+                <PeopleIcon />
+              </span>
+              <span className="flex-1 flex items-center gap-1">
+                <span># {team.name}</span>
+              </span>
+              {teamUnread > 0 && (
+                <span className="text-[11px] font-semibold bg-[var(--color-accent)] text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">
+                  {teamUnread}
+                </span>
+              )}
+            </NavItem>
+          );
+        })}
+        {teams.filter((t) => !t.is_system).map((team) => {
+          const teamUnread = unreadCounts[`team:${team.id}`] || 0;
+          return (
+            <NavItem
+              key={team.id}
+              href={`/team/${team.id}`}
+              isActive={pathname === `/team/${team.id}`}
+            >
+              <span className="opacity-60">
+                {team.visibility === "private" ? <LockIcon /> : <HashIcon />}
               </span>
               <span className="flex-1"># {team.name}</span>
               {teamUnread > 0 && (
@@ -245,7 +268,7 @@ export function SidebarContent({
             <span className="opacity-60">
               <PlusIcon />
             </span>
-            <span>New team</span>
+            <span>New channel</span>
           </Link>
         )}
         <NavItem href="/history" isActive={pathname === "/history"}>

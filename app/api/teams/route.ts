@@ -10,7 +10,7 @@ export async function GET() {
 
   const service = createServiceSupabase();
 
-  // Fetch teams with their member agent IDs — scoped to workspace
+  // Fetch all teams in workspace with their agent members
   const { data: teams, error } = await service
     .from("teams")
     .select("*, team_members(agent_id)")
@@ -21,13 +21,36 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Flatten team_members into agent_ids array
-  const result = (teams || []).map((t) => ({
+  // Filter out private channels the user doesn't have access to
+  const allTeams = teams || [];
+  const privateTeamIds = allTeams
+    .filter((t) => t.visibility === "private")
+    .map((t) => t.id);
+
+  let memberChannelIds = new Set<string>();
+  if (privateTeamIds.length > 0) {
+    const { data: memberships } = await service
+      .from("channel_members")
+      .select("channel_id")
+      .eq("user_id", ctx.user.id)
+      .in("channel_id", privateTeamIds);
+    memberChannelIds = new Set((memberships || []).map((m) => m.channel_id));
+  }
+
+  const visible = allTeams.filter((t) => {
+    if (t.visibility === "public") return true;
+    return memberChannelIds.has(t.id);
+  });
+
+  const result = visible.map((t) => ({
     id: t.id,
     user_id: t.user_id,
     workspace_id: t.workspace_id,
     name: t.name,
     description: t.description,
+    visibility: t.visibility || "public",
+    is_system: t.is_system || false,
+    created_by: t.created_by || null,
     created_at: t.created_at,
     updated_at: t.updated_at,
     agent_ids: (t.team_members || []).map((m: { agent_id: string }) => m.agent_id),
@@ -47,7 +70,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { name, description, agent_ids } = body;
+  const { name, description, agent_ids, visibility, member_ids } = body;
 
   if (!name?.trim()) {
     return NextResponse.json({ error: "Name is required" }, { status: 400 });
@@ -62,6 +85,8 @@ export async function POST(request: Request) {
       workspace_id: ctx.workspaceId,
       name: name.trim(),
       description: description?.trim() || "",
+      visibility: visibility === "private" ? "private" : "public",
+      created_by: ctx.user.id,
     })
     .select()
     .single();
@@ -70,7 +95,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Add members if provided
+  // Add agent members if provided
   if (agent_ids?.length > 0) {
     const members = agent_ids.map((agent_id: string) => ({
       team_id: team.id,
@@ -79,7 +104,25 @@ export async function POST(request: Request) {
     await service.from("team_members").insert(members);
   }
 
-  return NextResponse.json({ ...team, agent_ids: agent_ids || [] }, { status: 201 });
+  // For private channels, add channel members (creator + selected users)
+  if (visibility === "private") {
+    const channelMembers = [
+      { channel_id: team.id, user_id: ctx.user.id, added_by: ctx.user.id },
+    ];
+    if (member_ids?.length > 0) {
+      for (const uid of member_ids as string[]) {
+        if (uid !== ctx.user.id) {
+          channelMembers.push({ channel_id: team.id, user_id: uid, added_by: ctx.user.id });
+        }
+      }
+    }
+    await service.from("channel_members").insert(channelMembers);
+  }
+
+  return NextResponse.json({
+    ...team,
+    agent_ids: agent_ids || [],
+  }, { status: 201 });
 }
 
 export async function PUT(request: Request) {
@@ -101,6 +144,18 @@ export async function PUT(request: Request) {
 
   const service = createServiceSupabase();
 
+  // Prevent editing system channels' core properties
+  const { data: existing } = await service
+    .from("teams")
+    .select("is_system")
+    .eq("id", id)
+    .eq("workspace_id", ctx.workspaceId)
+    .single();
+
+  if (existing?.is_system) {
+    return NextResponse.json({ error: "Cannot modify system channels" }, { status: 403 });
+  }
+
   const updates: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
@@ -119,7 +174,7 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Update members if provided — replace all
+  // Update agent members if provided
   if (agent_ids !== undefined) {
     await service.from("team_members").delete().eq("team_id", id);
     if (agent_ids.length > 0) {
@@ -152,6 +207,19 @@ export async function DELETE(request: Request) {
   }
 
   const service = createServiceSupabase();
+
+  // Prevent deleting system channels
+  const { data: existing } = await service
+    .from("teams")
+    .select("is_system")
+    .eq("id", id)
+    .eq("workspace_id", ctx.workspaceId)
+    .single();
+
+  if (existing?.is_system) {
+    return NextResponse.json({ error: "Cannot delete system channels" }, { status: 403 });
+  }
+
   const { error } = await service
     .from("teams")
     .delete()

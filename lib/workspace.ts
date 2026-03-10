@@ -91,6 +91,16 @@ export async function getWorkspaceContext() {
       role: "owner",
       invited_by: user.id,
     });
+    // Create #all-humans system channel
+    await service.from("teams").insert({
+      user_id: user.id,
+      workspace_id: ws.id,
+      name: "All Humans",
+      description: "A space for humans only — no agents participate",
+      visibility: "public",
+      is_system: true,
+      created_by: user.id,
+    });
     return { workspaceId: ws.id, role: "owner" as const, user };
   }
 

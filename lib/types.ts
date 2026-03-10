@@ -33,6 +33,9 @@ export interface Team {
   workspace_id: string | null;
   name: string;
   description: string;
+  visibility: "public" | "private";
+  is_system: boolean;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 }

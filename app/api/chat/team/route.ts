@@ -89,13 +89,87 @@ export async function POST(request: Request) {
   // Verify team belongs to workspace
   const { data: team, error: teamError } = await serviceDb
     .from("teams")
-    .select("id, name, description")
+    .select("id, name, description, is_system, visibility")
     .eq("id", team_id)
     .eq("workspace_id", ctx.workspaceId)
     .single();
 
   if (teamError || !team) {
     return new Response(JSON.stringify({ error: "Team not found" }), { status: 404 });
+  }
+
+  // #all-humans: humans-only channel — just save the message, no agent orchestration
+  if (team.is_system) {
+    let convId = conversation_id;
+    if (!convId) {
+      const { data: existing } = await serviceDb
+        .from("conversations")
+        .select("id")
+        .eq("workspace_id", ctx.workspaceId)
+        .is("agent_id", null)
+        .eq("team_id", team_id)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .single();
+      if (existing) {
+        convId = existing.id;
+      } else {
+        const { data: newConv } = await serviceDb
+          .from("conversations")
+          .insert({ user_id: user.id, agent_id: null, team_id, workspace_id: ctx.workspaceId })
+          .select("id")
+          .single();
+        convId = newConv?.id;
+      }
+    }
+    if (!convId) {
+      return new Response(JSON.stringify({ error: "Failed to create conversation" }), { status: 500 });
+    }
+
+    // Save user message
+    await serviceDb.from("messages").insert({
+      conversation_id: convId,
+      role: "user",
+      content: message.trim(),
+      sender_id: user.id,
+      sender_name: user.user_metadata?.display_name || user.email?.split("@")[0] || "User",
+    });
+
+    await serviceDb
+      .from("conversations")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", convId);
+
+    // Return empty SSE stream — no agents respond
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "conversation_id", conversation_id: convId })}\n\n`));
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
+  }
+
+  // Private channel: verify user has access
+  if (team.visibility === "private") {
+    const { data: membership } = await serviceDb
+      .from("channel_members")
+      .select("user_id")
+      .eq("channel_id", team_id)
+      .eq("user_id", user.id)
+      .single();
+    if (!membership) {
+      return new Response(JSON.stringify({ error: "You don't have access to this channel" }), { status: 403 });
+    }
   }
 
   // Load team member agent IDs

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { Avatar } from "./Avatar";
-import { SendIcon, MenuIcon, HashIcon, NewChatIcon, CalendarIcon, GearIcon } from "./Icons";
+import { SendIcon, MenuIcon, HashIcon, NewChatIcon, CalendarIcon, GearIcon, PeopleIcon } from "./Icons";
 import type { Agent, Message } from "@/lib/types";
 import {
   getCached,
@@ -226,11 +226,13 @@ export function TeamChatView({
   teamName,
   teamAgents,
   openDrawer,
+  isSystem = false,
 }: {
   teamId: string;
   teamName: string;
   teamAgents: Agent[];
   openDrawer: () => void;
+  isSystem?: boolean;
 }) {
   const { markRead, setActiveChatKey, unreadCounts, teams } = useApp();
   const router = useRouter();
@@ -664,21 +666,23 @@ export function TeamChatView({
           <MenuIcon />
         </button>
         <span className="text-[var(--color-text-tertiary)] text-base">
-          <HashIcon />
+          {isSystem ? <PeopleIcon /> : <HashIcon />}
         </span>
         <span className="text-[16px] font-semibold text-[var(--color-text)]">
           {teamName}
         </span>
         <span className="text-[13px] text-[var(--color-text-tertiary)] flex-1">
-          {teamAgents.length} agent{teamAgents.length !== 1 ? "s" : ""}
+          {isSystem ? "humans only" : `${teamAgents.length} agent${teamAgents.length !== 1 ? "s" : ""}`}
         </span>
-        <button
-          onClick={() => router.push(`/team/${teamId}/settings`)}
-          className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-1 flex items-center hover:text-[var(--color-text-secondary)] transition-colors"
-          title="Team settings"
-        >
-          <GearIcon />
-        </button>
+        {!isSystem && (
+          <button
+            onClick={() => router.push(`/team/${teamId}/settings`)}
+            className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-1 flex items-center hover:text-[var(--color-text-secondary)] transition-colors"
+            title="Team settings"
+          >
+            <GearIcon />
+          </button>
+        )}
         <button
           onClick={handleNewChat}
           className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-1 flex items-center gap-1.5 hover:text-[var(--color-text-secondary)] transition-colors"
@@ -713,7 +717,9 @@ export function TeamChatView({
                   # {teamName}
                 </div>
                 <div className="text-[14px] text-[var(--color-text-tertiary)]">
-                  Message your {teamName} team — only team members will respond
+                  {isSystem
+                    ? "A space for humans only — no agents participate"
+                    : `Message your ${teamName} team — only team members will respond`}
                 </div>
               </div>
             </div>
@@ -781,7 +787,7 @@ export function TeamChatView({
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               onBlur={() => { setTimeout(() => { setMentionOpen(false); setChannelOpen(false); }, 150); }}
-              placeholder={`Message #${teamName}... (@ to mention)`}
+              placeholder={isSystem ? `Message #${teamName}...` : `Message #${teamName}... (@ to mention)`}
               rows={1}
               className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[15px] outline-none py-2 resize-none leading-relaxed"
               style={{ maxHeight: 120 }}

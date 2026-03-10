@@ -1,23 +1,42 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useApp } from "../../layout";
-import { BackIcon } from "@/components/Icons";
+import { BackIcon, LockIcon } from "@/components/Icons";
+import type { WorkspaceMember } from "@/lib/types";
 
 export default function NewTeamPage() {
   const router = useRouter();
-  const { agents, refreshTeams, workspaceRole } = useApp();
+  const { agents, refreshTeams, workspaceRole, workspace } = useApp();
   const canManage = workspaceRole === "owner" || workspaceRole === "admin";
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  // Load workspace members for private channel member selection
+  useEffect(() => {
+    if (!workspace) return;
+    fetch("/api/workspaces/members")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => setWorkspaceMembers(data))
+      .catch(() => {});
+  }, [workspace]);
 
   const toggleAgent = (id: string) => {
     setSelectedAgentIds((prev) =>
       prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id]
+    );
+  };
+
+  const toggleMember = (id: string) => {
+    setSelectedMemberIds((prev) =>
+      prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]
     );
   };
 
@@ -37,6 +56,8 @@ export default function NewTeamPage() {
           name: name.trim(),
           description: description.trim(),
           agent_ids: selectedAgentIds,
+          visibility: isPrivate ? "private" : "public",
+          member_ids: isPrivate ? selectedMemberIds : undefined,
         }),
       });
       if (!res.ok) {
@@ -71,7 +92,7 @@ export default function NewTeamPage() {
           <BackIcon />
         </button>
         <span className="text-[18px] font-semibold text-[var(--color-text)]">
-          New Team
+          New Channel
         </span>
       </div>
 
@@ -85,7 +106,7 @@ export default function NewTeamPage() {
 
           <div className="mb-6">
             <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-2.5">
-              Team Name
+              Channel Name
             </label>
             <input
               value={name}
@@ -102,17 +123,105 @@ export default function NewTeamPage() {
             <input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="What does this team do?"
+              placeholder="What is this channel for?"
               className="w-full py-3 px-4 border border-[var(--color-border)] rounded-lg text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
             />
           </div>
 
+          {/* Privacy toggle */}
+          <div className="mb-6">
+            <button
+              onClick={() => setIsPrivate(!isPrivate)}
+              className="flex items-center gap-3 w-full py-3 px-4 rounded-lg border cursor-pointer text-left transition-all"
+              style={{
+                background: isPrivate ? "var(--color-accent-soft)" : "transparent",
+                borderColor: isPrivate ? "var(--color-accent)" : "var(--color-border)",
+              }}
+            >
+              <span className="opacity-70">
+                <LockIcon />
+              </span>
+              <div className="flex-1">
+                <div className="text-[14px] font-medium text-[var(--color-text)]">
+                  Make this channel private
+                </div>
+                <div className="text-[12px] text-[var(--color-text-tertiary)] mt-0.5">
+                  Only invited workspace members can see this channel
+                </div>
+              </div>
+              <div
+                className="w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all"
+                style={{
+                  borderColor: isPrivate ? "var(--color-accent)" : "var(--color-border)",
+                  background: isPrivate ? "var(--color-accent)" : "transparent",
+                }}
+              >
+                {isPrivate && (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                )}
+              </div>
+            </button>
+          </div>
+
+          {/* Private channel: member selection */}
+          {isPrivate && workspaceMembers.length > 0 && (
+            <div className="mb-7">
+              <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-1">
+                Channel Members
+              </label>
+              <p className="text-[12px] text-[var(--color-text-tertiary)] mb-3">
+                You&apos;ll be added automatically. Select other workspace members who should have access.
+              </p>
+              <div className="flex flex-col gap-1.5">
+                {workspaceMembers.map((member) => {
+                  const selected = selectedMemberIds.includes(member.user_id);
+                  return (
+                    <button
+                      key={member.user_id}
+                      onClick={() => toggleMember(member.user_id)}
+                      className="flex items-center gap-3 py-3 px-4 rounded-lg border cursor-pointer text-left transition-all"
+                      style={{
+                        background: selected ? "var(--color-accent-soft)" : "transparent",
+                        borderColor: selected ? "var(--color-accent)" : "var(--color-border)",
+                      }}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[14px] font-medium text-[var(--color-text)]">
+                          {member.display_name || member.email || "Member"}
+                          <span className="text-[12px] text-[var(--color-text-tertiary)] font-normal ml-1.5">{member.role}</span>
+                        </div>
+                        {member.email && member.display_name && (
+                          <div className="text-[12px] text-[var(--color-text-tertiary)]">{member.email}</div>
+                        )}
+                      </div>
+                      <div
+                        className="w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all"
+                        style={{
+                          borderColor: selected ? "var(--color-accent)" : "var(--color-border)",
+                          background: selected ? "var(--color-accent)" : "transparent",
+                        }}
+                      >
+                        {selected && (
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="mb-7">
             <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-1">
-              Team Members
+              Agent Members
             </label>
             <p className="text-[12px] text-[var(--color-text-tertiary)] mb-3">
-              Select which agents belong to this team. Agents can be in multiple teams.
+              Select which agents participate in this channel.
             </p>
 
             {agents.length === 0 ? (
@@ -174,7 +283,7 @@ export default function NewTeamPage() {
               color: name.trim() ? "#fff" : "var(--color-text-tertiary)",
             }}
           >
-            {saving ? "Creating..." : "Create Team"}
+            {saving ? "Creating..." : "Create Channel"}
           </button>
         </div>
       </div>

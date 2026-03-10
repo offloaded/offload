@@ -3,13 +3,21 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useApp } from "../../../layout";
-import { BackIcon, TrashIcon } from "@/components/Icons";
+import { BackIcon, TrashIcon, LockIcon } from "@/components/Icons";
+import type { WorkspaceMember } from "@/lib/types";
+
+interface ChannelMember {
+  channel_id: string;
+  user_id: string;
+  added_by: string | null;
+  added_at: string;
+}
 
 export default function TeamSettingsPage() {
   const params = useParams();
   const router = useRouter();
   const teamId = params.id as string;
-  const { agents, teams, refreshTeams, workspaceRole } = useApp();
+  const { agents, teams, refreshTeams, workspaceRole, workspace } = useApp();
   const canManage = workspaceRole === "owner" || workspaceRole === "admin";
 
   const team = teams.find((t) => t.id === teamId);
@@ -20,6 +28,11 @@ export default function TeamSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  // Private channel member management
+  const [channelMembers, setChannelMembers] = useState<ChannelMember[]>([]);
+  const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
+  const [showAddMember, setShowAddMember] = useState(false);
+
   useEffect(() => {
     if (team) {
       setName(team.name);
@@ -27,6 +40,24 @@ export default function TeamSettingsPage() {
       setSelectedAgentIds(team.agent_ids);
     }
   }, [team]);
+
+  // Load channel members for private channels
+  useEffect(() => {
+    if (!team || team.visibility !== "private") return;
+    fetch(`/api/teams/members?team_id=${teamId}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setChannelMembers)
+      .catch(() => {});
+  }, [team, teamId]);
+
+  // Load workspace members for add-member flow
+  useEffect(() => {
+    if (!workspace) return;
+    fetch("/api/workspaces/members")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setWorkspaceMembers)
+      .catch(() => {});
+  }, [workspace]);
 
   if (!canManage) {
     return (
@@ -40,6 +71,35 @@ export default function TeamSettingsPage() {
     return (
       <div className="flex-1 flex items-center justify-center text-[15px] text-[var(--color-text-secondary)]">
         Team not found
+      </div>
+    );
+  }
+
+  // System channels cannot be edited
+  if (team.is_system) {
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden bg-[var(--color-surface)]">
+        <div className="sticky top-0 z-10 bg-[var(--color-surface)] shrink-0 flex items-center gap-3 px-4 py-3 border-b border-[var(--color-border)] md:px-10 md:pt-8 md:pb-0 md:border-b-0">
+          <button
+            onClick={() => router.push(`/team/${teamId}`)}
+            className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex"
+          >
+            <BackIcon />
+          </button>
+          <span className="text-[18px] font-semibold text-[var(--color-text)]">
+            Channel Settings
+          </span>
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center max-w-[400px] px-4">
+            <div className="text-[15px] text-[var(--color-text-secondary)] mb-2">
+              #{team.name} is a system channel
+            </div>
+            <div className="text-[13px] text-[var(--color-text-tertiary)]">
+              This channel is automatically created for every workspace and cannot be modified or deleted.
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -97,6 +157,32 @@ export default function TeamSettingsPage() {
     }
   };
 
+  const addChannelMember = async (userId: string) => {
+    const res = await fetch("/api/teams/members", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ team_id: teamId, user_id: userId }),
+    });
+    if (res.ok) {
+      // Refresh channel members
+      const updated = await fetch(`/api/teams/members?team_id=${teamId}`).then((r) => r.json());
+      setChannelMembers(updated);
+      setShowAddMember(false);
+    }
+  };
+
+  const removeChannelMember = async (userId: string) => {
+    const res = await fetch(`/api/teams/members?team_id=${teamId}&user_id=${userId}`, {
+      method: "DELETE",
+    });
+    if (res.ok) {
+      setChannelMembers((prev) => prev.filter((m) => m.user_id !== userId));
+    }
+  };
+
+  const existingMemberIds = new Set(channelMembers.map((m) => m.user_id));
+  const availableMembers = workspaceMembers.filter((m) => !existingMemberIds.has(m.user_id));
+
   // Build expectations grouped by agent
   const teamExpectations = agents
     .filter((a) => selectedAgentIds.includes(a.id))
@@ -116,8 +202,13 @@ export default function TeamSettingsPage() {
           <BackIcon />
         </button>
         <span className="text-[18px] font-semibold text-[var(--color-text)]">
-          Team Settings
+          Channel Settings
         </span>
+        {team.visibility === "private" && (
+          <span className="text-[var(--color-text-tertiary)] ml-1">
+            <LockIcon />
+          </span>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
@@ -130,7 +221,7 @@ export default function TeamSettingsPage() {
 
           <div className="mb-6">
             <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-2.5">
-              Team Name
+              Channel Name
             </label>
             <input
               value={name}
@@ -146,14 +237,84 @@ export default function TeamSettingsPage() {
             <input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="What does this team do?"
+              placeholder="What is this channel for?"
               className="w-full py-3 px-4 border border-[var(--color-border)] rounded-lg text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
             />
           </div>
 
+          {/* Private channel member management */}
+          {team.visibility === "private" && (
+            <div className="mb-7">
+              <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-1">
+                Channel Members
+              </label>
+              <p className="text-[12px] text-[var(--color-text-tertiary)] mb-3">
+                Only these workspace members can see this private channel.
+              </p>
+              <div className="flex flex-col gap-1.5 mb-3">
+                {channelMembers.map((cm) => {
+                  const wsMember = workspaceMembers.find((m) => m.user_id === cm.user_id);
+                  return (
+                    <div
+                      key={cm.user_id}
+                      className="flex items-center gap-3 py-2.5 px-4 rounded-lg border border-[var(--color-border)]"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[14px] font-medium text-[var(--color-text)]">
+                          {wsMember?.display_name || wsMember?.email || "Member"}
+                          <span className="text-[12px] text-[var(--color-text-tertiary)] font-normal ml-1.5">
+                            {wsMember?.role}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => removeChannelMember(cm.user_id)}
+                        className="text-[12px] text-[var(--color-text-tertiary)] hover:text-[var(--color-red)] bg-transparent border-none cursor-pointer"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              {!showAddMember && availableMembers.length > 0 && (
+                <button
+                  onClick={() => setShowAddMember(true)}
+                  className="text-[13px] font-medium text-[var(--color-accent)] bg-transparent border-none cursor-pointer hover:underline"
+                >
+                  + Add member
+                </button>
+              )}
+              {showAddMember && (
+                <div className="flex flex-col gap-1.5 mt-2 p-3 border border-[var(--color-border)] rounded-lg">
+                  <div className="text-[12px] font-semibold text-[var(--color-text-tertiary)] mb-1">
+                    Add a workspace member
+                  </div>
+                  {availableMembers.map((m) => (
+                    <button
+                      key={m.user_id}
+                      onClick={() => addChannelMember(m.user_id)}
+                      className="flex items-center gap-3 py-2 px-3 rounded-lg bg-transparent border border-[var(--color-border)] cursor-pointer text-left hover:bg-[var(--color-hover)] transition-colors"
+                    >
+                      <div className="text-[14px] text-[var(--color-text)]">
+                        {m.display_name || m.email || "Member"}
+                      </div>
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setShowAddMember(false)}
+                    className="text-[12px] text-[var(--color-text-tertiary)] bg-transparent border-none cursor-pointer mt-1"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="mb-7">
             <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-1">
-              Team Members
+              Agent Members
             </label>
             <p className="text-[12px] text-[var(--color-text-tertiary)] mb-3">
               Agents can be in multiple teams.
@@ -206,7 +367,7 @@ export default function TeamSettingsPage() {
                 Team Expectations
               </label>
               <p className="text-[12px] text-[var(--color-text-tertiary)] mb-3">
-                Working standards set on individual agents. Edit these in each agent's settings.
+                Working standards set on individual agents. Edit these in each agent&apos;s settings.
               </p>
               <div className="flex flex-col gap-3">
                 {teamExpectations.map(({ agent, expectations }) => (
