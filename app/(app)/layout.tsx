@@ -32,6 +32,9 @@ interface AppContextValue {
   workspaceRole: "owner" | "admin" | "member";
   switchWorkspace: (workspaceId: string) => Promise<void>;
   refreshWorkspace: () => Promise<void>;
+  // Reports
+  reportCount: number;
+  refreshReportCount: () => void;
 }
 
 const AppContext = createContext<AppContextValue>({
@@ -54,6 +57,8 @@ const AppContext = createContext<AppContextValue>({
   workspaceRole: "member",
   switchWorkspace: async () => {},
   refreshWorkspace: async () => {},
+  reportCount: 0,
+  refreshReportCount: () => {},
 });
 
 export function useApp() {
@@ -84,6 +89,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceRole, setWorkspaceRole] = useState<"owner" | "admin" | "member">("member");
+  const [reportCount, setReportCount] = useState(0);
   const mobile = useIsMobile();
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -154,6 +160,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       .catch(() => {});
   }, []);
 
+  const refreshReportCount = useCallback(() => {
+    fetch("/api/reports?count_only=true")
+      .then((r) => (r.ok ? r.json() : { count: 0 }))
+      .then((d) => setReportCount(d.count || 0))
+      .catch(() => {});
+  }, []);
+
   const refreshWorkspace = useCallback(async () => {
     const [currentRes, allRes] = await Promise.all([
       fetch("/api/workspaces/current"),
@@ -204,10 +217,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         refreshTaskCount();
         refreshUnreadCounts();
         checkNewActivity();
+        refreshReportCount();
         fetch("/api/admin/check").then(r => r.ok ? r.json() : { isAdmin: false }).then(d => setIsAdmin(d.isAdmin)).catch(() => {});
       }
     });
-  }, [supabase, router, refreshAgents, refreshTeams, refreshTaskCount, refreshUnreadCounts, checkNewActivity, refreshWorkspace]);
+  }, [supabase, router, refreshAgents, refreshTeams, refreshTaskCount, refreshUnreadCounts, checkNewActivity, refreshWorkspace, refreshReportCount]);
 
   // Poll for unread counts and new activity every 20 seconds
   useEffect(() => {
@@ -228,11 +242,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AppContext value={{ agents, refreshAgents, teams, refreshTeams, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, switchWorkspace, refreshWorkspace }}>
+    <AppContext value={{ agents, refreshAgents, teams, refreshTeams, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, switchWorkspace, refreshWorkspace, reportCount, refreshReportCount }}>
       <div className="flex h-screen w-full bg-[var(--color-page-bg)] overflow-hidden">
         {/* Desktop sidebar — hidden below 768px via CSS */}
         <div className="hidden md:flex w-[220px] min-w-[220px] bg-[var(--color-bg)] border-r border-[var(--color-border)] flex-col">
-          <SidebarContent agents={agents} teams={teams} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} isAdmin={isAdmin} workspace={workspace} workspaces={workspaces} workspaceRole={workspaceRole} onSwitchWorkspace={switchWorkspace} />
+          <SidebarContent agents={agents} teams={teams} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} isAdmin={isAdmin} workspace={workspace} workspaces={workspaces} workspaceRole={workspaceRole} onSwitchWorkspace={switchWorkspace} reportCount={reportCount} />
         </div>
 
         {/* Mobile drawer — always mounted, visibility controlled by open state */}
@@ -249,6 +263,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           workspaces={workspaces}
           workspaceRole={workspaceRole}
           onSwitchWorkspace={switchWorkspace}
+          reportCount={reportCount}
         />
 
         <div className="flex-1 flex flex-col overflow-hidden">

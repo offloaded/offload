@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { Avatar } from "./Avatar";
-import { SendIcon, MenuIcon, NewChatIcon, CalendarIcon, GlobeIcon } from "./Icons";
+import { SendIcon, MenuIcon, NewChatIcon, CalendarIcon, GlobeIcon, SaveIcon } from "./Icons";
 import type { Agent, Message } from "@/lib/types";
 import {
   getCached,
@@ -46,12 +46,20 @@ const MessageRow = memo(function MessageRow({
   text,
   time,
   isUser,
+  messageId,
+  conversationId,
+  onSaveReport,
 }: {
   agent?: Agent;
   text: string;
   time: string;
   isUser: boolean;
+  messageId?: string;
+  conversationId?: string | null;
+  onSaveReport?: (title: string, content: string, agentId: string, messageId?: string, conversationId?: string | null) => void;
 }) {
+  const [saving, setSaving] = useState(false);
+
   if (isUser) {
     return (
       <div className="px-4 py-2 md:px-6">
@@ -79,8 +87,16 @@ const MessageRow = memo(function MessageRow({
 
   if (!agent) return null;
 
+  const handleSave = async () => {
+    if (saving || !onSaveReport) return;
+    setSaving(true);
+    const title = text.slice(0, 80).split("\n")[0] || "Untitled Report";
+    onSaveReport(title, text, agent.id, messageId, conversationId);
+    setTimeout(() => setSaving(false), 1500);
+  };
+
   return (
-    <div className="px-4 py-2 md:px-6 hover:bg-[var(--color-hover)] transition-colors">
+    <div className="px-4 py-2 md:px-6 hover:bg-[var(--color-hover)] transition-colors group/msg">
       <div className="flex max-w-[720px] gap-2.5 md:gap-3">
         <Avatar name={agent.name} color={agent.color} size={36} />
         <div className="flex-1 min-w-0">
@@ -91,6 +107,17 @@ const MessageRow = memo(function MessageRow({
             <span className="text-xs text-[var(--color-text-tertiary)]">
               {time}
             </span>
+            {onSaveReport && (
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="opacity-0 group-hover/msg:opacity-100 bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] cursor-pointer p-0 flex items-center gap-1 transition-opacity text-[11px]"
+                title="Save as report"
+              >
+                <SaveIcon />
+                <span>{saving ? "Saved!" : "Save"}</span>
+              </button>
+            )}
           </div>
           <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words">
             {text}
@@ -159,6 +186,8 @@ const MessageList = memo(function MessageList({
   loadingMore,
   streaming,
   streamText,
+  conversationId,
+  onSaveReport,
 }: {
   messages: ChatMessage[];
   agent: Agent;
@@ -166,6 +195,8 @@ const MessageList = memo(function MessageList({
   loadingMore: boolean;
   streaming: boolean;
   streamText: string;
+  conversationId?: string | null;
+  onSaveReport?: (title: string, content: string, agentId: string, messageId?: string, conversationId?: string | null) => void;
 }) {
   return (
     <>
@@ -208,6 +239,9 @@ const MessageList = memo(function MessageList({
           agent={m.role === "assistant" ? agent : undefined}
           text={m.content}
           time={formatTime(m.created_at)}
+          messageId={m.id}
+          conversationId={conversationId}
+          onSaveReport={m.role === "assistant" ? onSaveReport : undefined}
         />
       ))}
 
@@ -381,7 +415,7 @@ export function ChatView({
   openDrawer: () => void;
   initialConversationId?: string | null;
 }) {
-  const { refreshAgents, markRead, setActiveChatKey, unreadCounts, teams } = useApp();
+  const { refreshAgents, markRead, setActiveChatKey, unreadCounts, teams, refreshReportCount } = useApp();
   const channels = buildChannelOptions(teams);
   const chatId = initialConversationId
     ? `conv:${initialConversationId}`
@@ -705,6 +739,15 @@ export function ChatView({
     }
   }, [featureRequest, confirmingFeature, agent.id, chatId, messages, refreshAgents]);
 
+  const handleSaveReport = useCallback(async (title: string, content: string, agentId: string, messageId?: string, convId?: string | null) => {
+    await fetch("/api/reports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, content, agent_id: agentId, message_id: messageId, conversation_id: convId }),
+    });
+    refreshReportCount();
+  }, [refreshReportCount]);
+
   const handleNewChat = useCallback(() => {
     // Clear cache and inflight for current chat
     clearCache(chatId);
@@ -758,6 +801,8 @@ export function ChatView({
           loadingMore={loadingMore}
           streaming={streaming}
           streamText={streamText}
+          conversationId={conversationId}
+          onSaveReport={handleSaveReport}
         />
 
         {/* Schedule request banner — inside scrollable area so it's not hidden behind fixed input on mobile */}

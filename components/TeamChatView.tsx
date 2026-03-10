@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { Avatar } from "./Avatar";
-import { SendIcon, MenuIcon, HashIcon, NewChatIcon, CalendarIcon, GearIcon, PeopleIcon } from "./Icons";
+import { SendIcon, MenuIcon, HashIcon, NewChatIcon, CalendarIcon, GearIcon, PeopleIcon, SaveIcon } from "./Icons";
 import type { Agent, Message } from "@/lib/types";
 import {
   getCached,
@@ -117,14 +117,26 @@ const AgentMessage = memo(function AgentMessage({
   text,
   time,
   agents,
+  onSaveReport,
 }: {
   agent: Agent;
   text: string;
   time: string;
   agents: Agent[];
+  onSaveReport?: (title: string, content: string, agentId: string) => void;
 }) {
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = () => {
+    if (saving || !onSaveReport) return;
+    setSaving(true);
+    const title = text.slice(0, 80).split("\n")[0] || "Untitled Report";
+    onSaveReport(title, text, agent.id);
+    setTimeout(() => setSaving(false), 1500);
+  };
+
   return (
-    <div className="px-4 py-2 md:px-6 hover:bg-[var(--color-hover)] transition-colors">
+    <div className="px-4 py-2 md:px-6 hover:bg-[var(--color-hover)] transition-colors group/msg">
       <div className="flex max-w-[720px] gap-2.5 md:gap-3">
         <Avatar name={agent.name} color={agent.color} size={36} />
         <div className="flex-1 min-w-0">
@@ -133,6 +145,17 @@ const AgentMessage = memo(function AgentMessage({
               {agent.name}
             </span>
             <span className="text-xs text-[var(--color-text-tertiary)]">{time}</span>
+            {onSaveReport && (
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="opacity-0 group-hover/msg:opacity-100 bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] cursor-pointer p-0 flex items-center gap-1 transition-opacity text-[11px]"
+                title="Save as report"
+              >
+                <SaveIcon />
+                <span>{saving ? "Saved!" : "Save"}</span>
+              </button>
+            )}
           </div>
           <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words">
             {renderTextWithMentions(text, agents)}
@@ -234,7 +257,7 @@ export function TeamChatView({
   openDrawer: () => void;
   isSystem?: boolean;
 }) {
-  const { markRead, setActiveChatKey, unreadCounts, teams } = useApp();
+  const { markRead, setActiveChatKey, unreadCounts, teams, refreshReportCount } = useApp();
   const router = useRouter();
   const channels = buildChannelOptions(teams);
   const CHAT_ID = `team:${teamId}`;
@@ -595,6 +618,15 @@ export function TeamChatView({
     }
   }, [scheduleRequest, confirmingSchedule, teamAgents, CHAT_ID]);
 
+  const handleSaveReport = useCallback(async (title: string, content: string, agentId: string) => {
+    await fetch("/api/reports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, content, agent_id: agentId, conversation_id: conversationId, source: "manual" }),
+    });
+    refreshReportCount();
+  }, [conversationId, refreshReportCount]);
+
   const handleNewChat = useCallback(() => {
     clearCache(CHAT_ID);
     resetInflight(CHAT_ID);
@@ -610,7 +642,7 @@ export function TeamChatView({
     const parsed = parseGroupResponse(msg.content, teamAgents);
     if (parsed.length > 0) {
       return parsed.map((p, j) => (
-        <AgentMessage key={`${msg.id || idx}-${j}`} agent={p.agent} text={p.text} time={formatTime(msg.created_at)} agents={teamAgents} />
+        <AgentMessage key={`${msg.id || idx}-${j}`} agent={p.agent} text={p.text} time={formatTime(msg.created_at)} agents={teamAgents} onSaveReport={handleSaveReport} />
       ));
     }
     return (

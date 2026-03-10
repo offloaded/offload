@@ -55,7 +55,7 @@ interface ListingDetail {
 export default function MarketplacePage() {
   const { openDrawer, refreshAgents, refreshTeams } = useApp();
   const router = useRouter();
-  const [tab, setTab] = useState<"team" | "agent">("team");
+  const [tab, setTab] = useState<"team" | "agent">("agent");
   const [category, setCategory] = useState("All");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("popular");
@@ -164,19 +164,31 @@ export default function MarketplacePage() {
 
         {/* Tabs */}
         <div className="flex gap-1 mb-4">
-          {(["team", "agent"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className="py-2 px-4 rounded-lg text-[14px] font-medium border-none cursor-pointer transition-colors"
-              style={{
-                background: tab === t ? "var(--color-accent)" : "var(--color-active)",
-                color: tab === t ? "#fff" : "var(--color-text-secondary)",
-              }}
-            >
-              {t === "team" ? "Teams" : "Agents"}
-            </button>
-          ))}
+          <button
+            onClick={() => setTab("agent")}
+            className="py-2 px-4 rounded-lg text-[14px] font-medium border-none cursor-pointer transition-colors"
+            style={{
+              background: tab === "agent" ? "var(--color-accent)" : "var(--color-active)",
+              color: tab === "agent" ? "#fff" : "var(--color-text-secondary)",
+            }}
+          >
+            Agents
+          </button>
+          <button
+            disabled
+            className="py-2 px-4 rounded-lg text-[14px] font-medium border-none transition-colors flex items-center gap-1.5"
+            style={{
+              background: "var(--color-active)",
+              color: "var(--color-text-tertiary)",
+              cursor: "not-allowed",
+              opacity: 0.6,
+            }}
+          >
+            Teams
+            <span className="text-[10px] font-semibold bg-[var(--color-border)] rounded-full px-1.5 py-0.5 leading-none">
+              Soon
+            </span>
+          </button>
         </div>
 
         {/* Search */}

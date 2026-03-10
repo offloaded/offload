@@ -457,6 +457,22 @@ export async function POST(request: Request) {
           });
         }
 
+        // Auto-save long structured responses as reports
+        if (cleaned && cleaned.length > 800 && (cleaned.includes("\n\n") || cleaned.includes("# "))) {
+          const reportTitle = cleaned.slice(0, 80).split("\n")[0] || `Report from ${agent.name}`;
+          try {
+            await supabase.from("reports").insert({
+              workspace_id: ctx.workspaceId,
+              user_id: user.id,
+              agent_id: agent.id,
+              title: reportTitle,
+              content: cleaned,
+              source: "agent",
+              conversation_id: convId,
+            });
+          } catch { /* ignore report save failures */ }
+        }
+
         // If cleaning changed the text, send a replace event so the client shows clean text
         if (cleaned !== fullResponse) {
           controller.enqueue(
