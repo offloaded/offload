@@ -249,20 +249,40 @@ export async function POST(request: Request) {
           const reportMatch = rawText.match(/```save_report\s*\n?([\s\S]*?)\n?```/);
           if (reportMatch) {
             try {
-              const report = JSON.parse(reportMatch[1]);
-              if (report.title && report.content) {
-                await supabase.from("reports").insert({
+              const raw = reportMatch[1].trim();
+              let reportTitle = "";
+              let reportContent = "";
+
+              const titleSepMatch = raw.match(/^title:\s*(.+)\n---\n([\s\S]+)$/i);
+              if (titleSepMatch) {
+                reportTitle = titleSepMatch[1].trim();
+                reportContent = titleSepMatch[2].trim();
+              } else {
+                const fixedJson = raw.replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+                const parsed = JSON.parse(fixedJson);
+                reportTitle = parsed.title;
+                reportContent = parsed.content?.replace(/\\n/g, "\n") || "";
+              }
+
+              if (reportTitle && reportContent) {
+                const { error: reportError } = await serviceDb.from("reports").insert({
                   workspace_id: ctx.workspaceId,
                   user_id: user.id,
                   agent_id: agent.id,
-                  title: report.title,
-                  content: report.content,
+                  title: reportTitle,
+                  content: reportContent,
                   source: "agent",
                   conversation_id: convId,
                 });
-                send({ type: "report_saved", title: report.title });
+                if (reportError) {
+                  console.error("[GroupChat] Failed to save report:", reportError.message);
+                } else {
+                  send({ type: "report_saved", title: reportTitle });
+                }
               }
-            } catch { /* ignore report save failures */ }
+            } catch (e) {
+              console.error("[GroupChat] Failed to parse save_report block:", e);
+            }
           }
 
           // Content dedup: check against already-saved responses

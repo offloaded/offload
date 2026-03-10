@@ -97,6 +97,17 @@ export default function LandingPage() {
           >
             HOW IT WORKS
           </a>
+          <Link
+            href="/auth"
+            className="tracking-[2px] no-underline transition-all duration-300 px-4 py-2 rounded-sm"
+            style={{
+              color: NEON_CYAN,
+              border: `1px solid ${NEON_CYAN}60`,
+              textShadow: `0 0 6px ${NEON_CYAN}80`,
+            }}
+          >
+            LOG IN
+          </Link>
         </div>
       </nav>
 

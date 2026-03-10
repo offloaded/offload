@@ -300,8 +300,10 @@ export async function POST(request: Request) {
   // Web search only if enabled — this is the server-side enforcement point
   // Coerce null to false (agents created before the column existed may have null)
   const webSearchEnabled = agent.web_search_enabled === true;
+  // Skip web search for meta-commands (save report, schedule, etc.) that don't need external info
+  const isMetaCommand = /^(save|create|write|generate|export|download|delete|schedule|remind|cancel)\b.{0,30}(report|summary|it|this|that|task|reminder)/i.test(messageForLLM.trim());
   let webSearchResults: string | undefined;
-  if (webSearchEnabled) {
+  if (webSearchEnabled && !isMetaCommand) {
     try {
       const results = await webSearch(messageForLLM, 10, agent.purpose);
       if (results.length > 0) {
@@ -464,7 +466,7 @@ export async function POST(request: Request) {
         if (cleaned && cleaned.length > 800 && (cleaned.includes("\n\n") || cleaned.includes("# "))) {
           const reportTitle = cleaned.slice(0, 80).split("\n")[0] || `Report from ${agent.name}`;
           try {
-            await supabase.from("reports").insert({
+            const { error: autoReportError } = await serviceDb.from("reports").insert({
               workspace_id: ctx.workspaceId,
               user_id: user.id,
               agent_id: agent.id,
@@ -473,30 +475,53 @@ export async function POST(request: Request) {
               source: "agent",
               conversation_id: convId,
             });
-          } catch { /* ignore report save failures */ }
+            if (autoReportError) console.error("[Chat] Auto-save report failed:", autoReportError.message);
+          } catch (e) { console.error("[Chat] Auto-save report error:", e); }
         }
 
         // Handle explicit save_report request from agent
         if (saveReportMatch) {
           try {
-            const report = JSON.parse(saveReportMatch[1]);
-            if (report.title && report.content) {
-              await supabase.from("reports").insert({
+            const raw = saveReportMatch[1].trim();
+            let reportTitle = "";
+            let reportContent = "";
+
+            // Try new title/--- format first
+            const titleSepMatch = raw.match(/^title:\s*(.+)\n---\n([\s\S]+)$/i);
+            if (titleSepMatch) {
+              reportTitle = titleSepMatch[1].trim();
+              reportContent = titleSepMatch[2].trim();
+            } else {
+              // Fall back to JSON (fix literal newlines in strings before parsing)
+              const fixedJson = raw.replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+              const parsed = JSON.parse(fixedJson);
+              reportTitle = parsed.title;
+              reportContent = parsed.content?.replace(/\\n/g, "\n") || "";
+            }
+
+            if (reportTitle && reportContent) {
+              const { error: reportError } = await serviceDb.from("reports").insert({
                 workspace_id: ctx.workspaceId,
                 user_id: user.id,
                 agent_id: agent.id,
-                title: report.title,
-                content: report.content,
+                title: reportTitle,
+                content: reportContent,
                 source: "agent",
                 conversation_id: convId,
               });
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({ type: "report_saved", title: report.title })}\n\n`
-                )
-              );
+              if (reportError) {
+                console.error("[Chat] Failed to save report:", reportError.message);
+              } else {
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ type: "report_saved", title: reportTitle })}\n\n`
+                  )
+                );
+              }
             }
-          } catch { /* ignore report save failures */ }
+          } catch (e) {
+            console.error("[Chat] Failed to parse save_report block:", e);
+          }
         }
 
         // If cleaning changed the text, send a replace event so the client shows clean text

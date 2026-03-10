@@ -183,11 +183,16 @@ Disabled features:`;
   }
 
   prompt += `\n\nSAVING REPORTS:
-When the user asks you to save, write, or create a report (or save your last response as a report), write your visible reply naturally, then include at the END of your response:
+Whenever you produce a report, analysis, summary, or deliverable — whether the user asked you to save it or it's part of your role — you MUST include a save_report block at the END of your response so it gets saved to the reports dashboard. Also use this when the user asks you to save, write, or create a report (or save your last response as a report).
+
+Format — include this at the END of your response:
 \`\`\`save_report
-{"title": "Short descriptive title", "content": "The full report content in plain text"}
+title: Short descriptive title
+---
+The full report content goes here.
+Multiple lines are fine.
 \`\`\`
-The content should be the actual report text — either your previous response if the user asks to save it, or a newly written report. Only include this block when the user explicitly asks to save or create a report.`;
+The content after the --- line should be the actual report text. IMPORTANT: You must ALWAYS include this block when you generate any report or deliverable — do not just say "I've saved it", the block is what actually saves it. Without the block, nothing is saved.`;
 
   const styleInstructions = buildStyleInstructions(agent);
   const behaviorLine = styleInstructions
