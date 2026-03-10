@@ -229,9 +229,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     const interval = setInterval(() => {
       refreshUnreadCounts();
       checkNewActivity();
+      refreshAgents();
+      refreshTeams();
     }, 20_000);
     return () => clearInterval(interval);
-  }, [checked, refreshUnreadCounts, checkNewActivity]);
+  }, [checked, refreshUnreadCounts, checkNewActivity, refreshAgents, refreshTeams]);
 
   if (!checked) {
     return (

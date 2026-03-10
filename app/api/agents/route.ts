@@ -13,6 +13,7 @@ export async function GET() {
     .from("agents")
     .select("*")
     .eq("workspace_id", ctx.workspaceId)
+    .order("last_message_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: true });
 
   if (error) {

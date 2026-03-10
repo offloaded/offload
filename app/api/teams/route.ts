@@ -15,6 +15,7 @@ export async function GET() {
     .from("teams")
     .select("*, team_members(agent_id)")
     .eq("workspace_id", ctx.workspaceId)
+    .order("last_message_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: true });
 
   if (error) {
@@ -51,6 +52,7 @@ export async function GET() {
     visibility: t.visibility || "public",
     is_system: t.is_system || false,
     created_by: t.created_by || null,
+    last_message_at: t.last_message_at || null,
     created_at: t.created_at,
     updated_at: t.updated_at,
     agent_ids: (t.team_members || []).map((m: { agent_id: string }) => m.agent_id),

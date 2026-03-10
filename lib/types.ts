@@ -18,6 +18,7 @@ export interface Agent {
   soft_skills: SoftSkill[] | null;
   // Team expectations
   team_expectations: TeamExpectation[] | null;
+  last_message_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -36,6 +37,7 @@ export interface Team {
   visibility: "public" | "private";
   is_system: boolean;
   created_by: string | null;
+  last_message_at: string | null;
   created_at: string;
   updated_at: string;
 }
