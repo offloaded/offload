@@ -1,13 +1,10 @@
-import { createServerSupabase } from "@/lib/supabase-server";
+import { createServiceSupabase } from "@/lib/supabase-server";
+import { getWorkspaceContext } from "@/lib/workspace";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -15,10 +12,11 @@ export async function GET(request: Request) {
   const before = searchParams.get("before");
   const limit = parseInt(searchParams.get("limit") || "30", 10);
 
-  let query = supabase
+  const service = createServiceSupabase();
+  let query = service
     .from("activity_log")
     .select("*, agents(name, color)")
-    .eq("user_id", user.id)
+    .eq("user_id", ctx.user.id)
     .order("created_at", { ascending: false })
     .limit(limit + 1);
 

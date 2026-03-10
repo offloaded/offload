@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { HashIcon, GearIcon, XIcon, ClockIcon, PlusIcon, RepeatClockIcon, ActivityIcon, SunIcon, MoonIcon } from "./Icons";
 import { createClient } from "@/lib/supabase";
-import type { Agent, Team } from "@/lib/types";
+import type { Agent, Team, Workspace } from "@/lib/types";
 
 interface TeamWithAgents extends Team {
   agent_ids: string[];
@@ -62,6 +62,88 @@ function ThemeToggle() {
   );
 }
 
+function WorkspaceSwitcher({
+  workspace,
+  workspaces,
+  onSwitch,
+}: {
+  workspace: Workspace | null;
+  workspaces: Workspace[];
+  onSwitch: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  if (!workspace) return null;
+
+  const initial = workspace.name.charAt(0).toUpperCase();
+  const hasMultiple = workspaces.length > 1;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => hasMultiple && setOpen(!open)}
+        className="w-full px-2.5 py-2.5 rounded-lg border border-[var(--color-border-light)] flex items-center gap-2.5 bg-transparent text-left transition-colors hover:bg-[var(--color-hover)]"
+        style={{ cursor: hasMultiple ? "pointer" : "default" }}
+      >
+        <div className="w-7 h-7 rounded-md bg-[var(--color-active)] flex items-center justify-center text-[11px] font-bold text-[var(--color-text-secondary)]">
+          {initial}
+        </div>
+        <div className="flex-1 min-w-0 text-[13px] font-medium text-[var(--color-text)] truncate">
+          {workspace.name}
+        </div>
+        {hasMultiple && (
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-[var(--color-text-tertiary)] shrink-0">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute bottom-full left-0 right-0 mb-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-lg overflow-hidden z-50">
+          {workspaces.map((ws) => (
+            <button
+              key={ws.id}
+              onClick={() => {
+                if (ws.id !== workspace.id) onSwitch(ws.id);
+                setOpen(false);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left border-none cursor-pointer transition-colors"
+              style={{
+                background: ws.id === workspace.id ? "var(--color-hover)" : "transparent",
+              }}
+            >
+              <div className="w-6 h-6 rounded-md bg-[var(--color-active)] flex items-center justify-center text-[10px] font-bold text-[var(--color-text-secondary)]">
+                {ws.name.charAt(0).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] font-medium text-[var(--color-text)] truncate">{ws.name}</div>
+                {ws.role && (
+                  <div className="text-[11px] text-[var(--color-text-tertiary)]">{ws.role}</div>
+                )}
+              </div>
+              {ws.id === workspace.id && (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2.5">
+                  <path d="M20 6L9 17l-5-5" />
+                </svg>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SidebarContent({
   agents,
   teams = [],
@@ -71,6 +153,10 @@ export function SidebarContent({
   unreadCounts = {},
   hasNewActivity = false,
   isAdmin = false,
+  workspace = null,
+  workspaces = [],
+  workspaceRole = "member",
+  onSwitchWorkspace,
 }: {
   agents: Agent[];
   teams?: TeamWithAgents[];
@@ -80,8 +166,13 @@ export function SidebarContent({
   unreadCounts?: Record<string, number>;
   hasNewActivity?: boolean;
   isAdmin?: boolean;
+  workspace?: Workspace | null;
+  workspaces?: Workspace[];
+  workspaceRole?: "owner" | "admin" | "member";
+  onSwitchWorkspace?: (id: string) => void;
 }) {
   const pathname = usePathname();
+  const canManage = workspaceRole === "owner" || workspaceRole === "admin";
 
   return (
     <>
@@ -146,15 +237,17 @@ export function SidebarContent({
             </NavItem>
           );
         })}
-        <Link
-          href="/team/new"
-          className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg w-full text-[13px] no-underline transition-colors font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] hover:bg-[var(--color-hover)]"
-        >
-          <span className="opacity-60">
-            <PlusIcon />
-          </span>
-          <span>New team</span>
-        </Link>
+        {canManage && (
+          <Link
+            href="/team/new"
+            className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg w-full text-[13px] no-underline transition-colors font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] hover:bg-[var(--color-hover)]"
+          >
+            <span className="opacity-60">
+              <PlusIcon />
+            </span>
+            <span>New team</span>
+          </Link>
+        )}
         <NavItem href="/history" isActive={pathname === "/history"}>
           <span className="opacity-60">
             <ClockIcon />
@@ -207,15 +300,17 @@ export function SidebarContent({
         <div className="flex-1" />
 
         <div className="py-1 border-t border-[var(--color-border-light)] mt-2 pt-3 flex flex-col gap-0.5">
-          <Link
-            href="/settings/new"
-            className="flex items-center gap-2.5 px-3 py-2 rounded-lg w-full text-[14px] no-underline transition-colors font-medium border border-dashed border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)]"
-          >
-            <span className="opacity-70">
-              <PlusIcon />
-            </span>
-            <span>Create agent</span>
-          </Link>
+          {canManage && (
+            <Link
+              href="/settings/new"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg w-full text-[14px] no-underline transition-colors font-medium border border-dashed border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)]"
+            >
+              <span className="opacity-70">
+                <PlusIcon />
+              </span>
+              <span>Create agent</span>
+            </Link>
+          )}
           <NavItem
             href="/tasks"
             isActive={pathname === "/tasks"}
@@ -232,12 +327,21 @@ export function SidebarContent({
           </NavItem>
           <NavItem
             href="/settings"
-            isActive={pathname.startsWith("/settings")}
+            isActive={pathname === "/settings" || pathname.startsWith("/settings/") && !pathname.startsWith("/settings/members")}
           >
             <span className="opacity-60">
               <GearIcon />
             </span>
             <span>Settings</span>
+          </NavItem>
+          <NavItem
+            href="/settings/members"
+            isActive={pathname === "/settings/members"}
+          >
+            <span className="opacity-60">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+            </span>
+            <span>Members</span>
           </NavItem>
           {isAdmin && (
             <NavItem href="/admin" isActive={false}>
@@ -252,14 +356,11 @@ export function SidebarContent({
       </div>
 
       <div className="px-2 pt-2 pb-3">
-        <div className="px-2.5 py-2.5 rounded-lg border border-[var(--color-border-light)] flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-md bg-[var(--color-active)] flex items-center justify-center text-[11px] font-bold text-[var(--color-text-secondary)]">
-            N
-          </div>
-          <div className="text-[13px] font-medium text-[var(--color-text)]">
-            Nick&apos;s Business
-          </div>
-        </div>
+        <WorkspaceSwitcher
+          workspace={workspace}
+          workspaces={workspaces}
+          onSwitch={onSwitchWorkspace || (() => {})}
+        />
         <LogOutButton />
       </div>
     </>
@@ -294,6 +395,10 @@ export function Drawer({
   unreadCounts,
   hasNewActivity,
   isAdmin,
+  workspace,
+  workspaces,
+  workspaceRole,
+  onSwitchWorkspace,
 }: {
   agents: Agent[];
   teams?: TeamWithAgents[];
@@ -303,6 +408,10 @@ export function Drawer({
   unreadCounts?: Record<string, number>;
   hasNewActivity?: boolean;
   isAdmin?: boolean;
+  workspace?: Workspace | null;
+  workspaces?: Workspace[];
+  workspaceRole?: "owner" | "admin" | "member";
+  onSwitchWorkspace?: (id: string) => void;
 }) {
   return (
     <>
@@ -330,6 +439,10 @@ export function Drawer({
           unreadCounts={unreadCounts}
           hasNewActivity={hasNewActivity}
           isAdmin={isAdmin}
+          workspace={workspace}
+          workspaces={workspaces}
+          workspaceRole={workspaceRole}
+          onSwitchWorkspace={onSwitchWorkspace}
         />
       </div>
     </>

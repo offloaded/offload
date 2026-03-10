@@ -109,21 +109,26 @@ const UserMessage = memo(function UserMessage({
   text,
   time,
   agents,
+  senderName,
 }: {
   text: string;
   time: string;
   agents: Agent[];
+  senderName?: string | null;
 }) {
+  const displayName = senderName || "You";
+  const initial = displayName.charAt(0).toUpperCase();
+
   return (
     <div className="px-4 py-2 md:px-6">
       <div className="flex max-w-[720px] gap-2.5 md:gap-3">
         <div className="w-9 h-9 rounded-lg shrink-0 bg-[var(--color-active)] text-[var(--color-text-secondary)] flex items-center justify-center text-xs font-bold">
-          Y
+          {initial}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2 mb-0.5">
             <span className="text-[15px] font-semibold text-[var(--color-text)]">
-              You
+              {displayName}
             </span>
             <span className="text-xs text-[var(--color-text-tertiary)]">
               {time}
@@ -264,6 +269,7 @@ const GroupMessageList = memo(function GroupMessageList({
           text={msg.content}
           time={formatTime(msg.created_at)}
           agents={agents}
+          senderName={msg.sender_name}
         />
       );
     }

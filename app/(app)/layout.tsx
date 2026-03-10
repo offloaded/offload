@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef, createContext, useCo
 import { createClient } from "@/lib/supabase";
 import { SidebarContent, Drawer } from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
-import type { Agent, Team } from "@/lib/types";
+import type { Agent, Team, Workspace } from "@/lib/types";
 import { preloadAllChats } from "@/lib/chat-cache";
 
 interface TeamWithAgents extends Team {
@@ -26,6 +26,12 @@ interface AppContextValue {
   setActiveChatKey: (chatKey: string | null) => void;
   hasNewActivity: boolean;
   isAdmin: boolean;
+  // Workspace
+  workspace: Workspace | null;
+  workspaces: Workspace[];
+  workspaceRole: "owner" | "admin" | "member";
+  switchWorkspace: (workspaceId: string) => Promise<void>;
+  refreshWorkspace: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue>({
@@ -43,6 +49,11 @@ const AppContext = createContext<AppContextValue>({
   setActiveChatKey: () => {},
   hasNewActivity: false,
   isAdmin: false,
+  workspace: null,
+  workspaces: [],
+  workspaceRole: "member",
+  switchWorkspace: async () => {},
+  refreshWorkspace: async () => {},
 });
 
 export function useApp() {
@@ -70,6 +81,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [checked, setChecked] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [workspaceRole, setWorkspaceRole] = useState<"owner" | "admin" | "member">("member");
   const mobile = useIsMobile();
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -140,6 +154,36 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       .catch(() => {});
   }, []);
 
+  const refreshWorkspace = useCallback(async () => {
+    const [currentRes, allRes] = await Promise.all([
+      fetch("/api/workspaces/current"),
+      fetch("/api/workspaces"),
+    ]);
+    if (currentRes.ok) {
+      const data = await currentRes.json();
+      setWorkspace(data);
+      setWorkspaceRole(data.role || "member");
+    }
+    if (allRes.ok) {
+      const data = await allRes.json();
+      setWorkspaces(data);
+    }
+  }, []);
+
+  const switchWorkspace = useCallback(async (workspaceId: string) => {
+    const res = await fetch("/api/workspaces/switch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workspace_id: workspaceId }),
+    });
+    if (res.ok) {
+      // Reload everything for the new workspace
+      await refreshWorkspace();
+      await Promise.all([refreshAgents(), refreshTeams(), refreshTaskCount(), refreshUnreadCounts()]);
+      router.push("/chat");
+    }
+  }, [refreshWorkspace, refreshAgents, refreshTeams, refreshTaskCount, refreshUnreadCounts, router]);
+
   const markRead = useCallback((conversationId: string) => {
     fetch("/api/conversations/mark-read", {
       method: "POST",
@@ -154,16 +198,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         router.push("/");
       } else {
         setChecked(true);
+        refreshWorkspace();
         refreshAgents();
         refreshTeams();
         refreshTaskCount();
         refreshUnreadCounts();
         checkNewActivity();
-        // Check admin status
         fetch("/api/admin/check").then(r => r.ok ? r.json() : { isAdmin: false }).then(d => setIsAdmin(d.isAdmin)).catch(() => {});
       }
     });
-  }, [supabase, router, refreshAgents, refreshTeams, refreshTaskCount, refreshUnreadCounts, checkNewActivity]);
+  }, [supabase, router, refreshAgents, refreshTeams, refreshTaskCount, refreshUnreadCounts, checkNewActivity, refreshWorkspace]);
 
   // Poll for unread counts and new activity every 20 seconds
   useEffect(() => {
@@ -184,11 +228,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AppContext value={{ agents, refreshAgents, teams, refreshTeams, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin }}>
+    <AppContext value={{ agents, refreshAgents, teams, refreshTeams, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, switchWorkspace, refreshWorkspace }}>
       <div className="flex h-screen w-full bg-[var(--color-page-bg)] overflow-hidden">
         {/* Desktop sidebar — hidden below 768px via CSS */}
         <div className="hidden md:flex w-[220px] min-w-[220px] bg-[var(--color-bg)] border-r border-[var(--color-border)] flex-col">
-          <SidebarContent agents={agents} teams={teams} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} isAdmin={isAdmin} />
+          <SidebarContent agents={agents} teams={teams} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} isAdmin={isAdmin} workspace={workspace} workspaces={workspaces} workspaceRole={workspaceRole} onSwitchWorkspace={switchWorkspace} />
         </div>
 
         {/* Mobile drawer — always mounted, visibility controlled by open state */}
@@ -201,6 +245,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           unreadCounts={unreadCounts}
           hasNewActivity={hasNewActivity}
           isAdmin={isAdmin}
+          workspace={workspace}
+          workspaces={workspaces}
+          workspaceRole={workspaceRole}
+          onSwitchWorkspace={switchWorkspace}
         />
 
         <div className="flex-1 flex flex-col overflow-hidden">

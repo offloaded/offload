@@ -6,18 +6,18 @@ import { logActivity, isStandupQuestion, getAgentActivitySummary } from "@/lib/a
 import { runGroupOrchestration } from "@/lib/group-orchestration";
 import { logApiUsage, estimateCost } from "@/lib/api-usage";
 import { estimateTokens, trimHistory, trimRagChunks, shouldArchive, calculateBudget } from "@/lib/context-manager";
+import { getWorkspaceContext } from "@/lib/workspace";
 
 export async function POST(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
     });
   }
+
+  const user = ctx.user;
+  const supabase = await createServerSupabase();
 
   // Check suspension and usage limits
   const serviceDb = createServiceSupabase();
@@ -59,12 +59,12 @@ export async function POST(request: Request) {
     );
   }
 
-  // Load the agent and verify ownership
-  const { data: agent, error: agentError } = await supabase
+  // Load the agent — verify it belongs to the user's active workspace
+  const { data: agent, error: agentError } = await serviceDb
     .from("agents")
     .select("*")
     .eq("id", agent_id)
-    .eq("user_id", user.id)
+    .eq("workspace_id", ctx.workspaceId)
     .single();
 
   if (agentError || !agent) {
@@ -119,7 +119,7 @@ export async function POST(request: Request) {
       } else {
         const { data: newConv } = await supabase
           .from("conversations")
-          .insert({ user_id: user.id, agent_id, previous_conversation_id: convId })
+          .insert({ user_id: user.id, agent_id, previous_conversation_id: convId, workspace_id: ctx.workspaceId })
           .select("id")
           .single();
         if (newConv) convId = newConv.id;
@@ -142,7 +142,7 @@ export async function POST(request: Request) {
     } else {
       const { data: newConv, error: convError } = await supabase
         .from("conversations")
-        .insert({ user_id: user.id, agent_id })
+        .insert({ user_id: user.id, agent_id, workspace_id: ctx.workspaceId })
         .select("id")
         .single();
 
@@ -164,11 +164,11 @@ export async function POST(request: Request) {
   let explicitChannelName: string | null = null;
   let messageForLLM = message.trim();
 
-  // Load all user's teams for channel resolution
-  const { data: allUserTeams } = await supabase
+  // Load all workspace teams for channel resolution
+  const { data: allUserTeams } = await serviceDb
     .from("teams")
     .select("id, name")
-    .eq("user_id", user.id);
+    .eq("workspace_id", ctx.workspaceId);
   const userTeams: Array<{ id: string; name: string }> = allUserTeams || [];
 
   // Match #ChannelName at word boundaries (channel names from autocomplete)
@@ -499,7 +499,7 @@ export async function POST(request: Request) {
           try {
             const targetTeamId = explicitChannelId === "all" ? null : explicitChannelId;
             const postConvId = await crossPostToChannel(
-              supabase, user.id, agent, cleaned, targetTeamId
+              supabase, user.id, agent, cleaned, targetTeamId, ctx.workspaceId
             );
             console.log(`[ChannelRoute] Cross-post complete — conversation=${postConvId}`);
             controller.enqueue(
@@ -530,10 +530,10 @@ export async function POST(request: Request) {
                 );
                 if (!matchedTeam) {
                   // Try a broader lookup — the agent might reference a team they're not in
-                  const { data: teamLookup } = await supabase
+                  const { data: teamLookup } = await serviceDb
                     .from("teams")
                     .select("id, name")
-                    .eq("user_id", user.id)
+                    .eq("workspace_id", ctx.workspaceId)
                     .ilike("name", channelLower)
                     .limit(1)
                     .single();
@@ -557,7 +557,7 @@ export async function POST(request: Request) {
 
               console.log(`[CrossPost] Calling crossPostToChannel — teamId=${targetTeamId}`);
               const postConvId = await crossPostToChannel(
-                supabase, user.id, agent, groupMsg, targetTeamId
+                supabase, user.id, agent, groupMsg, targetTeamId, ctx.workspaceId
               );
               console.log(`[CrossPost] Cross-post complete — conversation=${postConvId}`);
               controller.enqueue(
@@ -600,11 +600,11 @@ export async function POST(request: Request) {
                   merged.push(ns);
                 }
               }
-              await supabase
+              await serviceDb
                 .from("agents")
                 .update({ soft_skills: merged, updated_at: new Date().toISOString() })
                 .eq("id", agent_id)
-                .eq("user_id", user.id);
+                .eq("workspace_id", ctx.workspaceId);
               console.log(`[Chat] Updated soft_skills for ${agent.name}: ${merged.length} skill(s)`);
             }
           } catch {
@@ -624,11 +624,11 @@ export async function POST(request: Request) {
                   merged.push(ne);
                 }
               }
-              await supabase
+              await serviceDb
                 .from("agents")
                 .update({ team_expectations: merged, updated_at: new Date().toISOString() })
                 .eq("id", agent_id)
-                .eq("user_id", user.id);
+                .eq("workspace_id", ctx.workspaceId);
               console.log(`[Chat] Updated team_expectations for ${agent.name}: ${merged.length} expectation(s)`);
             }
           } catch {
@@ -663,7 +663,7 @@ export async function POST(request: Request) {
         try {
           if (shouldArchive(estimateTokens(systemPrompt), messages)) {
             console.log(`[Chat] Conversation ${convId} reached archive threshold, archiving...`);
-            const newConvId = await archiveConversation(supabase, anthropic, convId!, agent_id, user.id);
+            const newConvId = await archiveConversation(supabase, anthropic, convId!, agent_id, user.id, ctx.workspaceId);
             // Send archive event so client can show divider and switch to new conversation
             controller.enqueue(
               encoder.encode(
@@ -712,7 +712,8 @@ async function archiveConversation(
   anthropic: ReturnType<typeof getAnthropicClient>,
   conversationId: string,
   agentId: string,
-  userId: string
+  userId: string,
+  workspaceId?: string
 ): Promise<string> {
   // Load recent messages for summarization
   const { data: msgs } = await supabase
@@ -767,13 +768,15 @@ async function archiveConversation(
   });
 
   // Create a new continuation conversation
+  const insertData: Record<string, unknown> = {
+    user_id: userId,
+    agent_id: agentId,
+    previous_conversation_id: conversationId,
+  };
+  if (workspaceId) insertData.workspace_id = workspaceId;
   const { data: newConv } = await supabase
     .from("conversations")
-    .insert({
-      user_id: userId,
-      agent_id: agentId,
-      previous_conversation_id: conversationId,
-    })
+    .insert(insertData)
     .select("id")
     .single();
 
@@ -795,17 +798,23 @@ async function crossPostToChannel(
   userId: string,
   agent: { id: string; name: string; purpose: string },
   messageContent: string,
-  teamId: string | null
+  teamId: string | null,
+  workspaceId?: string
 ): Promise<string> {
   const LOG = `[CrossPost:${teamId ? "team" : "#all"}]`;
   console.log(`${LOG} Cross-post triggered — agent="${agent.name}", teamId=${teamId}, message="${messageContent.slice(0, 80)}"`);
 
-  // Build the conversation lookup query
+  // Build the conversation lookup query — use workspace_id for shared channels
   let convQuery = supabase
     .from("conversations")
     .select("id")
-    .eq("user_id", userId)
     .is("agent_id", null);
+
+  if (workspaceId) {
+    convQuery = convQuery.eq("workspace_id", workspaceId);
+  } else {
+    convQuery = convQuery.eq("user_id", userId);
+  }
 
   if (teamId) {
     convQuery = convQuery.eq("team_id", teamId);
@@ -830,6 +839,7 @@ async function crossPostToChannel(
     console.log(`${LOG} No existing conversation found, creating new one`);
     const insertData: Record<string, unknown> = { user_id: userId, agent_id: null };
     if (teamId) insertData.team_id = teamId;
+    if (workspaceId) insertData.workspace_id = workspaceId;
     const { data: newConv, error: convError } = await supabase
       .from("conversations")
       .insert(insertData)
@@ -877,21 +887,24 @@ async function crossPostToChannel(
 
     if (teamAgentIds.length > 0) {
       // Exclude agents NOT in the team + the posting agent
-      const { data: allAgents } = await supabase
-        .from("agents")
-        .select("id")
-        .eq("user_id", userId);
+      let agentsQuery = supabase.from("agents").select("id");
+      if (workspaceId) {
+        agentsQuery = agentsQuery.eq("workspace_id", workspaceId);
+      } else {
+        agentsQuery = agentsQuery.eq("user_id", userId);
+      }
+      const { data: allAgents } = await agentsQuery;
 
       const excludeIds = (allAgents || [])
         .map((a: { id: string }) => a.id)
         .filter((id: string) => !teamAgentIds.includes(id) || id === agent.id);
 
-      await runGroupOrchestration(supabase, userId, convId, taggedContent, excludeIds);
+      await runGroupOrchestration(supabase, userId, convId, taggedContent, excludeIds, 0, new Set(), workspaceId);
     }
   } else {
     // #all channel
     console.log(`[Chat] Agent message saved to #all, triggering orchestration for conv=${convId}`);
-    await runGroupOrchestration(supabase, userId, convId, taggedContent, agent.id);
+    await runGroupOrchestration(supabase, userId, convId, taggedContent, agent.id, 0, new Set(), workspaceId);
   }
 
   return convId;

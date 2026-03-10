@@ -1,20 +1,18 @@
-import { createServerSupabase } from "@/lib/supabase-server";
+import { createServerSupabase, createServiceSupabase } from "@/lib/supabase-server";
+import { getWorkspaceContext, hasPermission } from "@/lib/workspace";
 import { NextResponse } from "next/server";
 
 export async function GET() {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data, error } = await supabase
+  const service = createServiceSupabase();
+  const { data, error } = await service
     .from("agents")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("workspace_id", ctx.workspaceId)
     .order("created_at", { ascending: true });
 
   if (error) {
@@ -25,13 +23,13 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!hasPermission(ctx.role, "admin")) {
+    return NextResponse.json({ error: "Only admins can create agents" }, { status: 403 });
   }
 
   const body = await request.json();
@@ -41,10 +39,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Name is required" }, { status: 400 });
   }
 
-  const { data, error } = await supabase
+  const service = createServiceSupabase();
+  const { data, error } = await service
     .from("agents")
     .insert({
-      user_id: user.id,
+      user_id: ctx.user.id,
+      workspace_id: ctx.workspaceId,
       name: name.trim(),
       role: role?.trim() || null,
       purpose: purpose?.trim() || "",
@@ -61,13 +61,13 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!hasPermission(ctx.role, "admin")) {
+    return NextResponse.json({ error: "Only admins can edit agents" }, { status: 403 });
   }
 
   const body = await request.json();
@@ -92,11 +92,12 @@ export async function PUT(request: Request) {
   if (soft_skills !== undefined) updates.soft_skills = soft_skills;
   if (team_expectations !== undefined) updates.team_expectations = team_expectations;
 
-  const { data, error } = await supabase
+  const service = createServiceSupabase();
+  const { data, error } = await service
     .from("agents")
     .update(updates)
     .eq("id", id)
-    .eq("user_id", user.id)
+    .eq("workspace_id", ctx.workspaceId)
     .select()
     .single();
 
@@ -108,13 +109,13 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!hasPermission(ctx.role, "admin")) {
+    return NextResponse.json({ error: "Only admins can delete agents" }, { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);
@@ -124,39 +125,36 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Agent ID required" }, { status: 400 });
   }
 
-  // Verify ownership before cascading deletes
-  const { data: agent } = await supabase
+  const service = createServiceSupabase();
+
+  // Verify agent belongs to this workspace
+  const { data: agent } = await service
     .from("agents")
     .select("id")
     .eq("id", id)
-    .eq("user_id", user.id)
+    .eq("workspace_id", ctx.workspaceId)
     .single();
 
   if (!agent) {
     return NextResponse.json({ error: "Agent not found" }, { status: 404 });
   }
 
-  // Explicit cleanup before agent delete (safety net alongside FK cascades).
-  // Delete conversations + their messages (messages cascade from conversations).
-  await supabase
+  // Explicit cleanup before agent delete
+  await service
     .from("conversations")
     .delete()
-    .eq("agent_id", id)
-    .eq("user_id", user.id);
+    .eq("agent_id", id);
 
-  // Delete activity log entries
-  await supabase
+  await service
     .from("activity_log")
     .delete()
-    .eq("agent_id", id)
-    .eq("user_id", user.id);
+    .eq("agent_id", id);
 
-  // Now delete the agent (cascades: documents, document_chunks, scheduled_tasks, team_members)
-  const { error } = await supabase
+  const { error } = await service
     .from("agents")
     .delete()
     .eq("id", id)
-    .eq("user_id", user.id);
+    .eq("workspace_id", ctx.workspaceId);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

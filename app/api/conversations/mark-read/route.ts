@@ -1,13 +1,10 @@
-import { createServerSupabase, createServiceSupabase } from "@/lib/supabase-server";
+import { createServiceSupabase } from "@/lib/supabase-server";
+import { getWorkspaceContext } from "@/lib/workspace";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -26,7 +23,7 @@ export async function POST(request: Request) {
     .from("conversations")
     .update({ last_read_at: new Date().toISOString() })
     .eq("id", conversation_id)
-    .eq("user_id", user.id);
+    .eq("user_id", ctx.user.id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

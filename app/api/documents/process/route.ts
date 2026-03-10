@@ -1,16 +1,16 @@
-import { createServerSupabase } from "@/lib/supabase-server";
+import { createServerSupabase, createServiceSupabase } from "@/lib/supabase-server";
 import { processDocument } from "@/lib/rag";
+import { getWorkspaceContext } from "@/lib/workspace";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const supabase = await createServerSupabase();
+  const service = createServiceSupabase();
 
   const { document_id } = await request.json();
 
@@ -21,8 +21,8 @@ export async function POST(request: Request) {
     );
   }
 
-  // Verify document belongs to user's agent
-  const { data: doc } = await supabase
+  // Verify document exists
+  const { data: doc } = await service
     .from("documents")
     .select("id, storage_path, agent_id, status")
     .eq("id", document_id)
@@ -35,12 +35,12 @@ export async function POST(request: Request) {
     );
   }
 
-  // Verify agent ownership
-  const { data: agent } = await supabase
+  // Verify agent belongs to workspace
+  const { data: agent } = await service
     .from("agents")
     .select("id")
     .eq("id", doc.agent_id)
-    .eq("user_id", user.id)
+    .eq("workspace_id", ctx.workspaceId)
     .single();
 
   if (!agent) {

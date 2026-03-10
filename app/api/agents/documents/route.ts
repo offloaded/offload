@@ -1,16 +1,14 @@
-import { createServerSupabase } from "@/lib/supabase-server";
+import { createServiceSupabase } from "@/lib/supabase-server";
+import { getWorkspaceContext } from "@/lib/workspace";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const service = createServiceSupabase();
   const { searchParams } = new URL(request.url);
   const agentId = searchParams.get("agent_id");
 
@@ -18,19 +16,19 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "agent_id required" }, { status: 400 });
   }
 
-  // Verify the agent belongs to this user
-  const { data: agent } = await supabase
+  // Verify the agent belongs to this workspace
+  const { data: agent } = await service
     .from("agents")
     .select("id")
     .eq("id", agentId)
-    .eq("user_id", user.id)
+    .eq("workspace_id", ctx.workspaceId)
     .single();
 
   if (!agent) {
     return NextResponse.json({ error: "Agent not found" }, { status: 404 });
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await service
     .from("documents")
     .select("*")
     .eq("agent_id", agentId)
@@ -44,7 +42,7 @@ export async function GET(request: Request) {
   const docIds = (data || []).map((d: { id: string }) => d.id);
   let chunkCounts: Record<string, number> = {};
   if (docIds.length > 0) {
-    const { data: counts } = await supabase
+    const { data: counts } = await service
       .rpc("count_chunks_by_document", { doc_ids: docIds });
     if (counts) {
       for (const row of counts) {
@@ -62,15 +60,12 @@ export async function GET(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const service = createServiceSupabase();
   const { searchParams } = new URL(request.url);
   const docId = searchParams.get("id");
 
@@ -78,8 +73,8 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "id required" }, { status: 400 });
   }
 
-  // Get doc with agent ownership check
-  const { data: doc } = await supabase
+  // Get doc
+  const { data: doc } = await service
     .from("documents")
     .select("id, storage_path, agent_id")
     .eq("id", docId)
@@ -89,11 +84,12 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Document not found" }, { status: 404 });
   }
 
-  const { data: agent } = await supabase
+  // Verify agent belongs to workspace
+  const { data: agent } = await service
     .from("agents")
     .select("id")
     .eq("id", doc.agent_id)
-    .eq("user_id", user.id)
+    .eq("workspace_id", ctx.workspaceId)
     .single();
 
   if (!agent) {
@@ -101,10 +97,12 @@ export async function DELETE(request: Request) {
   }
 
   // Delete from storage
+  const { createServerSupabase } = await import("@/lib/supabase-server");
+  const supabase = await createServerSupabase();
   await supabase.storage.from("documents").remove([doc.storage_path]);
 
   // Delete document record (cascades to chunks)
-  const { error } = await supabase
+  const { error } = await service
     .from("documents")
     .delete()
     .eq("id", docId);

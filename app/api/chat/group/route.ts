@@ -10,6 +10,7 @@ import {
   scoreAgentRelevance,
   buildSmartHistory,
 } from "@/lib/group-orchestration";
+import { getWorkspaceContext } from "@/lib/workspace";
 
 // Schedule detection instructions included in agent prompts when intent is "action"
 function buildScheduleInstructions(): string {
@@ -32,14 +33,13 @@ export async function POST(request: Request) {
   const LOG = "[Group Chat]";
   console.log(`${LOG} ─── Request received ───`);
 
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
   }
+
+  const user = ctx.user;
+  const supabase = await createServerSupabase();
 
   // Check suspension and usage limits
   const serviceDb = createServiceSupabase();
@@ -84,11 +84,11 @@ export async function POST(request: Request) {
     return new Response(JSON.stringify({ error: "message is required" }), { status: 400 });
   }
 
-  // Load agents
-  const { data: agents, error: agentsError } = await supabase
+  // Load all workspace agents (shared)
+  const { data: agents, error: agentsError } = await serviceDb
     .from("agents")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("workspace_id", ctx.workspaceId)
     .order("created_at", { ascending: true });
 
   if (agentsError || !agents?.length) {
@@ -133,7 +133,7 @@ export async function POST(request: Request) {
     } else {
       const { data: newConv, error: convError } = await supabase
         .from("conversations")
-        .insert({ user_id: user.id, agent_id: null })
+        .insert({ user_id: user.id, agent_id: null, workspace_id: ctx.workspaceId })
         .select("id")
         .single();
       if (convError || !newConv) {
@@ -144,8 +144,15 @@ export async function POST(request: Request) {
   }
   console.log(`${LOG} ✓ Conversation: ${convId}`);
 
-  // Save user message
-  await supabase.from("messages").insert({ conversation_id: convId, role: "user", content: message.trim() });
+  // Save user message with sender info for multi-user channels
+  const senderName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "User";
+  await supabase.from("messages").insert({
+    conversation_id: convId,
+    role: "user",
+    content: message.trim(),
+    sender_id: user.id,
+    sender_name: senderName,
+  });
   await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
 
   // Load message history with smart topic-aware trimming

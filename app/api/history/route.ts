@@ -1,17 +1,17 @@
-import { createServerSupabase } from "@/lib/supabase-server";
+import { createServerSupabase, createServiceSupabase } from "@/lib/supabase-server";
+import { getWorkspaceContext } from "@/lib/workspace";
 import { NextResponse } from "next/server";
 
 const PAGE_SIZE = 30;
 
 export async function GET(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const user = ctx.user;
+  const supabase = await createServerSupabase();
 
   const { searchParams } = new URL(request.url);
   const query = searchParams.get("q")?.trim() || "";
@@ -130,7 +130,6 @@ async function searchConversations(
   }
 
   // Search messages that belong to the user's conversations
-  // Use a raw SQL approach via RPC or join
   let msgQuery = supabase
     .from("messages")
     .select(
@@ -318,15 +317,12 @@ function extractSnippet(content: string, query: string): string {
 }
 
 export async function DELETE(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const supabase = await createServerSupabase();
   const { searchParams } = new URL(request.url);
   const conversationId = searchParams.get("id");
 
@@ -338,7 +334,7 @@ export async function DELETE(request: Request) {
     .from("conversations")
     .delete()
     .eq("id", conversationId)
-    .eq("user_id", user.id);
+    .eq("user_id", ctx.user.id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

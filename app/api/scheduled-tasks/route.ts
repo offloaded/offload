@@ -1,24 +1,22 @@
-import { createServerSupabase } from "@/lib/supabase-server";
+import { createServiceSupabase } from "@/lib/supabase-server";
+import { getWorkspaceContext } from "@/lib/workspace";
 import { NextResponse } from "next/server";
 import { getNextRun } from "@/lib/cron";
 
 export async function GET(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { searchParams } = new URL(request.url);
   const agentId = searchParams.get("agent_id");
 
-  let query = supabase
+  const service = createServiceSupabase();
+  let query = service
     .from("scheduled_tasks")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("workspace_id", ctx.workspaceId)
     .order("created_at", { ascending: true });
 
   if (agentId) {
@@ -35,12 +33,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -56,7 +50,6 @@ export async function POST(request: Request) {
 
   const isRecurring = recurring !== false;
 
-  // Recurring tasks need a cron; one-off tasks need run_at (or fallback to cron)
   if (isRecurring && !cron?.trim()) {
     return NextResponse.json(
       { error: "cron is required for recurring tasks" },
@@ -70,12 +63,14 @@ export async function POST(request: Request) {
     );
   }
 
-  // Verify agent ownership
-  const { data: agent } = await supabase
+  const service = createServiceSupabase();
+
+  // Verify agent belongs to workspace
+  const { data: agent } = await service
     .from("agents")
     .select("id")
     .eq("id", agent_id)
-    .eq("user_id", user.id)
+    .eq("workspace_id", ctx.workspaceId)
     .single();
 
   if (!agent) {
@@ -119,10 +114,11 @@ export async function POST(request: Request) {
     }
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await service
     .from("scheduled_tasks")
     .insert({
-      user_id: user.id,
+      user_id: ctx.user.id,
+      workspace_id: ctx.workspaceId,
       agent_id,
       instruction: instruction.trim(),
       cron: cronToStore,
@@ -142,12 +138,8 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -157,6 +149,8 @@ export async function PUT(request: Request) {
   if (!id) {
     return NextResponse.json({ error: "Task ID required" }, { status: 400 });
   }
+
+  const service = createServiceSupabase();
 
   const updates: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
@@ -178,12 +172,11 @@ export async function PUT(request: Request) {
   if (enabled !== undefined) {
     updates.enabled = enabled;
     if (enabled && !updates.next_run_at) {
-      // Re-enable: recalculate next run
-      const { data: existing } = await supabase
+      const { data: existing } = await service
         .from("scheduled_tasks")
         .select("cron")
         .eq("id", id)
-        .eq("user_id", user.id)
+        .eq("workspace_id", ctx.workspaceId)
         .single();
       if (existing) {
         try {
@@ -198,11 +191,11 @@ export async function PUT(request: Request) {
     }
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await service
     .from("scheduled_tasks")
     .update(updates)
     .eq("id", id)
-    .eq("user_id", user.id)
+    .eq("workspace_id", ctx.workspaceId)
     .select()
     .single();
 
@@ -214,12 +207,8 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -230,11 +219,12 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Task ID required" }, { status: 400 });
   }
 
-  const { error } = await supabase
+  const service = createServiceSupabase();
+  const { error } = await service
     .from("scheduled_tasks")
     .delete()
     .eq("id", id)
-    .eq("user_id", user.id);
+    .eq("workspace_id", ctx.workspaceId);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

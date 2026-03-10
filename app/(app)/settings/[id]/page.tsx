@@ -49,7 +49,8 @@ interface UploadItem {
 export default function AgentEditorPage() {
   const params = useParams();
   const router = useRouter();
-  const { agents, refreshAgents } = useApp();
+  const { agents, refreshAgents, workspaceRole } = useApp();
+  const canManage = workspaceRole === "owner" || workspaceRole === "admin";
   const isNew = params.id === "new";
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -333,6 +334,14 @@ export default function AgentEditorPage() {
   const hasActiveUploads = uploads.some(
     (u) => u.status === "uploading" || u.status === "processing"
   );
+
+  if (!canManage) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-[15px] text-[var(--color-text-secondary)]">
+        You don&apos;t have permission to edit agents
+      </div>
+    );
+  }
 
   if (!isNew && !existing && agents.length > 0) {
     return (

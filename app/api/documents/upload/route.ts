@@ -1,6 +1,7 @@
-import { createServerSupabase } from "@/lib/supabase-server";
+import { createServerSupabase, createServiceSupabase } from "@/lib/supabase-server";
 import { processDocument } from "@/lib/rag";
 import { logActivity } from "@/lib/activity";
+import { getWorkspaceContext } from "@/lib/workspace";
 import { NextResponse } from "next/server";
 
 const ALLOWED_TYPES = [
@@ -16,14 +17,14 @@ const ALLOWED_TYPES = [
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 
 export async function POST(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const user = ctx.user;
+  const supabase = await createServerSupabase();
+  const service = createServiceSupabase();
 
   const formData = await request.formData();
   const file = formData.get("file") as File | null;
@@ -51,12 +52,12 @@ export async function POST(request: Request) {
     );
   }
 
-  // Verify agent ownership
-  const { data: agent } = await supabase
+  // Verify agent belongs to workspace
+  const { data: agent } = await service
     .from("agents")
-    .select("id")
+    .select("id, name")
     .eq("id", agentId)
-    .eq("user_id", user.id)
+    .eq("workspace_id", ctx.workspaceId)
     .single();
 
   if (!agent) {
@@ -83,7 +84,7 @@ export async function POST(request: Request) {
   }
 
   // Create document record
-  const { data: doc, error: docError } = await supabase
+  const { data: doc, error: docError } = await service
     .from("documents")
     .insert({
       agent_id: agentId,
@@ -102,13 +103,7 @@ export async function POST(request: Request) {
     );
   }
 
-  // Look up agent name for activity log
-  const { data: agentInfo } = await supabase
-    .from("agents")
-    .select("name")
-    .eq("id", agentId)
-    .single();
-  const agentName = agentInfo?.name || "Agent";
+  const agentName = agent.name || "Agent";
 
   // Process document inline (extract text, chunk, embed, store)
   try {
@@ -118,7 +113,7 @@ export async function POST(request: Request) {
       { document_id: doc.id, file_name: file.name }
     );
     // Refresh the doc to return updated status
-    const { data: updatedDoc } = await supabase
+    const { data: updatedDoc } = await service
       .from("documents")
       .select()
       .eq("id", doc.id)
@@ -131,9 +126,7 @@ export async function POST(request: Request) {
       `Document processing failed: ${file.name}`,
       { document_id: doc.id, file_name: file.name, error: errMsg }
     );
-    // Document record exists with status 'error' (set by processDocument)
-    // Return it so UI shows the error state
-    const { data: errorDoc } = await supabase
+    const { data: errorDoc } = await service
       .from("documents")
       .select()
       .eq("id", doc.id)

@@ -76,6 +76,7 @@ async function runTask(
     id: string;
     user_id: string;
     agent_id: string;
+    workspace_id: string | null;
     instruction: string;
     cron: string | null;
     timezone: string;
@@ -125,6 +126,7 @@ async function runTask(
     convId = existingConv.id;
   } else {
     const insertData: Record<string, unknown> = { user_id: task.user_id };
+    if (task.workspace_id) insertData.workspace_id = task.workspace_id;
     if (isGroupDest) {
       // agent_id null, team_id null → #all
     } else if (isTeamDest) {
@@ -241,17 +243,17 @@ async function runTask(
           .map((m: { agent_id: string }) => m.agent_id)
           .filter((id: string) => id !== task.agent_id);
         if (teamAgentIds.length > 0) {
-          const { data: allAgents } = await supabase
-            .from("agents")
-            .select("id")
-            .eq("user_id", task.user_id);
+          const agentFilter = task.workspace_id
+            ? supabase.from("agents").select("id").eq("workspace_id", task.workspace_id)
+            : supabase.from("agents").select("id").eq("user_id", task.user_id);
+          const { data: allAgents } = await agentFilter;
           const excludeIds = (allAgents || [])
             .map((a: { id: string }) => a.id)
             .filter((id: string) => !teamAgentIds.includes(id) || id === task.agent_id);
-          await runGroupOrchestration(supabase, task.user_id, convId, savedContent, excludeIds);
+          await runGroupOrchestration(supabase, task.user_id, convId, savedContent, excludeIds, 0, new Set(), task.workspace_id || undefined);
         }
       } else {
-        await runGroupOrchestration(supabase, task.user_id, convId, savedContent, task.agent_id);
+        await runGroupOrchestration(supabase, task.user_id, convId, savedContent, task.agent_id, 0, new Set(), task.workspace_id || undefined);
       }
     } catch (err) {
       console.error("[Cron] Channel reactions failed:", err);

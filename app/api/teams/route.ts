@@ -1,21 +1,20 @@
-import { createServerSupabase } from "@/lib/supabase-server";
+import { createServiceSupabase } from "@/lib/supabase-server";
+import { getWorkspaceContext, hasPermission } from "@/lib/workspace";
 import { NextResponse } from "next/server";
 
 export async function GET() {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Fetch teams with their member agent IDs
-  const { data: teams, error } = await supabase
+  const service = createServiceSupabase();
+
+  // Fetch teams with their member agent IDs — scoped to workspace
+  const { data: teams, error } = await service
     .from("teams")
     .select("*, team_members(agent_id)")
-    .eq("user_id", user.id)
+    .eq("workspace_id", ctx.workspaceId)
     .order("created_at", { ascending: true });
 
   if (error) {
@@ -26,6 +25,7 @@ export async function GET() {
   const result = (teams || []).map((t) => ({
     id: t.id,
     user_id: t.user_id,
+    workspace_id: t.workspace_id,
     name: t.name,
     description: t.description,
     created_at: t.created_at,
@@ -37,13 +37,13 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!hasPermission(ctx.role, "admin")) {
+    return NextResponse.json({ error: "Only admins can create teams" }, { status: 403 });
   }
 
   const body = await request.json();
@@ -53,10 +53,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Name is required" }, { status: 400 });
   }
 
-  const { data: team, error } = await supabase
+  const service = createServiceSupabase();
+
+  const { data: team, error } = await service
     .from("teams")
     .insert({
-      user_id: user.id,
+      user_id: ctx.user.id,
+      workspace_id: ctx.workspaceId,
       name: name.trim(),
       description: description?.trim() || "",
     })
@@ -73,20 +76,20 @@ export async function POST(request: Request) {
       team_id: team.id,
       agent_id,
     }));
-    await supabase.from("team_members").insert(members);
+    await service.from("team_members").insert(members);
   }
 
   return NextResponse.json({ ...team, agent_ids: agent_ids || [] }, { status: 201 });
 }
 
 export async function PUT(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!hasPermission(ctx.role, "admin")) {
+    return NextResponse.json({ error: "Only admins can edit teams" }, { status: 403 });
   }
 
   const body = await request.json();
@@ -96,17 +99,19 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "Team ID required" }, { status: 400 });
   }
 
+  const service = createServiceSupabase();
+
   const updates: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
   if (name !== undefined) updates.name = name.trim();
   if (description !== undefined) updates.description = description.trim();
 
-  const { data: team, error } = await supabase
+  const { data: team, error } = await service
     .from("teams")
     .update(updates)
     .eq("id", id)
-    .eq("user_id", user.id)
+    .eq("workspace_id", ctx.workspaceId)
     .select()
     .single();
 
@@ -116,13 +121,13 @@ export async function PUT(request: Request) {
 
   // Update members if provided — replace all
   if (agent_ids !== undefined) {
-    await supabase.from("team_members").delete().eq("team_id", id);
+    await service.from("team_members").delete().eq("team_id", id);
     if (agent_ids.length > 0) {
       const members = agent_ids.map((agent_id: string) => ({
         team_id: id,
         agent_id,
       }));
-      await supabase.from("team_members").insert(members);
+      await service.from("team_members").insert(members);
     }
   }
 
@@ -130,13 +135,13 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!hasPermission(ctx.role, "admin")) {
+    return NextResponse.json({ error: "Only admins can delete teams" }, { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);
@@ -146,11 +151,12 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Team ID required" }, { status: 400 });
   }
 
-  const { error } = await supabase
+  const service = createServiceSupabase();
+  const { error } = await service
     .from("teams")
     .delete()
     .eq("id", id)
-    .eq("user_id", user.id);
+    .eq("workspace_id", ctx.workspaceId);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

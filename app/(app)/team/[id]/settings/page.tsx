@@ -9,7 +9,8 @@ export default function TeamSettingsPage() {
   const params = useParams();
   const router = useRouter();
   const teamId = params.id as string;
-  const { agents, teams, refreshTeams } = useApp();
+  const { agents, teams, refreshTeams, workspaceRole } = useApp();
+  const canManage = workspaceRole === "owner" || workspaceRole === "admin";
 
   const team = teams.find((t) => t.id === teamId);
 
@@ -26,6 +27,14 @@ export default function TeamSettingsPage() {
       setSelectedAgentIds(team.agent_ids);
     }
   }, [team]);
+
+  if (!canManage) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-[15px] text-[var(--color-text-secondary)]">
+        You don&apos;t have permission to edit teams
+      </div>
+    );
+  }
 
   if (!team) {
     return (

@@ -6,7 +6,8 @@ import { PlusIcon, ArrowIcon, MenuIcon } from "@/components/Icons";
 import Link from "next/link";
 
 export default function SettingsPage() {
-  const { agents, mobile, openDrawer } = useApp();
+  const { agents, mobile, openDrawer, workspace, workspaceRole } = useApp();
+  const canManage = workspaceRole === "owner" || workspaceRole === "admin";
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-[var(--color-surface)]">
@@ -24,12 +25,14 @@ export default function SettingsPage() {
           <span className="text-[18px] font-semibold text-[var(--color-text)] flex-1">
             Your Team
           </span>
-          <Link
-            href="/settings/new"
-            className="flex items-center gap-1.5 py-2 px-3.5 bg-[var(--color-accent)] text-white border-none rounded-lg text-[14px] font-semibold cursor-pointer no-underline"
-          >
-            <PlusIcon /> New
-          </Link>
+          {canManage && (
+            <Link
+              href="/settings/new"
+              className="flex items-center gap-1.5 py-2 px-3.5 bg-[var(--color-accent)] text-white border-none rounded-lg text-[14px] font-semibold cursor-pointer no-underline"
+            >
+              <PlusIcon /> New
+            </Link>
+          )}
         </div>
       </div>
 

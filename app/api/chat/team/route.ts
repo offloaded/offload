@@ -10,6 +10,7 @@ import {
   scoreAgentRelevance,
   buildSmartHistory,
 } from "@/lib/group-orchestration";
+import { getWorkspaceContext } from "@/lib/workspace";
 
 function buildScheduleInstructions(): string {
   return `If the user is asking you to schedule, remind, or delay something, acknowledge the request and include a JSON block at the END of your response.
@@ -30,14 +31,13 @@ Current date/time: ${new Date().toISOString()}. Only include this block when sch
 export async function POST(request: Request) {
   const LOG = "[Team Chat]";
 
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
   }
+
+  const user = ctx.user;
+  const supabase = await createServerSupabase();
 
   // Check suspension and usage limits
   const serviceDb = createServiceSupabase();
@@ -84,12 +84,12 @@ export async function POST(request: Request) {
     return new Response(JSON.stringify({ error: "team_id is required" }), { status: 400 });
   }
 
-  // Verify team ownership
-  const { data: team, error: teamError } = await supabase
+  // Verify team belongs to workspace
+  const { data: team, error: teamError } = await serviceDb
     .from("teams")
     .select("id, name, description")
     .eq("id", team_id)
-    .eq("user_id", user.id)
+    .eq("workspace_id", ctx.workspaceId)
     .single();
 
   if (teamError || !team) {
@@ -97,18 +97,18 @@ export async function POST(request: Request) {
   }
 
   // Load team member agent IDs
-  const { data: teamMembers } = await supabase
+  const { data: teamMembers } = await serviceDb
     .from("team_members")
     .select("agent_id")
     .eq("team_id", team_id);
 
   const teamAgentIds = new Set((teamMembers || []).map((m) => m.agent_id));
 
-  // Load only agents that belong to this team
-  const { data: allAgents } = await supabase
+  // Load all workspace agents and filter to team members
+  const { data: allAgents } = await serviceDb
     .from("agents")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("workspace_id", ctx.workspaceId)
     .order("created_at", { ascending: true });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -154,7 +154,7 @@ export async function POST(request: Request) {
     } else {
       const { data: newConv, error: convError } = await supabase
         .from("conversations")
-        .insert({ user_id: user.id, agent_id: null, team_id })
+        .insert({ user_id: user.id, agent_id: null, team_id, workspace_id: ctx.workspaceId })
         .select("id")
         .single();
       if (convError || !newConv) {
@@ -164,8 +164,15 @@ export async function POST(request: Request) {
     }
   }
 
-  // Save user message
-  await supabase.from("messages").insert({ conversation_id: convId, role: "user", content: message.trim() });
+  // Save user message with sender info for multi-user channels
+  const senderName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "User";
+  await supabase.from("messages").insert({
+    conversation_id: convId,
+    role: "user",
+    content: message.trim(),
+    sender_id: user.id,
+    sender_name: senderName,
+  });
   await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
 
   // Load message history

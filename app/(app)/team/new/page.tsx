@@ -7,7 +7,8 @@ import { BackIcon } from "@/components/Icons";
 
 export default function NewTeamPage() {
   const router = useRouter();
-  const { agents, refreshTeams } = useApp();
+  const { agents, refreshTeams, workspaceRole } = useApp();
+  const canManage = workspaceRole === "owner" || workspaceRole === "admin";
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
@@ -51,6 +52,14 @@ export default function NewTeamPage() {
       setSaving(false);
     }
   };
+
+  if (!canManage) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-[15px] text-[var(--color-text-secondary)]">
+        You don&apos;t have permission to create teams
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-[var(--color-surface)]">

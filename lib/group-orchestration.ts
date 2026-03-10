@@ -653,17 +653,23 @@ export async function runGroupOrchestration(
   triggerMessage: string,
   excludeAgentId?: string | string[],
   _round = 0,
-  _respondedIds = new Set<string>()
+  _respondedIds = new Set<string>(),
+  workspaceId?: string
 ): Promise<void> {
   const LOG = `[GroupOrch r${_round}]`;
   console.log(`${LOG} triggered — conv=${conversationId} msg="${triggerMessage.slice(0, 80)}"`);
 
-  // 1. Load agents
-  const { data: allAgents } = await supabase
+  // 1. Load agents — prefer workspace_id if available, fall back to user_id
+  let agentsQuery = supabase
     .from("agents")
     .select("*")
-    .eq("user_id", userId)
     .order("created_at", { ascending: true });
+  if (workspaceId) {
+    agentsQuery = agentsQuery.eq("workspace_id", workspaceId);
+  } else {
+    agentsQuery = agentsQuery.eq("user_id", userId);
+  }
+  const { data: allAgents } = await agentsQuery;
 
   if (!allAgents?.length) {
     console.log(`${LOG} no agents found — aborting`);
@@ -906,7 +912,7 @@ export async function runGroupOrchestration(
       console.log(`${LOG} Follow-up → [${targetNames}] reason: ${followUp.reason}`);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const nextExclude = allAgents.filter((a: any) => !followUp.targetAgentIds.includes(a.id)).map((a: any) => a.id as string);
-      await runGroupOrchestration(supabase, userId, conversationId, combined, nextExclude, _round + 1, nowResponded);
+      await runGroupOrchestration(supabase, userId, conversationId, combined, nextExclude, _round + 1, nowResponded, workspaceId);
     } else {
       console.log(`${LOG} No follow-up triggers — conversation complete`);
     }

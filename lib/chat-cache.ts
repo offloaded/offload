@@ -3,6 +3,8 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   created_at: string;
+  sender_id?: string | null;
+  sender_name?: string | null;
 }
 
 interface CachedChat {
@@ -69,11 +71,14 @@ async function preloadChat(agentId: string): Promise<void> {
     if (!res.ok) return;
     const data = await res.json();
     const msgs: ChatMessage[] = (data.messages || []).map(
-      (m: { id: string; role: string; content: string; created_at: string }) => ({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (m: any) => ({
         id: m.id,
         role: m.role as "user" | "assistant",
         content: m.content,
         created_at: m.created_at,
+        sender_id: m.sender_id || null,
+        sender_name: m.sender_name || null,
       })
     );
     setCache(chatId, {
@@ -110,11 +115,14 @@ export async function pollNewMessages(chatId: string): Promise<ChatMessage[]> {
     if (!res.ok) return [];
     const data = await res.json();
     const newMsgs: ChatMessage[] = (data.messages || []).map(
-      (m: { id: string; role: string; content: string; created_at: string }) => ({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (m: any) => ({
         id: m.id,
         role: m.role as "user" | "assistant",
         content: m.content,
         created_at: m.created_at,
+        sender_id: m.sender_id || null,
+        sender_name: m.sender_name || null,
       })
     );
 

@@ -1,5 +1,7 @@
-import { createServerSupabase } from "@/lib/supabase-server";
+import { createServiceSupabase } from "@/lib/supabase-server";
 import { getAnthropicClient } from "@/lib/anthropic";
+import { getWorkspaceContext } from "@/lib/workspace";
+import { hasPermission } from "@/lib/workspace";
 import { NextResponse } from "next/server";
 
 /**
@@ -7,14 +9,16 @@ import { NextResponse } from "next/server";
  * Accepts voice samples, extracts a voice profile via LLM, saves both to the agent.
  */
 export async function POST(request: Request) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const ctx = await getWorkspaceContext();
+  if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  if (!hasPermission(ctx.role, "admin")) {
+    return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 });
+  }
+
+  const service = createServiceSupabase();
 
   const body = await request.json();
   const { agent_id, samples } = body as {
@@ -31,20 +35,20 @@ export async function POST(request: Request) {
 
   if (validSamples.length === 0) {
     // Clear voice data
-    await supabase
+    await service
       .from("agents")
       .update({ voice_samples: null, voice_profile: null, updated_at: new Date().toISOString() })
       .eq("id", agent_id)
-      .eq("user_id", user.id);
+      .eq("workspace_id", ctx.workspaceId);
     return NextResponse.json({ voice_profile: null });
   }
 
-  // Verify ownership
-  const { data: agent } = await supabase
+  // Verify agent belongs to workspace
+  const { data: agent } = await service
     .from("agents")
     .select("id")
     .eq("id", agent_id)
-    .eq("user_id", user.id)
+    .eq("workspace_id", ctx.workspaceId)
     .single();
 
   if (!agent) {
@@ -78,7 +82,7 @@ Write the profile as a concise paragraph (2-4 sentences) that could be used as a
   const profileText = response.content[0].type === "text" ? response.content[0].text.trim() : "";
 
   // Save both samples and profile
-  await supabase
+  await service
     .from("agents")
     .update({
       voice_samples: validSamples,
@@ -86,7 +90,7 @@ Write the profile as a concise paragraph (2-4 sentences) that could be used as a
       updated_at: new Date().toISOString(),
     })
     .eq("id", agent_id)
-    .eq("user_id", user.id);
+    .eq("workspace_id", ctx.workspaceId);
 
   return NextResponse.json({ voice_profile: profileText });
 }

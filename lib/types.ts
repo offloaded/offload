@@ -1,6 +1,7 @@
 export interface Agent {
   id: string;
   user_id: string;
+  workspace_id: string | null;
   name: string;
   role: string | null;
   purpose: string;
@@ -29,10 +30,38 @@ export interface TeamExpectation {
 export interface Team {
   id: string;
   user_id: string;
+  workspace_id: string | null;
   name: string;
   description: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  owner_id: string;
+  created_at: string;
+  role?: "owner" | "admin" | "member";
+}
+
+export interface WorkspaceMember {
+  workspace_id: string;
+  user_id: string;
+  role: "owner" | "admin" | "member";
+  invited_by: string;
+  joined_at: string;
+  email?: string | null;
+  display_name?: string | null;
+}
+
+export interface WorkspaceInvite {
+  id: string;
+  workspace_id: string;
+  email: string;
+  invited_by: string;
+  status: "pending" | "accepted";
+  created_at: string;
 }
 
 export interface TeamMember {
@@ -74,6 +103,8 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   routed_to: string | null;
+  sender_id: string | null;
+  sender_name: string | null;
   created_at: string;
 }
 
