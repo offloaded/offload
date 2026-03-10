@@ -91,15 +91,12 @@ export default function LandingPage() {
           </span>
         </div>
         <div className="hidden md:flex gap-8 items-center font-['Space_Mono'] text-xs">
-          {["HOW IT WORKS", "PRICING", "DOCS"].map((item) => (
-            <a
-              key={item}
-              href="#"
-              className="text-white/50 tracking-[2px] no-underline transition-colors duration-300 hover:text-[#00f0ff]"
-            >
-              {item}
-            </a>
-          ))}
+          <a
+            href="#how-it-works"
+            className="text-white/50 tracking-[2px] no-underline transition-colors duration-300 hover:text-[#00f0ff]"
+          >
+            HOW IT WORKS
+          </a>
         </div>
       </nav>
 
@@ -174,7 +171,7 @@ export default function LandingPage() {
       </div>
 
       {/* HOW IT WORKS */}
-      <section className="max-w-[1100px] mx-auto px-6 py-20 md:px-10 md:py-[120px]">
+      <section id="how-it-works" className="max-w-[1100px] mx-auto px-6 py-20 md:px-10 md:py-[120px] scroll-mt-20">
         <div className="text-center mb-16">
           <div
             className="font-['Press_Start_2P'] text-[10px] mb-4 tracking-[4px]"
