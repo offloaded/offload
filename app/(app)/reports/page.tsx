@@ -29,6 +29,7 @@ export default function ReportsPage() {
   const [templates, setTemplates] = useState<ReportTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templatesLoaded, setTemplatesLoaded] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -49,14 +50,14 @@ export default function ReportsPage() {
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => setTemplates(data))
       .catch(() => {})
-      .finally(() => setTemplatesLoading(false));
+      .finally(() => { setTemplatesLoading(false); setTemplatesLoaded(true); });
   }, []);
 
   useEffect(() => {
-    if (tab === "templates" && templates.length === 0 && !templatesLoading) {
+    if (tab === "templates" && !templatesLoaded && !templatesLoading) {
       loadTemplates();
     }
-  }, [tab, templates.length, templatesLoading, loadTemplates]);
+  }, [tab, templatesLoaded, templatesLoading, loadTemplates]);
 
   const agentMap = Object.fromEntries(agents.map((a) => [a.id, a]));
 
