@@ -342,6 +342,29 @@ export function SidebarContent({
             <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] shrink-0" />
           )}
         </NavItem>
+        <NavItem href="/marketplace" isActive={pathname === "/marketplace" || pathname.startsWith("/marketplace/")}>
+          <span className="opacity-60">
+            <StorefrontIcon />
+          </span>
+          <span>Marketplace</span>
+        </NavItem>
+        <NavItem href="/reports" isActive={pathname === "/reports" || pathname.startsWith("/reports/")}>
+          <span className="opacity-60">
+            <ReportIcon />
+          </span>
+          <span className="flex-1">Reports</span>
+          {reportCount > 0 && (
+            <span className="text-[11px] font-semibold bg-[var(--color-accent-soft)] text-[var(--color-accent)] rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">
+              {reportCount}
+            </span>
+          )}
+        </NavItem>
+        <NavItem href="/history" isActive={pathname === "/history"}>
+          <span className="opacity-60">
+            <ClockIcon />
+          </span>
+          <span>History</span>
+        </NavItem>
 
         {/* Channels section — collapsible */}
         <SectionHeader
@@ -450,30 +473,6 @@ export function SidebarContent({
             </>
           )
         )}
-
-        <NavItem href="/history" isActive={pathname === "/history"}>
-          <span className="opacity-60">
-            <ClockIcon />
-          </span>
-          <span>History</span>
-        </NavItem>
-        <NavItem href="/marketplace" isActive={pathname === "/marketplace" || pathname.startsWith("/marketplace/")}>
-          <span className="opacity-60">
-            <StorefrontIcon />
-          </span>
-          <span>Marketplace</span>
-        </NavItem>
-        <NavItem href="/reports" isActive={pathname === "/reports" || pathname.startsWith("/reports/")}>
-          <span className="opacity-60">
-            <ReportIcon />
-          </span>
-          <span className="flex-1">Reports</span>
-          {reportCount > 0 && (
-            <span className="text-[11px] font-semibold bg-[var(--color-accent-soft)] text-[var(--color-accent)] rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">
-              {reportCount}
-            </span>
-          )}
-        </NavItem>
 
         {/* Direct messages section — collapsible with internal scroll */}
         {agents.length > 0 && (
