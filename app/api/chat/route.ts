@@ -340,6 +340,26 @@ export async function POST(request: Request) {
   // Trim RAG chunks if too many — keep top 10, max 30k tokens
   ragContext = trimRagChunks(ragContext, 30_000, 10);
 
+  // Fetch recent user-edited reports for this agent so it can learn from corrections
+  let reportEdits: Array<{ title: string; original: string; edited: string }> = [];
+  try {
+    const { data: editedReports } = await serviceDb
+      .from("reports")
+      .select("title, original_content, content")
+      .eq("agent_id", agent_id)
+      .eq("workspace_id", ctx.workspaceId)
+      .not("original_content", "is", null)
+      .order("updated_at", { ascending: false })
+      .limit(5);
+    if (editedReports && editedReports.length > 0) {
+      reportEdits = editedReports.map((r: { title: string; original_content: string; content: string }) => ({
+        title: r.title,
+        original: r.original_content,
+        edited: r.content,
+      }));
+    }
+  } catch { /* non-fatal */ }
+
   // Stream response from Claude
   const anthropic = getAnthropicClient();
   let systemPrompt = buildSystemPrompt(
@@ -352,6 +372,7 @@ export async function POST(request: Request) {
       disabledFeatures: disabledFeatures.length > 0 ? disabledFeatures : undefined,
       activitySummary,
       teamMemberships: agentTeams.length > 0 ? agentTeams : undefined,
+      reportEdits: reportEdits.length > 0 ? reportEdits : undefined,
     }
   );
 

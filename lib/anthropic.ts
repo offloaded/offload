@@ -85,6 +85,7 @@ export function buildSystemPrompt(
     disabledFeatures?: Array<{ feature: string; label: string; description: string }>;
     activitySummary?: string;
     teamMemberships?: Array<{ id: string; name: string }>;
+    reportEdits?: Array<{ title: string; original: string; edited: string }>;
   }
 ): string {
   let prompt = `You are ${agent.name}.
@@ -193,6 +194,14 @@ The full report content goes here.
 Multiple lines are fine.
 \`\`\`
 The content after the --- line should be the actual report text. IMPORTANT: You must ALWAYS include this block when you generate any report or deliverable — do not just say "I've saved it", the block is what actually saves it. Without the block, nothing is saved.`;
+
+  if (options?.reportEdits && options.reportEdits.length > 0) {
+    prompt += `\n\nREPORT FEEDBACK — The user has edited your previous reports. Study these corrections carefully and apply the same improvements to future reports:\n`;
+    for (const edit of options.reportEdits) {
+      prompt += `\nReport: "${edit.title}"\nYour original:\n${edit.original.slice(0, 600)}${edit.original.length > 600 ? "..." : ""}\nUser's edited version:\n${edit.edited.slice(0, 600)}${edit.edited.length > 600 ? "..." : ""}\n`;
+    }
+    prompt += `\nLearn from these edits — match the user's preferred tone, structure, level of detail, and formatting in all future reports.`;
+  }
 
   const styleInstructions = buildStyleInstructions(agent);
   const behaviorLine = styleInstructions

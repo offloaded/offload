@@ -325,7 +325,8 @@ function buildGroupAgentSystemPrompt(
   weight?: "full" | "brief",
   activitySummary?: string,
   teamExpectationsContext?: string,
-  channelContext?: { channelName: string; channelDescription?: string }
+  channelContext?: { channelName: string; channelDescription?: string },
+  reportEdits?: Array<{ title: string; original: string; edited: string }>
 ): string {
   const otherMembers = teamMemberNames.filter((n) => n !== agent.name);
   const teamList = otherMembers.length > 0 ? otherMembers.join(", ") : "no other members";
@@ -415,6 +416,14 @@ CONTEXT: Only respond to the MOST RECENT message in the conversation. Ignore old
 
   if (scheduleInstructions) {
     prompt += `\n\n${scheduleInstructions}`;
+  }
+
+  if (reportEdits && reportEdits.length > 0) {
+    prompt += `\n\nREPORT FEEDBACK — The user has edited your previous reports. Learn from these corrections:\n`;
+    for (const edit of reportEdits) {
+      prompt += `\nReport: "${edit.title}"\nYour original:\n${edit.original.slice(0, 600)}${edit.original.length > 600 ? "..." : ""}\nUser's edited version:\n${edit.edited.slice(0, 600)}${edit.edited.length > 600 ? "..." : ""}\n`;
+    }
+    prompt += `\nApply these preferences to all future reports.`;
   }
 
   return prompt;
@@ -522,7 +531,8 @@ export async function generateAgentResponse(
   weight?: "full" | "brief",
   userId?: string,
   teamExpectationsContext?: string,
-  channelContext?: { channelName: string; channelDescription?: string }
+  channelContext?: { channelName: string; channelDescription?: string },
+  reportEdits?: Array<{ title: string; original: string; edited: string }>
 ): Promise<string> {
   let context: ContextChunk[] = [];
   if (docsByAgent.has(agent.id)) {
@@ -550,7 +560,8 @@ export async function generateAgentResponse(
     weight,
     activitySummary,
     teamExpectationsContext,
-    channelContext
+    channelContext,
+    reportEdits
   );
 
   // Dynamic max_tokens: higher for long-form requests, standard otherwise

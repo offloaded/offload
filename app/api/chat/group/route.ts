@@ -98,6 +98,28 @@ export async function POST(request: Request) {
   }
   console.log(`${LOG} ✓ ${agents.length} agent(s): ${agents.map((a) => a.name).join(", ")}`);
 
+  // Fetch report edits per agent so they can learn from user corrections
+  const reportEditsByAgent = new Map<string, Array<{ title: string; original: string; edited: string }>>();
+  try {
+    const { data: editedReports } = await serviceDb
+      .from("reports")
+      .select("agent_id, title, original_content, content")
+      .eq("workspace_id", ctx.workspaceId)
+      .not("original_content", "is", null)
+      .order("updated_at", { ascending: false })
+      .limit(20);
+    if (editedReports) {
+      for (const r of editedReports) {
+        if (!r.agent_id) continue;
+        const edits = reportEditsByAgent.get(r.agent_id) || [];
+        if (edits.length < 5) {
+          edits.push({ title: r.title, original: r.original_content, edited: r.content });
+          reportEditsByAgent.set(r.agent_id, edits);
+        }
+      }
+    }
+  } catch { /* non-fatal */ }
+
   // Classify intent and detect addressing
   const intent = classifyIntent(message.trim());
   const { isTeamWide, mentionedAgentIds: detectedMentionIds } = detectMessageAddressing(message.trim(), agents);
@@ -229,7 +251,8 @@ export async function POST(request: Request) {
             generateAgentResponse(
               anthropic, supabase, agent, messages, message.trim(),
               docsByAgent, teamMemberNames, scheduleInstructions, priorResponses, weight,
-              user.id
+              user.id, undefined, undefined,
+              reportEditsByAgent.get(agent.id)
             ),
             new Promise<void>((r) => setTimeout(r, targetDelay)),
           ]);
