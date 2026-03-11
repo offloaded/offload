@@ -92,22 +92,22 @@ export default function LandingPage() {
             BETA
           </span>
         </div>
-        <div className="hidden md:flex gap-8 items-center font-['Space_Mono'] text-xs">
+        <div className="flex gap-8 items-center font-['Space_Mono'] text-xs">
           <a
             href="#features"
-            className="text-white/50 tracking-[2px] no-underline transition-colors duration-300 hover:text-[#00f0ff]"
+            className="hidden md:inline text-white/50 tracking-[2px] no-underline transition-colors duration-300 hover:text-[#00f0ff]"
           >
             FEATURES
           </a>
           <a
             href="#marketplace"
-            className="text-white/50 tracking-[2px] no-underline transition-colors duration-300 hover:text-[#00f0ff]"
+            className="hidden md:inline text-white/50 tracking-[2px] no-underline transition-colors duration-300 hover:text-[#00f0ff]"
           >
             MARKETPLACE
           </a>
           <a
             href="#pricing"
-            className="text-white/50 tracking-[2px] no-underline transition-colors duration-300 hover:text-[#00f0ff]"
+            className="hidden md:inline text-white/50 tracking-[2px] no-underline transition-colors duration-300 hover:text-[#00f0ff]"
           >
             PRICING
           </a>
