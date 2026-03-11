@@ -630,8 +630,9 @@ export function ChatView({
         agent_name: reportSaved.agent_name,
         agent_id: reportSaved.agent_id,
       } : undefined);
+      refreshReportCount();
     }
-  }, [reportSaved, openReport]);
+  }, [reportSaved, openReport, refreshReportCount]);
 
   // Register report edit feedback callback — sends diff to agent when user edits report
   useEffect(() => {

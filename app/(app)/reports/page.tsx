@@ -23,7 +23,7 @@ interface ReportTemplate {
 }
 
 export default function ReportsPage() {
-  const { openDrawer, agents, refreshReportCount, openReport, mobile } = useApp();
+  const { openDrawer, agents, refreshReportCount, openReport, mobile, reportCount } = useApp();
   const [tab, setTab] = useState<"reports" | "templates">("reports");
   const [reports, setReports] = useState<ReportSummary[]>([]);
   const [templates, setTemplates] = useState<ReportTemplate[]>([]);
@@ -39,13 +39,15 @@ export default function ReportsPage() {
   const [editDesc, setEditDesc] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Re-fetch reports on mount and whenever the report count changes (e.g. agent saved a new report)
   useEffect(() => {
+    setLoading(true);
     fetch("/api/reports")
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => setReports(data))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [reportCount]);
 
   const loadTemplates = useCallback(() => {
     setTemplatesLoading(true);
