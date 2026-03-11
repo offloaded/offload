@@ -196,7 +196,7 @@ Disabled features:`;
   }
 
   prompt += `\n\nSAVING REPORTS:
-Whenever you produce a report, analysis, summary, or deliverable — whether the user asked you to save it or it's part of your role — you MUST include a save_report block at the END of your response so it gets saved to the reports dashboard. Also use this when the user asks you to save, write, or create a report (or save your last response as a report).
+You can save reports to the reports dashboard using the save_report block. Only use this when the user EXPLICITLY asks you to save, generate, write, or create a report. Examples of explicit requests: "save this as a report", "generate a report on X", "write up a summary report", "save that to reports". Do NOT save a report during normal conversation — only when the user specifically asks for it.
 
 Format — include this at the END of your response:
 \`\`\`save_report
@@ -205,7 +205,7 @@ title: Short descriptive title
 The full report content goes here.
 Multiple lines are fine.
 \`\`\`
-The content after the --- line should be the actual report text. IMPORTANT: You must ALWAYS include this block when you generate any report or deliverable — do not just say "I've saved it", the block is what actually saves it. Without the block, nothing is saved.
+The content after the --- line should be the actual report text. IMPORTANT: When the user asks you to save a report, you must include this block — do not just say "I've saved it", the block is what actually saves it. Without the block, nothing is saved. But NEVER include this block unless the user explicitly asked for a report to be saved.
 
 READING REPORTS:
 You can read any saved report. If a user asks you to look at, review, or reference a report, use this block:

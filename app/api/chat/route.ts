@@ -576,23 +576,6 @@ export async function POST(request: Request) {
           });
         }
 
-        // Auto-save long structured responses as reports
-        if (cleaned && cleaned.length > 800 && (cleaned.includes("\n\n") || cleaned.includes("# "))) {
-          const reportTitle = cleaned.slice(0, 80).split("\n")[0] || `Report from ${agent.name}`;
-          try {
-            const { error: autoReportError } = await serviceDb.from("reports").insert({
-              workspace_id: ctx.workspaceId,
-              user_id: user.id,
-              agent_id: agent.id,
-              title: reportTitle,
-              content: cleaned,
-              source: "agent",
-              conversation_id: convId,
-            });
-            if (autoReportError) console.error("[Chat] Auto-save report failed:", autoReportError.message);
-          } catch (e) { console.error("[Chat] Auto-save report error:", e); }
-        }
-
         // Handle explicit save_report request from agent
         if (saveReportMatch) {
           try {

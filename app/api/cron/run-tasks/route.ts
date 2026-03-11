@@ -193,7 +193,7 @@ async function runTask(
     systemPrompt += searchContext;
   }
 
-  systemPrompt += `\n\nThis is a scheduled task running automatically. The current date and time is ${new Date().toISOString()}. Write your response as a direct message to the user — just write the content naturally as if chatting. Do NOT include any XML tags, tool calls, send_message blocks, channel references, or delivery instructions. Do NOT mention Slack, Teams, or any messaging platform. Simply write the message content.`;
+  systemPrompt += `\n\nThis is a scheduled task running automatically. The current date and time is ${new Date().toISOString()}. Write your response as a direct message to the user — just write the content naturally as if chatting. Do NOT include any XML tags, tool calls, send_message blocks, channel references, or delivery instructions. Do NOT mention Slack, Teams, or any messaging platform. Simply write the message content. Do NOT include save_report, read_report, update_report, schedule_request, or any other code fence blocks — just write plain text.`;
 
   // 6. Call Claude
   const anthropic = getAnthropicClient();
