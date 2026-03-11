@@ -506,16 +506,16 @@ export function ChatView({
   const initialScrollDone = useRef(false);
   const [scrollReady, setScrollReady] = useState(false);
   const conversationIdRef = useRef(conversationId);
-  const prevConversationIdRef = useRef(conversationId);
+  const wasStreamingRef = useRef(streaming);
   conversationIdRef.current = conversationId;
 
-  // When a new conversation is created (null → value), refresh sidebar active DMs
+  // When streaming finishes, refresh sidebar active DMs so new conversations appear
   useEffect(() => {
-    if (conversationId && !prevConversationIdRef.current) {
+    if (wasStreamingRef.current && !streaming) {
       refreshActiveDms();
     }
-    prevConversationIdRef.current = conversationId;
-  }, [conversationId, refreshActiveDms]);
+    wasStreamingRef.current = streaming;
+  }, [streaming, refreshActiveDms]);
 
   // Track this chat as active so unread badges are suppressed
   useEffect(() => {
