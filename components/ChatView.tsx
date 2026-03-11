@@ -142,7 +142,7 @@ function TypingRow({
 }) {
   return (
     <div className="px-4 py-2 md:px-6">
-      <div className="flex gap-2.5 md:gap-3">
+      <div className="flex max-w-[720px] gap-2.5 md:gap-3">
         <Avatar name={agent.name} color={agent.color} size={36} />
         <div className="flex-1 min-w-0">
           {streamText ? (
