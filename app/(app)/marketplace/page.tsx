@@ -7,14 +7,17 @@ import { useRouter } from "next/navigation";
 
 const CATEGORIES = [
   "All",
-  "Business Advisory",
-  "Coaching & Training",
   "Operations",
-  "Research & Analysis",
-  "Health & Fitness",
-  "Legal & Compliance",
-  "Finance",
   "Marketing",
+  "Sales",
+  "Strategy",
+  "Productivity",
+  "Finance",
+  "Fitness",
+  "Communication",
+  "HR / People",
+  "EOS / Traction",
+  "Account Management",
   "Custom",
 ];
 
@@ -23,6 +26,18 @@ const SORT_OPTIONS = [
   { value: "newest", label: "Newest" },
   { value: "alpha", label: "Alphabetical" },
 ];
+
+interface TemplateCard {
+  id: string;
+  name: string;
+  icon: string;
+  category: string;
+  tagline: string;
+  description: string;
+  target_persona: string[];
+  tools: string[];
+  report_templates: Array<{ name: string; description: string }>;
+}
 
 interface ListingCard {
   id: string;
@@ -60,12 +75,36 @@ export default function MarketplacePage() {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("popular");
   const [listings, setListings] = useState<ListingCard[]>([]);
+  const [templates, setTemplates] = useState<TemplateCard[]>([]);
   const [loading, setLoading] = useState(true);
+  const [templatesLoaded, setTemplatesLoaded] = useState(false);
+
+  // Detail modal — supports both templates and listings
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedType, setSelectedType] = useState<"template" | "listing">("listing");
   const [detail, setDetail] = useState<ListingDetail | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<TemplateCard | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [adopting, setAdopting] = useState(false);
   const [adoptResult, setAdoptResult] = useState<{ type: string; message: string; team_id?: string; agent_id?: string } | null>(null);
+
+  // Fetch templates once
+  useEffect(() => {
+    if (templatesLoaded) return;
+    (async () => {
+      try {
+        const res = await fetch("/api/marketplace/templates");
+        if (res.ok) {
+          const data = await res.json();
+          setTemplates(data.templates || []);
+        }
+      } catch {
+        // silent
+      } finally {
+        setTemplatesLoaded(true);
+      }
+    })();
+  }, [templatesLoaded]);
 
   const fetchListings = useCallback(async () => {
     setLoading(true);
@@ -90,8 +129,34 @@ export default function MarketplacePage() {
     fetchListings();
   }, [fetchListings]);
 
+  // Filter templates by category and search
+  const filteredTemplates = templates.filter((t) => {
+    if (category !== "All" && t.category !== category) return false;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      return (
+        t.name.toLowerCase().includes(q) ||
+        t.tagline.toLowerCase().includes(q) ||
+        t.description.toLowerCase().includes(q) ||
+        t.category.toLowerCase().includes(q) ||
+        t.target_persona.some((p) => p.toLowerCase().includes(q))
+      );
+    }
+    return true;
+  });
+
+  const openTemplate = (t: TemplateCard) => {
+    setSelectedId(t.id);
+    setSelectedType("template");
+    setSelectedTemplate(t);
+    setDetail(null);
+    setAdoptResult(null);
+  };
+
   const openDetail = async (id: string) => {
     setSelectedId(id);
+    setSelectedType("listing");
+    setSelectedTemplate(null);
     setLoadingDetail(true);
     setDetail(null);
     setAdoptResult(null);
@@ -110,27 +175,43 @@ export default function MarketplacePage() {
   const closeDetail = () => {
     setSelectedId(null);
     setDetail(null);
+    setSelectedTemplate(null);
     setAdoptResult(null);
   };
 
-  const adopt = async () => {
+  const install = async () => {
     if (!selectedId || adopting) return;
     setAdopting(true);
     try {
-      const res = await fetch("/api/marketplace/adopt", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ listing_id: selectedId }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Adoption failed");
+      if (selectedType === "template") {
+        const res = await fetch("/api/marketplace/templates/install", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ template_id: selectedId }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || "Install failed");
+        }
+        const result = await res.json();
+        setAdoptResult(result);
+        await refreshAgents();
+      } else {
+        const res = await fetch("/api/marketplace/adopt", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ listing_id: selectedId }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || "Adoption failed");
+        }
+        const result = await res.json();
+        setAdoptResult(result);
+        await Promise.all([refreshAgents(), refreshTeams()]);
       }
-      const result = await res.json();
-      setAdoptResult(result);
-      await Promise.all([refreshAgents(), refreshTeams()]);
     } catch (err) {
-      setAdoptResult({ type: "error", message: err instanceof Error ? err.message : "Failed to adopt" });
+      setAdoptResult({ type: "error", message: err instanceof Error ? err.message : "Failed" });
     } finally {
       setAdopting(false);
     }
@@ -145,6 +226,8 @@ export default function MarketplacePage() {
     }
     closeDetail();
   };
+
+  const showTemplates = tab === "agent" && filteredTemplates.length > 0;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-[var(--color-surface)]">
@@ -237,15 +320,122 @@ export default function MarketplacePage() {
         </div>
       </div>
 
-      {/* Listings grid */}
+      {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 py-4 md:px-10">
+        {/* Template agents */}
+        {showTemplates && (
+          <div className="mb-6">
+            <div className="text-[13px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide mb-3">
+              Ready-to-use agents
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {filteredTemplates.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => openTemplate(t)}
+                  className="text-left border border-[var(--color-border)] rounded-xl p-4 bg-[var(--color-surface)] cursor-pointer transition-all hover:border-[var(--color-accent)] hover:shadow-sm"
+                >
+                  <div className="flex items-start gap-2.5 mb-2">
+                    <span className="text-[20px] leading-none shrink-0 mt-0.5">{t.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[15px] font-semibold text-[var(--color-text)] leading-tight">
+                        {t.name}
+                      </div>
+                      <div className="text-[13px] text-[var(--color-text-secondary)] mt-0.5">
+                        {t.tagline}
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-medium text-[var(--color-accent)] bg-[var(--color-accent-soft)] rounded-full px-2 py-0.5 shrink-0">
+                      {t.category}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1 mt-2.5">
+                    {t.target_persona.slice(0, 3).map((p, i) => (
+                      <span
+                        key={i}
+                        className="text-[11px] text-[var(--color-text-tertiary)] bg-[var(--color-active)] rounded-md px-1.5 py-0.5"
+                      >
+                        {p}
+                      </span>
+                    ))}
+                    {t.report_templates.length > 0 && (
+                      <span className="text-[11px] text-[var(--color-text-tertiary)] bg-[var(--color-active)] rounded-md px-1.5 py-0.5">
+                        {t.report_templates.length} template{t.report_templates.length !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Community listings */}
+        {listings.length > 0 && (
+          <div>
+            {showTemplates && (
+              <div className="text-[13px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide mb-3">
+                Community
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {listings.map((l) => (
+                <button
+                  key={l.id}
+                  onClick={() => openDetail(l.id)}
+                  className="text-left border border-[var(--color-border)] rounded-xl p-4 bg-[var(--color-surface)] cursor-pointer transition-all hover:border-[var(--color-accent)] hover:shadow-sm"
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="text-[15px] font-semibold text-[var(--color-text)] leading-tight">
+                      {l.name}
+                    </div>
+                    <span className="text-[11px] font-medium text-[var(--color-accent)] bg-[var(--color-accent-soft)] rounded-full px-2 py-0.5 shrink-0 ml-2">
+                      {l.category}
+                    </span>
+                  </div>
+                  <div className="text-[13px] text-[var(--color-text-secondary)] mb-3 leading-relaxed" style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                    {l.description}
+                  </div>
+                  {l.type === "team" && l.agents && (
+                    <div className="flex flex-wrap gap-1 mb-2.5">
+                      {l.agents.slice(0, 5).map((a, i) => (
+                        <span
+                          key={i}
+                          className="text-[11px] font-medium text-[var(--color-text-secondary)] bg-[var(--color-active)] rounded-md px-1.5 py-0.5"
+                        >
+                          {a.name}{a.role ? ` · ${a.role}` : ""}
+                        </span>
+                      ))}
+                      {l.agents.length > 5 && (
+                        <span className="text-[11px] text-[var(--color-text-tertiary)] px-1">+{l.agents.length - 5} more</span>
+                      )}
+                    </div>
+                  )}
+                  {l.type === "agent" && l.document_count !== undefined && l.document_count > 0 && (
+                    <div className="text-[11px] text-[var(--color-text-tertiary)] mb-2.5">
+                      Grounded in {l.document_count} document{l.document_count !== 1 ? "s" : ""}
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between text-[11px] text-[var(--color-text-tertiary)]">
+                    <span>by {l.publisher_name}</span>
+                    <span>
+                      {l.type === "team" && l.agent_count !== undefined ? `${l.agent_count} agents · ` : ""}
+                      {l.adoption_count} adopted
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {loading && (
           <div className="flex items-center justify-center py-16">
             <span className="text-[15px] text-[var(--color-text-tertiary)]">Loading...</span>
           </div>
         )}
 
-        {!loading && listings.length === 0 && (
+        {!loading && listings.length === 0 && filteredTemplates.length === 0 && (
           <div className="flex items-center justify-center py-16">
             <div className="text-center">
               <div className="text-[15px] text-[var(--color-text-secondary)] mb-1">No listings found</div>
@@ -253,57 +443,6 @@ export default function MarketplacePage() {
                 {search ? "Try a different search term" : "Be the first to publish!"}
               </div>
             </div>
-          </div>
-        )}
-
-        {!loading && listings.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {listings.map((l) => (
-              <button
-                key={l.id}
-                onClick={() => openDetail(l.id)}
-                className="text-left border border-[var(--color-border)] rounded-xl p-4 bg-[var(--color-surface)] cursor-pointer transition-all hover:border-[var(--color-accent)] hover:shadow-sm"
-              >
-                <div className="flex items-start justify-between mb-2">
-                  <div className="text-[15px] font-semibold text-[var(--color-text)] leading-tight">
-                    {l.name}
-                  </div>
-                  <span className="text-[11px] font-medium text-[var(--color-accent)] bg-[var(--color-accent-soft)] rounded-full px-2 py-0.5 shrink-0 ml-2">
-                    {l.category}
-                  </span>
-                </div>
-                <div className="text-[13px] text-[var(--color-text-secondary)] mb-3 leading-relaxed" style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-                  {l.description}
-                </div>
-                {l.type === "team" && l.agents && (
-                  <div className="flex flex-wrap gap-1 mb-2.5">
-                    {l.agents.slice(0, 5).map((a, i) => (
-                      <span
-                        key={i}
-                        className="text-[11px] font-medium text-[var(--color-text-secondary)] bg-[var(--color-active)] rounded-md px-1.5 py-0.5"
-                      >
-                        {a.name}{a.role ? ` · ${a.role}` : ""}
-                      </span>
-                    ))}
-                    {l.agents.length > 5 && (
-                      <span className="text-[11px] text-[var(--color-text-tertiary)] px-1">+{l.agents.length - 5} more</span>
-                    )}
-                  </div>
-                )}
-                {l.type === "agent" && l.document_count !== undefined && l.document_count > 0 && (
-                  <div className="text-[11px] text-[var(--color-text-tertiary)] mb-2.5">
-                    Grounded in {l.document_count} document{l.document_count !== 1 ? "s" : ""}
-                  </div>
-                )}
-                <div className="flex items-center justify-between text-[11px] text-[var(--color-text-tertiary)]">
-                  <span>by {l.publisher_name}</span>
-                  <span>
-                    {l.type === "team" && l.agent_count !== undefined ? `${l.agent_count} agents · ` : ""}
-                    {l.adoption_count} adopted
-                  </span>
-                </div>
-              </button>
-            ))}
           </div>
         )}
       </div>
@@ -319,8 +458,13 @@ export default function MarketplacePage() {
             <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl shadow-xl w-full max-w-[640px] max-h-[85vh] flex flex-col pointer-events-auto overflow-hidden">
               {/* Detail header */}
               <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)] shrink-0">
-                <div className="text-[17px] font-semibold text-[var(--color-text)]">
-                  {detail?.name || "Loading..."}
+                <div className="flex items-center gap-2.5">
+                  {selectedTemplate && (
+                    <span className="text-[22px]">{selectedTemplate.icon}</span>
+                  )}
+                  <div className="text-[17px] font-semibold text-[var(--color-text)]">
+                    {selectedTemplate?.name || detail?.name || "Loading..."}
+                  </div>
                 </div>
                 <button onClick={closeDetail} className="bg-transparent border-none cursor-pointer text-[var(--color-text-tertiary)] p-1 flex hover:text-[var(--color-text)]">
                   <XIcon />
@@ -329,7 +473,87 @@ export default function MarketplacePage() {
 
               {/* Detail body */}
               <div className="flex-1 overflow-y-auto px-5 py-4">
-                {loadingDetail && (
+                {/* Template detail */}
+                {selectedTemplate && !adoptResult && (
+                  <>
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-[12px] font-medium text-[var(--color-accent)] bg-[var(--color-accent-soft)] rounded-full px-2.5 py-0.5">
+                        {selectedTemplate.category}
+                      </span>
+                      <span className="text-[12px] text-[var(--color-text-tertiary)]">
+                        by Offload
+                      </span>
+                    </div>
+
+                    <div className="text-[15px] text-[var(--color-text)] font-medium mb-2">
+                      {selectedTemplate.tagline}
+                    </div>
+
+                    <p className="text-[14px] text-[var(--color-text-secondary)] leading-relaxed mb-5">
+                      {selectedTemplate.description}
+                    </p>
+
+                    {/* Target persona */}
+                    <div className="mb-4">
+                      <div className="text-[13px] font-semibold text-[var(--color-text-secondary)] mb-2">
+                        Built for
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {selectedTemplate.target_persona.map((p, i) => (
+                          <span
+                            key={i}
+                            className="text-[12px] text-[var(--color-text-secondary)] bg-[var(--color-active)] rounded-lg px-2.5 py-1"
+                          >
+                            {p}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Tools */}
+                    {selectedTemplate.tools.length > 0 && (
+                      <div className="mb-4">
+                        <div className="text-[13px] font-semibold text-[var(--color-text-secondary)] mb-2">
+                          Integrations
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {selectedTemplate.tools.map((tool, i) => (
+                            <span
+                              key={i}
+                              className="text-[12px] text-[var(--color-text)] bg-[var(--color-active)] rounded-lg px-2.5 py-1 capitalize"
+                            >
+                              {tool.replace("_", " ")}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Report templates */}
+                    {selectedTemplate.report_templates.length > 0 && (
+                      <div className="mb-4">
+                        <div className="text-[13px] font-semibold text-[var(--color-text-secondary)] mb-2">
+                          Report templates included
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          {selectedTemplate.report_templates.map((rt, i) => (
+                            <div key={i} className="border border-[var(--color-border)] rounded-lg p-3">
+                              <div className="text-[13px] font-medium text-[var(--color-text)]">
+                                {rt.name}
+                              </div>
+                              <div className="text-[12px] text-[var(--color-text-secondary)] mt-0.5">
+                                {rt.description}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Listing detail */}
+                {loadingDetail && selectedType === "listing" && (
                   <div className="py-8 text-center text-[14px] text-[var(--color-text-tertiary)]">Loading details...</div>
                 )}
 
@@ -351,7 +575,6 @@ export default function MarketplacePage() {
                       {detail.description}
                     </p>
 
-                    {/* Agents in this listing */}
                     {detail.agents.length > 0 && (
                       <div className="mb-5">
                         <div className="text-[13px] font-semibold text-[var(--color-text-secondary)] mb-2">
@@ -378,7 +601,6 @@ export default function MarketplacePage() {
                       </div>
                     )}
 
-                    {/* Team Expectations */}
                     {Object.keys(detail.team_expectations).length > 0 && (
                       <div className="mb-5">
                         <div className="text-[13px] font-semibold text-[var(--color-text-secondary)] mb-2">
@@ -395,7 +617,6 @@ export default function MarketplacePage() {
                       </div>
                     )}
 
-                    {/* Knowledge base documents */}
                     {detail.documents.length > 0 && (
                       <div className="mb-5">
                         <div className="text-[13px] font-semibold text-[var(--color-text-secondary)] mb-2">
@@ -415,7 +636,7 @@ export default function MarketplacePage() {
                   </>
                 )}
 
-                {/* Adoption result */}
+                {/* Adoption/install result */}
                 {adoptResult && (
                   <div className="py-6 text-center">
                     {adoptResult.type === "error" ? (
@@ -423,10 +644,10 @@ export default function MarketplacePage() {
                     ) : (
                       <>
                         <div className="text-[24px] mb-3">
-                          {adoptResult.type === "team" ? "🎉" : "✨"}
+                          {selectedTemplate ? selectedTemplate.icon : adoptResult.type === "team" ? "🎉" : "✨"}
                         </div>
                         <div className="text-[15px] font-medium text-[var(--color-text)] mb-2">
-                          {detail?.type === "team" ? "Team added!" : "Agent added!"}
+                          {selectedTemplate ? `${selectedTemplate.name} added!` : detail?.type === "team" ? "Team added!" : "Agent added!"}
                         </div>
                         <div className="text-[13px] text-[var(--color-text-secondary)] mb-5 px-4">
                           {adoptResult.message}
@@ -444,18 +665,20 @@ export default function MarketplacePage() {
               </div>
 
               {/* Detail footer */}
-              {detail && !adoptResult && (
+              {(selectedTemplate || detail) && !adoptResult && (
                 <div className="px-5 py-4 border-t border-[var(--color-border)] shrink-0">
                   <button
-                    onClick={adopt}
+                    onClick={install}
                     disabled={adopting}
                     className="w-full py-3 border-none rounded-lg text-[15px] font-semibold cursor-pointer disabled:opacity-60 transition-colors bg-[var(--color-accent)] text-white"
                   >
                     {adopting
                       ? "Setting up..."
-                      : detail.type === "team"
-                        ? "Use this team"
-                        : "Add to workspace"}
+                      : selectedTemplate
+                        ? "Add to workspace"
+                        : detail?.type === "team"
+                          ? "Use this team"
+                          : "Add to workspace"}
                   </button>
                 </div>
               )}

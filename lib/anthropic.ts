@@ -76,6 +76,8 @@ export function buildSystemPrompt(
     voice_profile?: string | null;
     soft_skills?: { skill: string; confidence: string; note?: string }[] | null;
     team_expectations?: { expectation: string; category?: string }[] | null;
+    custom_system_prompt?: string | null;
+    voice_config?: { tone?: string; style?: string; avoids?: string } | null;
   },
   context?: ContextChunk[],
   documentNames?: string[],
@@ -89,11 +91,19 @@ export function buildSystemPrompt(
     reportTemplates?: Array<{ name: string; description: string }>;
   }
 ): string {
-  let prompt = `You are ${agent.name}.
+  let prompt: string;
+
+  if (agent.custom_system_prompt) {
+    // Template-sourced agent: use the curated system prompt as the base
+    prompt = `You are ${agent.name}.\n\n${agent.custom_system_prompt}`;
+    prompt += `\n\nCRITICAL — YOU ARE NOT A TOOL-USING SYSTEM: Never output XML tags, tool calls, or structured action syntax of any kind. This means no <send_message>, </send_message>, <action>, <channel>, or similar tags. Never write delivery instructions. The system handles all message routing — your job is only to write the content as plain conversational text.`;
+  } else {
+    prompt = `You are ${agent.name}.
 
 Your purpose: ${agent.purpose}
 
 CRITICAL — YOU ARE NOT A TOOL-USING SYSTEM: Never output XML tags, tool calls, or structured action syntax of any kind. This means no <send_message>, </send_message>, <action>, <channel>, or similar tags. Never write delivery instructions. The system handles all message routing — your job is only to write the content as plain conversational text.`;
+  }
 
   if (documentNames && documentNames.length > 0) {
     prompt += `\n\nYou have access to the following documents in your knowledge base:\n${documentNames.map((n) => `- ${n}`).join("\n")}`;
@@ -220,6 +230,15 @@ The content after the --- line should be the actual report text. IMPORTANT: You 
 
   if (agent.voice_profile) {
     prompt += `\n\nTONE OF VOICE: Communicate in this style: ${agent.voice_profile} Match this tone and approach in every response.`;
+  }
+
+  if (agent.voice_config) {
+    const vc = agent.voice_config;
+    let voiceBlock = "\n\nVOICE GUIDANCE:";
+    if (vc.tone) voiceBlock += `\nTone: ${vc.tone}`;
+    if (vc.style) voiceBlock += `\nStyle: ${vc.style}`;
+    if (vc.avoids) voiceBlock += `\nAvoids: ${vc.avoids}`;
+    prompt += voiceBlock;
   }
 
   if (agent.soft_skills && agent.soft_skills.length > 0) {

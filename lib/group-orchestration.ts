@@ -316,6 +316,8 @@ function buildGroupAgentSystemPrompt(
     voice_profile?: string | null;
     soft_skills?: { skill: string; confidence: string; note?: string }[] | null;
     team_expectations?: { expectation: string; category?: string }[] | null;
+    custom_system_prompt?: string | null;
+    voice_config?: { tone?: string; style?: string; avoids?: string } | null;
   },
   context: ContextChunk[],
   teamMemberNames: string[],
@@ -344,9 +346,11 @@ function buildGroupAgentSystemPrompt(
     ? ` Only members of the ${channelContext.channelName} team are in this channel.`
     : " Every agent on the team is in this channel.";
 
+  const roleDescription = agent.custom_system_prompt || agent.purpose;
+
   let prompt = `You are ${agent.name}, responding in ${channelLabel}.${channelNote}${membersNote}
 
-Your role: ${agent.purpose}
+Your role: ${roleDescription}
 
 ROLE BOUNDARIES: You are the ${agent.name}. ONLY provide analysis, opinions, and information within YOUR area of expertise as defined by your role above. If a question is outside your domain, say so briefly and defer to the appropriate team member by name. Do NOT attempt to cover other agents' areas — that is their job, not yours.
 
@@ -368,6 +372,15 @@ CONTEXT: Only respond to the MOST RECENT message in the conversation. Ignore old
 
   if (agent.voice_profile) {
     prompt += `\n\nTONE OF VOICE: Communicate in this style: ${agent.voice_profile} Match this tone and approach in every response.`;
+  }
+
+  if (agent.voice_config) {
+    const vc = agent.voice_config;
+    let voiceBlock = "\n\nVOICE GUIDANCE:";
+    if (vc.tone) voiceBlock += `\nTone: ${vc.tone}`;
+    if (vc.style) voiceBlock += `\nStyle: ${vc.style}`;
+    if (vc.avoids) voiceBlock += `\nAvoids: ${vc.avoids}`;
+    prompt += voiceBlock;
   }
 
   if (agent.soft_skills && agent.soft_skills.length > 0) {
