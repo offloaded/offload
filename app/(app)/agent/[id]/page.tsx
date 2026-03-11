@@ -23,6 +23,7 @@ export default function AgentChatPage() {
 
   return (
     <ChatView
+      key={agent.id}
       agent={agent}
       openDrawer={openDrawer}
       initialConversationId={conversationId}

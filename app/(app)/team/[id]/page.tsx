@@ -23,6 +23,7 @@ export default function TeamChatPage() {
 
   return (
     <TeamChatView
+      key={teamId}
       teamId={teamId}
       teamName={team.name}
       teamAgents={teamAgents}
