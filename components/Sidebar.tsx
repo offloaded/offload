@@ -6,6 +6,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { HashIcon, GearIcon, XIcon, ClockIcon, PlusIcon, RepeatClockIcon, ActivityIcon, SunIcon, MoonIcon, PeopleIcon, LockIcon, StorefrontIcon, SearchIcon, ReportIcon, ChevronDownIcon } from "./Icons";
 import { createClient } from "@/lib/supabase";
 import type { Agent, Team, Workspace, WorkspaceMember } from "@/lib/types";
+import { useApp } from "@/app/(app)/layout";
 
 interface TeamWithAgents extends Team {
   agent_ids: string[];
@@ -197,6 +198,7 @@ interface Participant {
 
 function ComposeModal({ open, onClose, agents, workspaceId, canCreateTeam }: ComposeModalProps) {
   const router = useRouter();
+  const { refreshTeams, refreshActiveDms } = useApp();
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Participant[]>([]);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
@@ -313,13 +315,14 @@ function ComposeModal({ open, onClose, agents, workspaceId, canCreateTeam }: Com
       });
       if (res.ok) {
         const team = await res.json();
+        refreshTeams();
         onClose();
         router.push(`/team/${team.id}`);
       }
     } finally {
       setCreating(false);
     }
-  }, [selected, showTeamName, teamName, onClose, router]);
+  }, [selected, showTeamName, teamName, onClose, router, refreshTeams, refreshActiveDms]);
 
   if (!open) return null;
 
@@ -474,6 +477,7 @@ function ComposeModal({ open, onClose, agents, workspaceId, canCreateTeam }: Com
 export function SidebarContent({
   agents,
   teams = [],
+  activeDmAgentIds = null,
   showClose,
   onClose,
   activeTaskCount = 0,
@@ -488,6 +492,7 @@ export function SidebarContent({
 }: {
   agents: Agent[];
   teams?: TeamWithAgents[];
+  activeDmAgentIds?: string[] | null;
   showClose?: boolean;
   onClose?: () => void;
   activeTaskCount?: number;
@@ -515,17 +520,6 @@ export function SidebarContent({
 
   // Compose modal
   const [composeOpen, setComposeOpen] = useState(false);
-
-  // Active DMs — agents the user has actually chatted with
-  const [activeDmAgentIds, setActiveDmAgentIds] = useState<string[] | null>(null);
-  useEffect(() => {
-    fetch("/api/conversations/active-dms")
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data: { agent_id: string; last_message_at: string }[]) => {
-        setActiveDmAgentIds(data.map((d) => d.agent_id));
-      })
-      .catch(() => {});
-  }, []);
 
   // Search filter
   const [search, setSearch] = useState("");
@@ -964,6 +958,7 @@ function LogOutButton() {
 export function Drawer({
   agents,
   teams,
+  activeDmAgentIds,
   open,
   onClose,
   activeTaskCount,
@@ -978,6 +973,7 @@ export function Drawer({
 }: {
   agents: Agent[];
   teams?: TeamWithAgents[];
+  activeDmAgentIds?: string[] | null;
   open: boolean;
   onClose: () => void;
   activeTaskCount?: number;
@@ -1010,6 +1006,7 @@ export function Drawer({
         <SidebarContent
           agents={agents}
           teams={teams}
+          activeDmAgentIds={activeDmAgentIds}
           showClose
           onClose={onClose}
           activeTaskCount={activeTaskCount}

@@ -471,7 +471,7 @@ export function ChatView({
   openDrawer: () => void;
   initialConversationId?: string | null;
 }) {
-  const { refreshAgents, markRead, setActiveChatKey, unreadCounts, teams, refreshReportCount, openReport, openReportId, reportEditCallback, setReportLiveUpdate } = useApp();
+  const { refreshAgents, refreshActiveDms, markRead, setActiveChatKey, unreadCounts, teams, refreshReportCount, openReport, openReportId, reportEditCallback, setReportLiveUpdate } = useApp();
   const channels = buildChannelOptions(teams);
   const chatId = initialConversationId
     ? `conv:${initialConversationId}`
@@ -506,7 +506,16 @@ export function ChatView({
   const initialScrollDone = useRef(false);
   const [scrollReady, setScrollReady] = useState(false);
   const conversationIdRef = useRef(conversationId);
+  const prevConversationIdRef = useRef(conversationId);
   conversationIdRef.current = conversationId;
+
+  // When a new conversation is created (null → value), refresh sidebar active DMs
+  useEffect(() => {
+    if (conversationId && !prevConversationIdRef.current) {
+      refreshActiveDms();
+    }
+    prevConversationIdRef.current = conversationId;
+  }, [conversationId, refreshActiveDms]);
 
   // Track this chat as active so unread badges are suppressed
   useEffect(() => {

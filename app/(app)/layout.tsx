@@ -17,6 +17,8 @@ interface AppContextValue {
   refreshAgents: () => Promise<void>;
   teams: TeamWithAgents[];
   refreshTeams: () => Promise<void>;
+  activeDmAgentIds: string[] | null;
+  refreshActiveDms: () => void;
   activeTaskCount: number;
   refreshTaskCount: () => void;
   mobile: boolean;
@@ -52,6 +54,8 @@ const AppContext = createContext<AppContextValue>({
   refreshAgents: async () => {},
   teams: [],
   refreshTeams: async () => {},
+  activeDmAgentIds: null,
+  refreshActiveDms: () => {},
   activeTaskCount: 0,
   refreshTaskCount: () => {},
   mobile: false,
@@ -160,6 +164,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [initialReportData, setInitialReportData] = useState<{ title: string; content: string; agent_name?: string; agent_id?: string } | null>(null);
   const [reportPanelWidth, setReportPanelWidth] = useState(50); // percentage
   const [reportLiveUpdate, setReportLiveUpdate] = useState<{ report_id: string; title: string; content: string } | null>(null);
+  const [activeDmAgentIds, setActiveDmAgentIds] = useState<string[] | null>(null);
   const reportEditCallback = useRef<((reportId: string, reportTitle: string, original: string, edited: string) => void) | null>(null);
   const mobile = useIsMobile();
   const router = useRouter();
@@ -247,6 +252,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       .catch(() => {});
   }, []);
 
+  const refreshActiveDms = useCallback(() => {
+    fetch("/api/conversations/active-dms")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: { agent_id: string; last_message_at: string }[]) => {
+        setActiveDmAgentIds(data.map((d) => d.agent_id));
+      })
+      .catch(() => {});
+  }, []);
+
   const refreshWorkspace = useCallback(async () => {
     const [currentRes, allRes] = await Promise.all([
       fetch("/api/workspaces/current"),
@@ -294,6 +308,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         refreshWorkspace();
         refreshAgents();
         refreshTeams();
+        refreshActiveDms();
         refreshTaskCount();
         refreshUnreadCounts();
         checkNewActivity();
@@ -301,7 +316,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         fetch("/api/admin/check").then(r => r.ok ? r.json() : { isAdmin: false }).then(d => setIsAdmin(d.isAdmin)).catch(() => {});
       }
     });
-  }, [supabase, router, refreshAgents, refreshTeams, refreshTaskCount, refreshUnreadCounts, checkNewActivity, refreshWorkspace, refreshReportCount]);
+  }, [supabase, router, refreshAgents, refreshTeams, refreshActiveDms, refreshTaskCount, refreshUnreadCounts, checkNewActivity, refreshWorkspace, refreshReportCount]);
 
   // Poll for unread counts and new activity every 20 seconds
   useEffect(() => {
@@ -311,9 +326,37 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       checkNewActivity();
       refreshAgents();
       refreshTeams();
+      refreshActiveDms();
     }, 20_000);
     return () => clearInterval(interval);
-  }, [checked, refreshUnreadCounts, checkNewActivity, refreshAgents, refreshTeams]);
+  }, [checked, refreshUnreadCounts, checkNewActivity, refreshAgents, refreshTeams, refreshActiveDms]);
+
+  // Realtime: listen for new conversations (cross-tab, background tasks)
+  useEffect(() => {
+    if (!checked) return;
+    const channel = supabase
+      .channel("sidebar-conversations")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "conversations" },
+        () => {
+          refreshActiveDms();
+          refreshTeams();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        () => {
+          refreshActiveDms();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [checked, supabase, refreshActiveDms, refreshTeams]);
 
   if (!checked) {
     return (
@@ -324,17 +367,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AppContext value={{ agents, refreshAgents, teams, refreshTeams, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, switchWorkspace, refreshWorkspace, reportCount, refreshReportCount, openReportId, openReport, closeReport, reportEditCallback, reportLiveUpdate, setReportLiveUpdate }}>
+    <AppContext value={{ agents, refreshAgents, teams, refreshTeams, activeDmAgentIds, refreshActiveDms, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, switchWorkspace, refreshWorkspace, reportCount, refreshReportCount, openReportId, openReport, closeReport, reportEditCallback, reportLiveUpdate, setReportLiveUpdate }}>
       <div className="flex h-screen w-full bg-[var(--color-page-bg)] overflow-hidden">
         {/* Desktop sidebar — hidden below 768px via CSS */}
         <div className="hidden md:flex w-[220px] min-w-[220px] bg-[var(--color-bg)] border-r border-[var(--color-border)] flex-col">
-          <SidebarContent agents={agents} teams={teams} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} isAdmin={isAdmin} workspace={workspace} workspaces={workspaces} workspaceRole={workspaceRole} onSwitchWorkspace={switchWorkspace} reportCount={reportCount} />
+          <SidebarContent agents={agents} teams={teams} activeDmAgentIds={activeDmAgentIds} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} isAdmin={isAdmin} workspace={workspace} workspaces={workspaces} workspaceRole={workspaceRole} onSwitchWorkspace={switchWorkspace} reportCount={reportCount} />
         </div>
 
         {/* Mobile drawer — always mounted, visibility controlled by open state */}
         <Drawer
           agents={agents}
           teams={teams}
+          activeDmAgentIds={activeDmAgentIds}
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
           activeTaskCount={activeTaskCount}
