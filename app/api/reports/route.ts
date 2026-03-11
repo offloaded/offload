@@ -22,15 +22,32 @@ export async function GET(request: Request) {
     return NextResponse.json({ count: count || 0 });
   }
 
-  const { data: reports, error } = await service
+  // Try with display_name first (added in migration 030)
+  let { data: reports, error } = await service
     .from("reports")
-    .select("id, title, display_name, source, agent_id, created_at, updated_at")
+    .select("id, title, display_name, source, agent_id, created_at")
     .eq("workspace_id", ctx.workspaceId)
     .order("created_at", { ascending: false })
     .limit(100);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[GET /api/reports] Query error:", error.message, error.details, error.hint, error.code);
+
+    // Fallback: display_name column may not exist yet (migration 030 not applied)
+    const fallback = await service
+      .from("reports")
+      .select("id, title, source, agent_id, created_at")
+      .eq("workspace_id", ctx.workspaceId)
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    if (fallback.error) {
+      console.error("[GET /api/reports] Fallback also failed:", fallback.error.message);
+      return NextResponse.json({ error: fallback.error.message }, { status: 500 });
+    }
+
+    // Add null display_name so the frontend shape is consistent
+    reports = (fallback.data || []).map((r) => ({ ...r, display_name: null }));
   }
 
   return NextResponse.json(reports || []);
