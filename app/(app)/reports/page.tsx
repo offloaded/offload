@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import Link from "next/link";
 import { useApp } from "@/app/(app)/layout";
 import { MenuIcon, ReportIcon, TrashIcon, UploadIcon, PlusIcon, FileIcon } from "@/components/Icons";
 
@@ -23,7 +22,7 @@ interface ReportTemplate {
 }
 
 export default function ReportsPage() {
-  const { openDrawer, agents, refreshReportCount } = useApp();
+  const { openDrawer, agents, refreshReportCount, openReport, mobile } = useApp();
   const [tab, setTab] = useState<"reports" | "templates">("reports");
   const [reports, setReports] = useState<ReportSummary[]>([]);
   const [templates, setTemplates] = useState<ReportTemplate[]>([]);
@@ -198,10 +197,16 @@ export default function ReportsPage() {
                     return (
                       <div
                         key={report.id}
-                        className="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-[var(--color-hover)] transition-colors group"
+                        className="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-[var(--color-hover)] transition-colors group cursor-pointer"
+                        onClick={() => {
+                          if (mobile) {
+                            window.location.href = `/reports/${report.id}`;
+                          } else {
+                            openReport(report.id);
+                          }
+                        }}
                       >
-                        <Link
-                          href={`/reports/${report.id}`}
+                        <div
                           className="flex-1 min-w-0 no-underline flex items-center gap-3"
                         >
                           <span className="text-[var(--color-text-tertiary)] shrink-0">
@@ -231,9 +236,9 @@ export default function ReportsPage() {
                               )}
                             </div>
                           </div>
-                        </Link>
+                        </div>
                         <button
-                          onClick={() => handleDelete(report.id)}
+                          onClick={(e) => { e.stopPropagation(); handleDelete(report.id); }}
                           className="opacity-0 group-hover:opacity-100 bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-red-500 cursor-pointer p-1 transition-opacity"
                         >
                           <TrashIcon />

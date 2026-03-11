@@ -413,6 +413,38 @@ export async function POST(request: Request) {
     if (templates) reportTemplates = templates;
   } catch { /* non-fatal */ }
 
+  // Fetch recent reports for this agent (and workspace) so agents can reference them
+  let recentReports: Array<{ id: string; title: string; content: string; agent_name?: string; updated_at: string }> = [];
+  try {
+    const { data: reports } = await serviceDb
+      .from("reports")
+      .select("id, title, content, agent_id, updated_at")
+      .eq("workspace_id", ctx.workspaceId)
+      .order("updated_at", { ascending: false })
+      .limit(5);
+    if (reports && reports.length > 0) {
+      // Enrich with agent names
+      const agentIds = [...new Set(reports.filter((r: { agent_id: string | null }) => r.agent_id).map((r: { agent_id: string }) => r.agent_id))];
+      let agentNameMap: Record<string, string> = {};
+      if (agentIds.length > 0) {
+        const { data: agentRows } = await serviceDb
+          .from("agents")
+          .select("id, name")
+          .in("id", agentIds);
+        if (agentRows) {
+          agentNameMap = Object.fromEntries(agentRows.map((a: { id: string; name: string }) => [a.id, a.name]));
+        }
+      }
+      recentReports = reports.map((r: { id: string; title: string; content: string; agent_id: string | null; updated_at: string }) => ({
+        id: r.id,
+        title: r.title,
+        content: r.content,
+        agent_name: r.agent_id ? agentNameMap[r.agent_id] : undefined,
+        updated_at: r.updated_at,
+      }));
+    }
+  } catch { /* non-fatal */ }
+
   // Stream response from Claude
   const anthropic = getAnthropicClient();
   let systemPrompt = buildSystemPrompt(
@@ -427,6 +459,7 @@ export async function POST(request: Request) {
       teamMemberships: agentTeams.length > 0 ? agentTeams : undefined,
       reportEdits: reportEdits.length > 0 ? reportEdits : undefined,
       reportTemplates: reportTemplates.length > 0 ? reportTemplates : undefined,
+      recentReports: recentReports.length > 0 ? recentReports : undefined,
     }
   );
 
@@ -509,6 +542,12 @@ export async function POST(request: Request) {
         );
         const saveReportMatch = fullResponse.match(
           /```save_report\s*\n?([\s\S]*?)\n?```/
+        );
+        const readReportMatch = fullResponse.match(
+          /```read_report\s*\n?([\s\S]*?)\n?```/
+        );
+        const updateReportMatch = fullResponse.match(
+          /```update_report\s*\n?([\s\S]*?)\n?```/
         );
 
         // Clean the response: strip <search> blocks, schedule_request blocks, feature_request blocks, etc.
@@ -593,6 +632,9 @@ export async function POST(request: Request) {
                       type: "report_saved",
                       title: reportTitle,
                       report_id: reportData?.id || null,
+                      content: reportContent,
+                      agent_name: agent.name,
+                      agent_id: agent.id,
                       templates: reportTemplates.length > 0 ? reportTemplates : undefined,
                     })}\n\n`
                   )
@@ -601,6 +643,147 @@ export async function POST(request: Request) {
             }
           } catch (e) {
             console.error("[Chat] Failed to parse save_report block:", e);
+          }
+        }
+
+        // Handle read_report — fetch the requested report and do a follow-up call
+        if (readReportMatch) {
+          try {
+            const readReq = JSON.parse(readReportMatch[1].trim());
+            let reportData = null;
+            if (readReq.id) {
+              const { data } = await serviceDb
+                .from("reports")
+                .select("id, title, content, agent_id, updated_at")
+                .eq("id", readReq.id)
+                .eq("workspace_id", ctx.workspaceId)
+                .single();
+              reportData = data;
+            } else if (readReq.title) {
+              const { data } = await serviceDb
+                .from("reports")
+                .select("id, title, content, agent_id, updated_at")
+                .eq("workspace_id", ctx.workspaceId)
+                .ilike("title", `%${readReq.title}%`)
+                .order("updated_at", { ascending: false })
+                .limit(1)
+                .single();
+              reportData = data;
+            }
+
+            if (reportData) {
+              // Inject report content as a system message and re-call Claude for a follow-up
+              const reportContext = `[System: Here is the requested report]\nTitle: ${reportData.title}\nID: ${reportData.id}\nLast updated: ${reportData.updated_at}\n\n${reportData.content}`;
+              const followUpMessages = [
+                ...messages,
+                { role: "assistant" as const, content: cleaned || "" },
+                { role: "user" as const, content: reportContext },
+              ];
+
+              // Stream the follow-up response
+              const followUpStream = anthropic.messages.stream({
+                model: "claude-sonnet-4-5-20250929",
+                max_tokens: 4096,
+                system: systemPrompt,
+                messages: followUpMessages,
+              });
+
+              let followUpText = "";
+              for await (const event of followUpStream) {
+                if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+                  followUpText += event.delta.text;
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify({ type: "text", text: event.delta.text })}\n\n`)
+                  );
+                }
+              }
+
+              const followUpCleaned = cleanResponse(followUpText);
+              if (followUpCleaned) {
+                await supabase.from("messages").insert({
+                  conversation_id: convId,
+                  role: "assistant",
+                  content: followUpCleaned,
+                });
+                // Replace the streamed text with the full cleaned version
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ type: "replace", text: (cleaned ? cleaned + "\n\n" : "") + followUpCleaned })}\n\n`)
+                );
+              }
+            } else {
+              console.log("[Chat] read_report: report not found for query", readReq);
+            }
+          } catch (e) {
+            console.error("[Chat] Failed to handle read_report:", e);
+          }
+        }
+
+        // Handle update_report — update report in DB and emit SSE event
+        if (updateReportMatch) {
+          try {
+            const updateReq = JSON.parse(updateReportMatch[1].trim());
+            if (updateReq.id && updateReq.content) {
+              // Fetch current version before overwriting
+              const { data: currentReport } = await serviceDb
+                .from("reports")
+                .select("id, title, content, user_id")
+                .eq("id", updateReq.id)
+                .eq("workspace_id", ctx.workspaceId)
+                .single();
+
+              if (currentReport) {
+                // Save current version to version history
+                await serviceDb.from("report_versions").insert({
+                  report_id: currentReport.id,
+                  title: currentReport.title,
+                  content: currentReport.content,
+                  author_type: "human",
+                  author_id: currentReport.user_id,
+                  change_type: "human_edit",
+                });
+
+                // Update the report
+                const updates: Record<string, string> = {
+                  content: updateReq.content,
+                  updated_at: new Date().toISOString(),
+                };
+                if (updateReq.title) updates.title = updateReq.title;
+
+                await serviceDb
+                  .from("reports")
+                  .update(updates)
+                  .eq("id", updateReq.id)
+                  .eq("workspace_id", ctx.workspaceId);
+
+                // Save agent's new version to version history
+                await serviceDb.from("report_versions").insert({
+                  report_id: currentReport.id,
+                  title: updateReq.title || currentReport.title,
+                  content: updateReq.content,
+                  author_type: "agent",
+                  author_id: agent_id,
+                  change_type: "agent_update",
+                });
+
+                // Emit SSE event so client can update the side panel
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({
+                      type: "report_updated",
+                      report_id: updateReq.id,
+                      title: updateReq.title || currentReport.title,
+                      content: updateReq.content,
+                    })}\n\n`
+                  )
+                );
+
+                console.log(`[Chat] Report updated: ${updateReq.id}`);
+              } else {
+                console.log(`[Chat] update_report: report not found: ${updateReq.id}`);
+              }
+            }
+          } catch (e) {
+            console.error("[Chat] Failed to handle update_report:", e);
           }
         }
 

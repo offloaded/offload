@@ -89,6 +89,7 @@ export function buildSystemPrompt(
     teamMemberships?: Array<{ id: string; name: string }>;
     reportEdits?: Array<{ title: string; original: string; edited: string }>;
     reportTemplates?: Array<{ name: string; description: string }>;
+    recentReports?: Array<{ id: string; title: string; content: string; agent_name?: string; updated_at: string }>;
   }
 ): string {
   let prompt: string;
@@ -204,7 +205,36 @@ title: Short descriptive title
 The full report content goes here.
 Multiple lines are fine.
 \`\`\`
-The content after the --- line should be the actual report text. IMPORTANT: You must ALWAYS include this block when you generate any report or deliverable — do not just say "I've saved it", the block is what actually saves it. Without the block, nothing is saved.`;
+The content after the --- line should be the actual report text. IMPORTANT: You must ALWAYS include this block when you generate any report or deliverable — do not just say "I've saved it", the block is what actually saves it. Without the block, nothing is saved.
+
+READING REPORTS:
+You can read any saved report. If a user asks you to look at, review, or reference a report, use this block:
+\`\`\`read_report
+{"title": "partial or full title to search for"}
+\`\`\`
+OR by ID:
+\`\`\`read_report
+{"id": "report-uuid-here"}
+\`\`\`
+The system will fetch the report and provide its content to you. You can then discuss, analyze, or reference it.
+
+UPDATING REPORTS:
+When the user approves changes to a report (e.g. "sounds good, make those changes", "yes, update it", "go ahead"), use this block to update the report directly:
+\`\`\`update_report
+{"id": "report-uuid-here", "title": "Updated Title", "content": "The full updated report content goes here."}
+\`\`\`
+The title field is optional — only include it if the title should change. The content field replaces the entire report. The previous version is automatically preserved in version history.`;
+
+  if (options?.recentReports && options.recentReports.length > 0) {
+    prompt += `\n\nYOUR RECENT REPORTS (available for reference):`;
+    for (const r of options.recentReports) {
+      prompt += `\n\n--- Report: "${r.title}" (ID: ${r.id}) ---`;
+      if (r.agent_name) prompt += `\nBy: ${r.agent_name}`;
+      prompt += `\nLast updated: ${r.updated_at}`;
+      prompt += `\n${r.content.slice(0, 2000)}${r.content.length > 2000 ? "\n[... truncated ...]" : ""}`;
+    }
+    prompt += `\n\nYou can reference these reports directly. If a user asks about a report listed above, you already have its content — no need to use read_report.`;
+  }
 
   if (options?.reportTemplates && options.reportTemplates.length > 0) {
     prompt += `\n\nAVAILABLE REPORT TEMPLATES:\nThe user has configured these report templates. When they ask for a report that matches a template, mention you can format it using that template. The system will handle template application after you save the report.\n`;
@@ -295,6 +325,8 @@ export function cleanResponse(text: string, streaming = false): string {
   cleaned = cleaned.replace(/```skills_update\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```expectations_update\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```save_report\s*\n?[\s\S]*?\n?```/g, "");
+  cleaned = cleaned.replace(/```read_report\s*\n?[\s\S]*?\n?```/g, "");
+  cleaned = cleaned.replace(/```update_report\s*\n?[\s\S]*?\n?```/g, "");
 
   if (streaming) {
     // Remove incomplete opening tags whose closing tag hasn't arrived yet.
@@ -307,6 +339,8 @@ export function cleanResponse(text: string, streaming = false): string {
     cleaned = cleaned.replace(/```skills_update[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```expectations_update[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```save_report[\s\S]*$/g, "");
+    cleaned = cleaned.replace(/```read_report[\s\S]*$/g, "");
+    cleaned = cleaned.replace(/```update_report[\s\S]*$/g, "");
   }
 
   // Strip leading [AgentName] or [You] bracket prefix that agents sometimes generate

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef, createContext, useContext } from "react";
 import { createClient } from "@/lib/supabase";
 import { SidebarContent, Drawer } from "@/components/Sidebar";
+import { ReportPanel } from "@/components/ReportPanel";
 import { useRouter } from "next/navigation";
 import type { Agent, Team, Workspace } from "@/lib/types";
 import { preloadAllChats } from "@/lib/chat-cache";
@@ -35,6 +36,15 @@ interface AppContextValue {
   // Reports
   reportCount: number;
   refreshReportCount: () => void;
+  // Report side panel
+  openReportId: string | null;
+  openReport: (reportId: string, initialData?: { title: string; content: string; agent_name?: string; agent_id?: string }) => void;
+  closeReport: () => void;
+  // Feedback loop: called when user finishes editing a report in the panel
+  reportEditCallback: React.MutableRefObject<((reportId: string, reportTitle: string, original: string, edited: string) => void) | null>;
+  // Live update for report panel
+  reportLiveUpdate: { report_id: string; title: string; content: string } | null;
+  setReportLiveUpdate: (update: { report_id: string; title: string; content: string } | null) => void;
 }
 
 const AppContext = createContext<AppContextValue>({
@@ -59,6 +69,12 @@ const AppContext = createContext<AppContextValue>({
   refreshWorkspace: async () => {},
   reportCount: 0,
   refreshReportCount: () => {},
+  openReportId: null,
+  openReport: () => {},
+  closeReport: () => {},
+  reportEditCallback: { current: null },
+  reportLiveUpdate: null,
+  setReportLiveUpdate: () => {},
 });
 
 export function useApp() {
@@ -77,6 +93,56 @@ function useIsMobile() {
   return mobile;
 }
 
+function ResizeHandle({ onResize }: { onResize: (pct: number) => void }) {
+  const dragging = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!dragging.current) return;
+      // Find the flex container (parent of the handle)
+      const container = containerRef.current?.parentElement;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const rightPct = ((rect.right - e.clientX) / rect.width) * 100;
+      // Clamp between 20% and 70%
+      onResize(Math.min(70, Math.max(20, rightPct)));
+    };
+
+    const onMouseUp = () => {
+      dragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }, [onResize]);
+
+  return (
+    <div
+      ref={containerRef}
+      onMouseDown={onMouseDown}
+      className="hidden md:flex w-[5px] shrink-0 cursor-col-resize items-center justify-center group hover:bg-[var(--color-accent)] transition-colors relative"
+      style={{ background: "var(--color-border)" }}
+    >
+      {/* Grip dots */}
+      <div className="flex flex-col gap-[3px] opacity-0 group-hover:opacity-100 transition-opacity">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="w-[3px] h-[3px] rounded-full bg-white/70" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [teams, setTeams] = useState<TeamWithAgents[]>([]);
@@ -90,6 +156,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceRole, setWorkspaceRole] = useState<"owner" | "admin" | "member">("member");
   const [reportCount, setReportCount] = useState(0);
+  const [openReportId, setOpenReportId] = useState<string | null>(null);
+  const [initialReportData, setInitialReportData] = useState<{ title: string; content: string; agent_name?: string; agent_id?: string } | null>(null);
+  const [reportPanelWidth, setReportPanelWidth] = useState(50); // percentage
+  const [reportLiveUpdate, setReportLiveUpdate] = useState<{ report_id: string; title: string; content: string } | null>(null);
+  const reportEditCallback = useRef<((reportId: string, reportTitle: string, original: string, edited: string) => void) | null>(null);
   const mobile = useIsMobile();
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -158,6 +229,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         setHasNewActivity(!lastSeen || latest > lastSeen);
       })
       .catch(() => {});
+  }, []);
+
+  const openReport = useCallback((reportId: string, initialData?: { title: string; content: string; agent_name?: string; agent_id?: string }) => {
+    setInitialReportData(initialData || null);
+    setOpenReportId(reportId);
+  }, []);
+
+  const closeReport = useCallback(() => {
+    setOpenReportId(null);
   }, []);
 
   const refreshReportCount = useCallback(() => {
@@ -244,7 +324,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AppContext value={{ agents, refreshAgents, teams, refreshTeams, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, switchWorkspace, refreshWorkspace, reportCount, refreshReportCount }}>
+    <AppContext value={{ agents, refreshAgents, teams, refreshTeams, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, switchWorkspace, refreshWorkspace, reportCount, refreshReportCount, openReportId, openReport, closeReport, reportEditCallback, reportLiveUpdate, setReportLiveUpdate }}>
       <div className="flex h-screen w-full bg-[var(--color-page-bg)] overflow-hidden">
         {/* Desktop sidebar — hidden below 768px via CSS */}
         <div className="hidden md:flex w-[220px] min-w-[220px] bg-[var(--color-bg)] border-r border-[var(--color-border)] flex-col">
@@ -268,8 +348,31 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           reportCount={reportCount}
         />
 
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {children}
+        <div className="flex-1 flex flex-row overflow-hidden">
+          <div className="flex-1 min-w-[300px] flex flex-col overflow-hidden">
+            {children}
+          </div>
+          {openReportId && (
+            <>
+              <ResizeHandle onResize={setReportPanelWidth} />
+              <div
+                className="hidden md:flex flex-col overflow-hidden"
+                style={{ width: `${reportPanelWidth}%`, minWidth: 300 }}
+              >
+                <ReportPanel
+                  reportId={openReportId}
+                  onClose={closeReport}
+                  onDoneEditing={(report, original, edited) => {
+                    if (reportEditCallback.current) {
+                      reportEditCallback.current(report.id, report.title, original, edited);
+                    }
+                  }}
+                  liveUpdate={reportLiveUpdate}
+                  initialData={initialReportData}
+                />
+              </div>
+            </>
+          )}
         </div>
       </div>
     </AppContext>

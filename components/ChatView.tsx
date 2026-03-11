@@ -22,10 +22,12 @@ import {
   clearFeatureRequest,
   clearGroupMessageRequest,
   clearReportSaved,
+  clearReportUpdated,
   type ScheduleRequest,
   type FeatureRequest,
   type GroupMessageRequest,
   type ReportSavedEvent,
+  type ReportUpdatedEvent,
 } from "@/lib/inflight";
 import { useApp } from "@/app/(app)/layout";
 import { describeCron } from "@/lib/cron";
@@ -469,7 +471,7 @@ export function ChatView({
   openDrawer: () => void;
   initialConversationId?: string | null;
 }) {
-  const { refreshAgents, markRead, setActiveChatKey, unreadCounts, teams, refreshReportCount } = useApp();
+  const { refreshAgents, markRead, setActiveChatKey, unreadCounts, teams, refreshReportCount, openReport, openReportId, reportEditCallback, setReportLiveUpdate } = useApp();
   const channels = buildChannelOptions(teams);
   const chatId = initialConversationId
     ? `conv:${initialConversationId}`
@@ -496,6 +498,7 @@ export function ChatView({
   const [confirmingFeature, setConfirmingFeature] = useState(false);
   const [groupMessageRequest, setGroupMessageRequest] = useState<GroupMessageRequest | null>(null);
   const [reportSaved, setReportSaved] = useState<ReportSavedEvent | null>(null);
+  const [reportUpdated, setReportUpdated] = useState<ReportUpdatedEvent | null>(null);
   const [applyingTemplate, setApplyingTemplate] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -529,6 +532,11 @@ export function ChatView({
       }
       if (state.reportSaved) {
         setReportSaved(state.reportSaved);
+      }
+      if (state.reportUpdated) {
+        setReportUpdated(state.reportUpdated);
+        setReportLiveUpdate(state.reportUpdated);
+        clearReportUpdated(chatId);
       }
       // Sync messages from cache when streaming state changes
       const c = getCached(chatId);
@@ -606,6 +614,29 @@ export function ChatView({
       endRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, streamText]);
+
+  // Auto-open report panel when a report is saved — pass content so no API fetch needed
+  useEffect(() => {
+    if (reportSaved?.report_id) {
+      openReport(reportSaved.report_id, reportSaved.content ? {
+        title: reportSaved.title,
+        content: reportSaved.content,
+        agent_name: reportSaved.agent_name,
+        agent_id: reportSaved.agent_id,
+      } : undefined);
+    }
+  }, [reportSaved, openReport]);
+
+  // Register report edit feedback callback — sends diff to agent when user edits report
+  useEffect(() => {
+    reportEditCallback.current = (reportId: string, reportTitle: string, original: string, edited: string) => {
+      const feedbackMessage = `I edited the report "${reportTitle}" (ID: ${reportId}). Here is the original version and my edited version for you to review.\n\nOriginal version:\n${original.slice(0, 3000)}${original.length > 3000 ? "\n[... truncated ...]" : ""}\n\nMy edited version:\n${edited.slice(0, 3000)}${edited.length > 3000 ? "\n[... truncated ...]" : ""}\n\nReview my changes and provide brief feedback — acknowledge what I changed, flag anything my edits may have introduced or missed, and suggest any improvements. If I approve your suggestions, you can update the report directly using the update_report tool with ID: ${reportId}`;
+      sendDM(chatId, agent.id, feedbackMessage, conversationIdRef.current);
+    };
+    return () => {
+      reportEditCallback.current = null;
+    };
+  }, [chatId, agent.id, reportEditCallback]);
 
   // Poll for new messages every 12 seconds (catches scheduled task responses)
   useEffect(() => {
@@ -1023,18 +1054,29 @@ export function ChatView({
                 </>
               ) : (
                 <div className="text-[12px] text-[var(--color-text-secondary)]">
-                  <a href={`/reports/${reportSaved.report_id}`} className="text-[var(--color-accent)] no-underline hover:underline">
-                    View report
-                  </a>
+                  Report is ready for review.
                 </div>
               )}
               <div className="flex gap-2">
-                <a
-                  href={reportSaved.report_id ? `/reports/${reportSaved.report_id}` : "/reports"}
-                  className="py-1.5 px-3 rounded-md border-none text-[12px] font-semibold cursor-pointer bg-[var(--color-accent)] text-white no-underline"
-                >
-                  View
-                </a>
+                {reportSaved.report_id && (
+                  <button
+                    onClick={() => {
+                      if (reportSaved.report_id) {
+                        openReport(reportSaved.report_id, reportSaved.content ? {
+                          title: reportSaved.title,
+                          content: reportSaved.content,
+                          agent_name: reportSaved.agent_name,
+                          agent_id: reportSaved.agent_id,
+                        } : undefined);
+                      }
+                      setReportSaved(null);
+                      clearReportSaved(chatId);
+                    }}
+                    className="py-1.5 px-3 rounded-md border-none text-[12px] font-semibold cursor-pointer bg-[var(--color-accent)] text-white"
+                  >
+                    {openReportId === reportSaved.report_id ? "Viewing" : "Open"}
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     setReportSaved(null);

@@ -30,7 +30,16 @@ export interface GroupMessageRequest {
 export interface ReportSavedEvent {
   title: string;
   report_id: string | null;
+  content?: string;
+  agent_name?: string;
+  agent_id?: string;
   templates?: Array<{ id: string; name: string; description: string }>;
+}
+
+export interface ReportUpdatedEvent {
+  report_id: string;
+  title: string;
+  content: string;
 }
 
 interface InflightState {
@@ -41,6 +50,7 @@ interface InflightState {
   featureRequest: FeatureRequest | null;
   groupMessageRequest: GroupMessageRequest | null;
   reportSaved: ReportSavedEvent | null;
+  reportUpdated: ReportUpdatedEvent | null;
   // Group chat: per-agent sequential delivery
   typingAgentName: string | null;
   typingAgentColor: string | null;
@@ -58,7 +68,7 @@ const inflights = new Map<string, InflightEntry>();
 
 const EMPTY_STATE: () => InflightState = () => ({
   streaming: false, streamText: "", conversationId: null,
-  scheduleRequest: null, featureRequest: null, groupMessageRequest: null, reportSaved: null,
+  scheduleRequest: null, featureRequest: null, groupMessageRequest: null, reportSaved: null, reportUpdated: null,
   typingAgentName: null, typingAgentColor: null, streamMessages: [],
 });
 
@@ -120,6 +130,13 @@ export function clearReportSaved(chatId: string) {
   const entry = inflights.get(chatId);
   if (entry) {
     entry.state.reportSaved = null;
+  }
+}
+
+export function clearReportUpdated(chatId: string) {
+  const entry = inflights.get(chatId);
+  if (entry) {
+    entry.state.reportUpdated = null;
   }
 }
 
@@ -252,7 +269,17 @@ async function _streamDM(
             entry.state.reportSaved = {
               title: event.title,
               report_id: event.report_id || null,
+              content: event.content,
+              agent_name: event.agent_name,
+              agent_id: event.agent_id,
               templates: event.templates,
+            };
+            notify(chatId);
+          } else if (event.type === "report_updated") {
+            entry.state.reportUpdated = {
+              report_id: event.report_id,
+              title: event.title,
+              content: event.content,
             };
             notify(chatId);
           } else if (event.type === "archived") {

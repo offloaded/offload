@@ -82,6 +82,18 @@ export async function PATCH(
     updates.content = content;
   }
 
+  // Save current version to history before overwriting
+  try {
+    await service.from("report_versions").insert({
+      report_id: id,
+      title: title || existing.content ? "Untitled" : "",
+      content: existing.content,
+      author_type: "human",
+      author_id: ctx.user.id,
+      change_type: "human_edit",
+    });
+  } catch { /* non-fatal — versioning is best-effort */ }
+
   const { error } = await service
     .from("reports")
     .update(updates)

@@ -1,14 +1,8 @@
 import { createServiceSupabase } from "@/lib/supabase-server";
-import { getWorkspaceContext } from "@/lib/workspace";
 import { NextResponse } from "next/server";
 
-// GET /api/marketplace/templates — list active templates
+// GET /api/marketplace/templates — list active templates (public catalog)
 export async function GET() {
-  const ctx = await getWorkspaceContext();
-  if (!ctx) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   const service = createServiceSupabase();
   const { data: templates, error } = await service
     .from("marketplace_templates")
