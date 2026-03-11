@@ -164,6 +164,7 @@ export function sendDM(
     role: "user",
     content: message,
     created_at: new Date().toISOString(),
+    file_name: file?.name || null,
   };
   updateMessages(chatId, (prev) => [...prev, userMsg]);
   notify(chatId);

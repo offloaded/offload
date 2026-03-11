@@ -56,6 +56,16 @@ export async function POST(request: Request) {
   let conversation_id: string | null = null;
   let fileContext: string | null = null;
   let fileName: string | null = null;
+  let imageData: { base64: string; mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp" } | null = null;
+
+  const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp"]);
+  const IMAGE_MEDIA_TYPES: Record<string, "image/png" | "image/jpeg" | "image/gif" | "image/webp"> = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    webp: "image/webp",
+  };
 
   const contentType = request.headers.get("content-type") || "";
   if (contentType.includes("multipart/form-data")) {
@@ -65,16 +75,26 @@ export async function POST(request: Request) {
     conversation_id = formData.get("conversation_id") as string | null;
     const file = formData.get("file") as File | null;
     if (file) {
+      const ext = file.name.toLowerCase().split(".").pop() || "";
+      fileName = file.name;
       try {
         const buffer = Buffer.from(await file.arrayBuffer());
-        fileContext = await extractText(buffer, file.name);
-        fileName = file.name;
-        // Truncate very large files to ~50k chars to stay within context limits
-        if (fileContext.length > 50000) {
-          fileContext = fileContext.slice(0, 50000) + "\n\n[... file truncated ...]";
+        if (IMAGE_EXTENSIONS.has(ext)) {
+          // Images: send as base64 vision content to Claude
+          imageData = {
+            base64: buffer.toString("base64"),
+            mediaType: IMAGE_MEDIA_TYPES[ext],
+          };
+        } else {
+          // Documents: extract text
+          fileContext = await extractText(buffer, file.name);
+          // Truncate very large files to ~50k chars to stay within context limits
+          if (fileContext.length > 50000) {
+            fileContext = fileContext.slice(0, 50000) + "\n\n[... file truncated ...]";
+          }
         }
       } catch (err) {
-        console.error("[Chat] File extraction failed:", err);
+        console.error("[Chat] File processing failed:", err);
         return new Response(
           JSON.stringify({ error: `Could not read file: ${err instanceof Error ? err.message : "unsupported format"}` }),
           { status: 400 }
@@ -490,11 +510,36 @@ export async function POST(request: Request) {
     console.warn(`[Chat] WARNING: Context may be over budget even after trimming. Remaining for output: ${budget.remainingForOutput}`);
   }
 
+  // Build final messages for Claude — inject image as multimodal content if present
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let claudeMessages: any[] = messages;
+  if (imageData && messages.length > 0) {
+    claudeMessages = messages.map((m, i) => {
+      if (i === messages.length - 1 && m.role === "user") {
+        return {
+          role: "user",
+          content: [
+            {
+              type: "image" as const,
+              source: {
+                type: "base64" as const,
+                media_type: imageData!.mediaType,
+                data: imageData!.base64,
+              },
+            },
+            { type: "text" as const, text: m.content || `Describe this image (${fileName})` },
+          ],
+        };
+      }
+      return m;
+    });
+  }
+
   const stream = anthropic.messages.stream({
     model: "claude-sonnet-4-5-20250929",
     max_tokens: 4096,
     system: systemPrompt,
-    messages,
+    messages: claudeMessages,
   });
 
   // Create a ReadableStream that sends SSE events

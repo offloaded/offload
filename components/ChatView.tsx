@@ -52,6 +52,7 @@ const MessageRow = memo(function MessageRow({
   isUser,
   messageId,
   conversationId,
+  fileName,
   onSaveReport,
 }: {
   agent?: Agent;
@@ -60,9 +61,13 @@ const MessageRow = memo(function MessageRow({
   isUser: boolean;
   messageId?: string;
   conversationId?: string | null;
+  fileName?: string | null;
   onSaveReport?: (title: string, content: string, agentId: string, messageId?: string, conversationId?: string | null) => void;
 }) {
   const [saving, setSaving] = useState(false);
+
+  // Strip [Attached: ...] from displayed text when we have a file badge
+  const displayText = fileName ? text.replace(/\[Attached: [^\]]+\]\s*/g, "").trim() : text;
 
   if (isUser) {
     return (
@@ -80,9 +85,17 @@ const MessageRow = memo(function MessageRow({
                 {time}
               </span>
             </div>
-            <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words">
-              {text}
-            </div>
+            {fileName && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--color-accent-soft)] border border-[var(--color-accent)] text-[12px] text-[var(--color-text)] mb-1 w-fit">
+                <PaperclipIcon />
+                <span className="max-w-[300px] truncate">{fileName}</span>
+              </div>
+            )}
+            {displayText && (
+              <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words">
+                {displayText}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -245,6 +258,7 @@ const MessageList = memo(function MessageList({
           time={formatTime(m.created_at)}
           messageId={m.id}
           conversationId={conversationId}
+          fileName={m.file_name}
           onSaveReport={m.role === "assistant" ? onSaveReport : undefined}
         />
       ))}
@@ -265,7 +279,7 @@ function autoResize(el: HTMLTextAreaElement) {
 }
 
 // Isolated input component with #channel support
-const FILE_TYPES = ".pdf,.docx,.xlsx,.xls,.txt,.md,.csv";
+const FILE_TYPES = ".pdf,.docx,.xlsx,.xls,.txt,.md,.csv,.png,.jpg,.jpeg,.gif,.webp";
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 
 function ChatInput({
@@ -603,6 +617,7 @@ export function ChatView({
           role: m.role,
           content: m.content,
           created_at: m.created_at,
+          file_name: m.role === "user" ? (m.content.match(/\[Attached: ([^\]]+)\]/)?.[1] || null) : null,
         })));
         const more = data.has_more ?? false;
         setConversationId(convId);
@@ -704,6 +719,7 @@ export function ChatView({
         role: m.role,
         content: m.content,
         created_at: m.created_at,
+        file_name: m.role === "user" ? (m.content.match(/\[Attached: ([^\]]+)\]/)?.[1] || null) : null,
       }));
       const more = data.has_more ?? false;
       setHasMore(more);

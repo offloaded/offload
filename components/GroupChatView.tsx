@@ -644,7 +644,7 @@ function GroupChatInput({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf,.docx,.xlsx,.xls,.txt,.md,.csv"
+          accept=".pdf,.docx,.xlsx,.xls,.txt,.md,.csv,.png,.jpg,.jpeg,.gif,.webp"
           onChange={handleFileChange}
           className="hidden"
         />

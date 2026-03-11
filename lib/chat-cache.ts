@@ -5,6 +5,7 @@ export interface ChatMessage {
   created_at: string;
   sender_id?: string | null;
   sender_name?: string | null;
+  file_name?: string | null;
 }
 
 interface CachedChat {
@@ -60,6 +61,13 @@ export function clearAllCaches() {
   cache.clear();
 }
 
+// Extract file name from [Attached: filename] pattern in message content
+function parseFileName(content: string, role: string): string | null {
+  if (role !== "user") return null;
+  const match = content.match(/\[Attached: ([^\]]+)\]/);
+  return match ? match[1] : null;
+}
+
 // Preload a single chat by agent_id (use "group" for group chat)
 async function preloadChat(agentId: string): Promise<void> {
   const chatId = agentId === "group" ? "group" : `agent:${agentId}`;
@@ -79,6 +87,7 @@ async function preloadChat(agentId: string): Promise<void> {
         created_at: m.created_at,
         sender_id: m.sender_id || null,
         sender_name: m.sender_name || null,
+        file_name: parseFileName(m.content, m.role),
       })
     );
     setCache(chatId, {
@@ -123,6 +132,7 @@ export async function pollNewMessages(chatId: string): Promise<ChatMessage[]> {
         created_at: m.created_at,
         sender_id: m.sender_id || null,
         sender_name: m.sender_name || null,
+        file_name: parseFileName(m.content, m.role),
       })
     );
 
