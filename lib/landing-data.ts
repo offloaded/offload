@@ -8,79 +8,50 @@ export const NEON_ORANGE = "#ff8a65";
 export const DARK_BG = "#0a0a12";
 export const GRID_COLOR = "rgba(0, 240, 255, 0.08)";
 
-// Hero chat — humans AND agents collaborating
-export const heroChatMessages = [
-  { name: "YOU", icon: "👤", color: NEON_PINK, msg: "Team — I need a competitor analysis for the investor meeting Thursday.", isHuman: true },
-  { name: "RESEARCHER", icon: "🔍", color: NEON_GREEN, msg: "On it. Pulling data on 4 direct competitors now. I'll save a report by EOD." },
-  { name: "STRATEGIST", icon: "🧠", color: NEON_CYAN, msg: "I'll build the positioning matrix once Research shares findings. Want me to loop in @WRITER for the deck narrative?" },
-  { name: "KARLEE", icon: "👩‍💼", color: NEON_ORANGE, msg: "I can handle the financial comparison slides — just tag me when the data's ready.", isHuman: true },
-  { name: "WRITER", icon: "✍️", color: NEON_YELLOW, msg: "Standing by. I'll draft the exec summary and match your brand voice from the last pitch." },
+// Hero chat demo — shows agents doing real work
+export const heroMessages = [
+  { name: "POLITICAL ANALYST", icon: "📰", color: NEON_CYAN, msg: "Your morning briefing is ready. Three items flagged — housing policy shift in the Senate and two state budget implications." },
+  { name: "PROJECT MANAGER", icon: "📋", color: NEON_GREEN, msg: "Pulled your Asana data. 4 tasks overdue, 2 blocked. I've drafted a meeting agenda for Friday's leadership sync." },
+  { name: "BOOKKEEPER", icon: "💰", color: NEON_YELLOW, msg: "Found 2 new invoices in your email. Created payment tasks with due dates. Your accounts receivable report is updated." },
+  { name: "YOU", icon: "👤", color: NEON_PINK, msg: "Save the project status as a report and send me the CEO update draft.", isHuman: true },
 ];
 
-// Legacy agents array (used by old components if any still reference it)
-export const agents = heroChatMessages;
-
-// Power-ups: all 6 features
-export const powerUps = [
-  { icon: "💬", title: "TEAM CHAT", color: NEON_CYAN, desc: "Humans and AI agents in one group conversation. Collaborate like a real team — because it is one." },
-  { icon: "🛠️", title: "CUSTOM AGENTS", color: NEON_GREEN, desc: "Build an agent in under a minute. Name it, give it a role, connect your tools. No code required." },
-  { icon: "🏪", title: "MARKETPLACE", color: NEON_PINK, desc: "Browse pre-built agents. One-click install. Customise to fit your workflow. New characters dropping weekly." },
-  { icon: "📄", title: "SAVE AS REPORT", color: NEON_YELLOW, desc: "Tell any agent to save its work. Get polished, shareable reports from any conversation — on demand." },
-  { icon: "⏰", title: "SCHEDULED TASKS", color: NEON_PURPLE, desc: "Set agents to run on autopilot. Morning briefs, weekly reports, pipeline updates — all on your schedule." },
-  { icon: "👥", title: "INVITE TEAMMATES", color: NEON_ORANGE, desc: "Bring real people into the chat. Work alongside your AI agents as a blended team. Humans + AI, together." },
+// Features — the real differentiators
+export const featureBlocks = [
+  { title: "AGENT TEAMS", subtitle: "Collaboration, not just chat.", desc: "Put agents in a team and watch them work together. Each agent stays in their lane — only responding to topics within their expertise. Like a real team, not a noisy group chat.", color: NEON_CYAN, icon: "👥" },
+  { title: "REPORTS & TEMPLATES", subtitle: "Work that persists.", desc: "Agents don't just chat — they produce structured reports using templates that encode your thinking frameworks. Risk assessments, scorecards, briefs — all in the format you define.", color: NEON_PINK, icon: "📄" },
+  { title: "LIVE EDITING", subtitle: "Collaborate on the document.", desc: "Reports open side-by-side with the chat. Edit directly, click done, and your agent reviews the changes and suggests refinements. Say 'sounds good' and watch it update live.", color: NEON_GREEN, icon: "✏️" },
+  { title: "AGENTS THAT LEARN", subtitle: "Your edits make them smarter.", desc: "When you edit an agent's report, those changes are stored. Next time, the agent considers your past feedback. Reports get better over time without retraining any model.", color: NEON_YELLOW, icon: "🧠" },
+  { title: "BACKGROUND WORK", subtitle: "Agents that work while you don't.", desc: "Schedule agents to run daily briefings, monitor your email for invoices, or compile weekly digests. They produce reports on a schedule — you just review them.", color: NEON_CYAN, icon: "⏰" },
+  { title: "KNOWLEDGE BASE", subtitle: "Ask questions across your documents.", desc: "Upload hundreds of documents and ask questions in plain English. Get trustworthy answers grounded in your actual data, with source references.", color: NEON_PINK, icon: "📚" },
 ];
 
-// Legacy features array (3-card version)
-export const features = [
-  { title: "GROUP CHAT", subtitle: "One conversation. Whole team.", desc: "Talk to your agents the way you already talk to your team — in a group chat. Ask questions, give direction, watch them collaborate." },
-  { title: "AGENT BUILDER", subtitle: "No code. No kidding.", desc: "Describe what you need. Name them. Give them a role. Your agent is live in under a minute. Built for operators, not engineers." },
-  { title: "TOOL CONNECT", subtitle: "Plug into your workflow.", desc: "Your agents use the tools you already use — Asana, email, web search. They don't just talk, they do." },
-];
-
+// Marketplace agents
 export const marketplaceAgents = [
-  { name: "SOCIAL MEDIA MGR", icon: "📱", color: NEON_PINK, tier: "S" as const, stats: { SPD: 9, ACC: 8, CRE: 9 }, desc: "Drafts posts, plans calendars, matches your voice across platforms.", tags: ["CONTENT", "SCHEDULING"] },
-  { name: "BOOKKEEPER", icon: "📊", color: NEON_GREEN, tier: "A" as const, stats: { SPD: 7, ACC: 10, CRE: 4 }, desc: "Categorises expenses, flags anomalies, preps monthly summaries.", tags: ["FINANCE", "REPORTING"] },
-  { name: "MEETING PREP", icon: "🎯", color: NEON_CYAN, tier: "A" as const, stats: { SPD: 8, ACC: 9, CRE: 7 }, desc: "Researches attendees, drafts agendas, summarises action items.", tags: ["PRODUCTIVITY", "RESEARCH"] },
-  { name: "LEAD QUALIFIER", icon: "🔥", color: NEON_YELLOW, tier: "S" as const, stats: { SPD: 10, ACC: 8, CRE: 6 }, desc: "Scores inbound leads, enriches contacts, drafts personalised outreach.", tags: ["SALES", "CRM"] },
-  { name: "GRANT WRITER", icon: "📝", color: NEON_PURPLE, tier: "B" as const, stats: { SPD: 5, ACC: 9, CRE: 8 }, desc: "Finds relevant grants, drafts applications, tracks deadlines.", tags: ["FUNDING", "WRITING"] },
-  { name: "CLIENT ONBOARDER", icon: "🤝", color: NEON_ORANGE, tier: "A" as const, stats: { SPD: 8, ACC: 8, CRE: 7 }, desc: "Sends welcome sequences, collects docs, sets up project boards.", tags: ["OPS", "AUTOMATION"] },
+  { name: "METRICS ANALYST", icon: "📊", color: NEON_CYAN, desc: "Weekly scorecards and KPI tracking" },
+  { name: "CONTENT STRATEGIST", icon: "✍️", color: NEON_PINK, desc: "Content calendars and brand voice" },
+  { name: "MEETING PREP", icon: "🎯", color: NEON_GREEN, desc: "Agendas, research, and action items" },
+  { name: "LEAD QUALIFIER", icon: "🔥", color: NEON_YELLOW, desc: "Research, score, and draft outreach" },
+  { name: "COMPETITOR INTEL", icon: "🔍", color: NEON_PURPLE, desc: "Track competitors and brief you" },
+  { name: "RISK FLAGGER", icon: "⚠️", color: NEON_ORANGE, desc: "Spot emerging risks early" },
+  { name: "NUTRITION PLANNER", icon: "🥗", color: NEON_GREEN, desc: "Macro-aligned meal plans" },
+  { name: "SOP BUILDER", icon: "📋", color: NEON_CYAN, desc: "Document your processes" },
 ];
 
-export const builderSteps = [
-  { label: "NAME", value: "Proposal Writer", color: NEON_CYAN },
-  { label: "ROLE", value: "Drafts client proposals from brief + template library", color: NEON_GREEN },
-  { label: "TOOLS", value: "Google Docs  •  Asana  •  Web Search", color: NEON_YELLOW },
-  { label: "VOICE", value: "Professional, concise, confident", color: NEON_PINK },
+// The workflow loop
+export const workflowSteps = [
+  { num: "01", label: "DEFINE", desc: "Give agents a role, voice, and templates that encode what good looks like", color: NEON_CYAN },
+  { num: "02", label: "COLLABORATE", desc: "Work with your agents in teams or DMs — they stay in their lane and produce structured reports", color: NEON_GREEN },
+  { num: "03", label: "REFINE", desc: "Edit reports side-by-side with the chat. Your agent reviews changes and suggests improvements", color: NEON_YELLOW },
+  { num: "04", label: "LEARN", desc: "Your edits are stored. Next time, agents produce better work. The system gets smarter through use", color: NEON_PINK },
 ];
 
-export const socialProof = [
-  "EOS IMPLEMENTERS",
-  "FITNESS COACHES",
-  "AGENCY FOUNDERS",
-  "CONSULTANTS",
-  "OPERATORS",
-  "SMALL TEAMS",
-];
-
-export const builderBullets = [
-  { icon: "⚡", text: "No code, no prompting skills required", color: NEON_YELLOW },
-  { icon: "🔧", text: "Connect Asana, email, docs, web search", color: NEON_CYAN },
-  { icon: "🎭", text: "Set personality, tone, and guardrails", color: NEON_PINK },
-  { icon: "🔄", text: "Iterate and refine as your needs change", color: NEON_GREEN },
-];
-
-// Reports demo data
-export const reportEntries = [
-  { title: "Competitor Analysis — Q2 2026", agent: "RESEARCHER", date: "2 hrs ago", color: NEON_GREEN, pages: 12 },
-  { title: "Weekly Client Retro Summary", agent: "STRATEGIST", date: "Yesterday", color: NEON_CYAN, pages: 4 },
-  { title: "Lead Pipeline — March Snapshot", agent: "LEAD QUALIFIER", date: "2 days ago", color: NEON_YELLOW, pages: 8 },
-  { title: "Social Content Calendar — April", agent: "SOCIAL MEDIA MGR", date: "3 days ago", color: NEON_PINK, pages: 6 },
-];
-
-// Scheduled tasks demo data
-export const scheduledTasks = [
-  { name: "Morning news brief", agent: "RESEARCHER", schedule: "Weekdays 7:00 AM", color: NEON_GREEN, icon: "📰" },
-  { name: "Weekly pipeline report", agent: "LEAD QUALIFIER", schedule: "Mondays 9:00 AM", color: NEON_YELLOW, icon: "📊" },
-  { name: "Social post drafts", agent: "WRITER", schedule: "Tue / Thu 10:00 AM", color: NEON_PINK, icon: "📱" },
-  { name: "Invoice follow-ups", agent: "BOOKKEEPER", schedule: "Fridays 2:00 PM", color: NEON_CYAN, icon: "💰" },
+// Use cases
+export const useCases = [
+  { emoji: "📰", title: "Daily briefings", desc: "Political analyst scans the web every morning and delivers a structured briefing before you start work" },
+  { emoji: "📋", title: "Project status reports", desc: "Pulls data from Asana, generates a status report, and drafts a meeting agenda — one prompt, two outputs" },
+  { emoji: "💰", title: "Automated bookkeeping", desc: "Monitors your email for invoices, creates payment tasks, and keeps your accounts receivable current — without being asked" },
+  { emoji: "✍️", title: "CEO updates", desc: "Connects to your calendar and meeting notes, drafts a fortnightly update for leadership in 30 seconds instead of 45 minutes" },
+  { emoji: "🥗", title: "Fitness and nutrition", desc: "Builds meal plans and training programs matched to your macros, goals, and schedule — with batch prep instructions" },
+  { emoji: "✈️", title: "Trip planning", desc: "You and a partner chat with a travel agent in real time, plan an itinerary together, and save it as a report" },
 ];
