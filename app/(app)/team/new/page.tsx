@@ -77,7 +77,7 @@ export default function NewTeamPage() {
   if (!canManage) {
     return (
       <div className="flex-1 flex items-center justify-center text-[15px] text-[var(--color-text-secondary)]">
-        You don&apos;t have permission to create teams
+        You don&apos;t have permission to create teams.
       </div>
     );
   }
@@ -92,7 +92,7 @@ export default function NewTeamPage() {
           <BackIcon />
         </button>
         <span className="text-[18px] font-semibold text-[var(--color-text)]">
-          New Channel
+          New Team
         </span>
       </div>
 
@@ -106,7 +106,7 @@ export default function NewTeamPage() {
 
           <div className="mb-6">
             <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-2.5">
-              Channel Name
+              Team Name
             </label>
             <input
               value={name}
@@ -123,7 +123,7 @@ export default function NewTeamPage() {
             <input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="What is this channel for?"
+              placeholder="What is this team for?"
               className="w-full py-3 px-4 border border-[var(--color-border)] rounded-lg text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
             />
           </div>
@@ -143,10 +143,10 @@ export default function NewTeamPage() {
               </span>
               <div className="flex-1">
                 <div className="text-[14px] font-medium text-[var(--color-text)]">
-                  Make this channel private
+                  Make this team private
                 </div>
                 <div className="text-[12px] text-[var(--color-text-tertiary)] mt-0.5">
-                  Only invited workspace members can see this channel
+                  Only invited workspace members can see this team
                 </div>
               </div>
               <div
@@ -169,7 +169,7 @@ export default function NewTeamPage() {
           {isPrivate && workspaceMembers.length > 0 && (
             <div className="mb-7">
               <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-1">
-                Channel Members
+                Team Members
               </label>
               <p className="text-[12px] text-[var(--color-text-tertiary)] mb-3">
                 You&apos;ll be added automatically. Select other workspace members who should have access.
@@ -221,7 +221,7 @@ export default function NewTeamPage() {
               Agent Members
             </label>
             <p className="text-[12px] text-[var(--color-text-tertiary)] mb-3">
-              Select which agents participate in this channel.
+              Select which agents participate in this team.
             </p>
 
             {agents.length === 0 ? (
@@ -283,7 +283,7 @@ export default function NewTeamPage() {
               color: name.trim() ? "#fff" : "var(--color-text-tertiary)",
             }}
           >
-            {saving ? "Creating..." : "Create Channel"}
+            {saving ? "Creating..." : "Create Team"}
           </button>
         </div>
       </div>

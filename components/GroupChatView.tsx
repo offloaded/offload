@@ -684,7 +684,7 @@ function GroupChatInput({
             onBlur={() => {
               setTimeout(() => { setMentionOpen(false); setChannelOpen(false); }, 150);
             }}
-            placeholder="Message #All... (@ to mention, # for channels)"
+            placeholder="Message #All... (@ to mention, # for teams)"
             rows={1}
             className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[15px] outline-none py-2 resize-none leading-relaxed"
             style={{ maxHeight: 120 }}

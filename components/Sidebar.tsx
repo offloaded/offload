@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { HashIcon, GearIcon, XIcon, ClockIcon, PlusIcon, RepeatClockIcon, ActivityIcon, SunIcon, MoonIcon, PeopleIcon, LockIcon, StorefrontIcon, SearchIcon, ReportIcon, ChevronDownIcon } from "./Icons";
 import { createClient } from "@/lib/supabase";
-import type { Agent, Team, Workspace } from "@/lib/types";
+import type { Agent, Team, Workspace, WorkspaceMember } from "@/lib/types";
 
 interface TeamWithAgents extends Team {
   agent_ids: string[];
@@ -178,6 +178,299 @@ function WorkspaceSwitcher({
   );
 }
 
+interface ComposeModalProps {
+  open: boolean;
+  onClose: () => void;
+  agents: Agent[];
+  workspaceId: string | null;
+  canCreateTeam: boolean;
+}
+
+interface Participant {
+  type: "agent" | "member";
+  id: string;
+  name: string;
+  role?: string | null;
+  color?: string;
+  email?: string | null;
+}
+
+function ComposeModal({ open, onClose, agents, workspaceId, canCreateTeam }: ComposeModalProps) {
+  const router = useRouter();
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<Participant[]>([]);
+  const [members, setMembers] = useState<WorkspaceMember[]>([]);
+  const [teamName, setTeamName] = useState("");
+  const [showTeamName, setShowTeamName] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  // Load workspace members
+  useEffect(() => {
+    if (!open || !workspaceId) return;
+    fetch("/api/workspaces/members")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: WorkspaceMember[]) => setMembers(data))
+      .catch(() => {});
+  }, [open, workspaceId]);
+
+  // Reset state when opened
+  useEffect(() => {
+    if (open) {
+      setSearch("");
+      setSelected([]);
+      setTeamName("");
+      setShowTeamName(false);
+      setCreating(false);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }, [open]);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (modalRef.current && !modalRef.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open, onClose]);
+
+  const lowerSearch = search.toLowerCase();
+
+  const filteredParticipants = useMemo(() => {
+    const results: Participant[] = [];
+    const selectedIds = new Set(selected.map((s) => `${s.type}:${s.id}`));
+
+    // Agents
+    for (const a of agents) {
+      if (selectedIds.has(`agent:${a.id}`)) continue;
+      if (
+        lowerSearch &&
+        !a.name.toLowerCase().includes(lowerSearch) &&
+        !(a.role && a.role.toLowerCase().includes(lowerSearch))
+      ) continue;
+      results.push({ type: "agent", id: a.id, name: a.name, role: a.role, color: a.color });
+    }
+
+    // Members (only show if searching or if there are multiple workspace members)
+    for (const m of members) {
+      if (selectedIds.has(`member:${m.user_id}`)) continue;
+      const displayName = m.display_name || m.email || "Member";
+      if (
+        lowerSearch &&
+        !displayName.toLowerCase().includes(lowerSearch) &&
+        !(m.email && m.email.toLowerCase().includes(lowerSearch))
+      ) continue;
+      results.push({ type: "member", id: m.user_id, name: displayName, email: m.email, role: m.role });
+    }
+
+    return results;
+  }, [agents, members, selected, lowerSearch]);
+
+  const addParticipant = useCallback((p: Participant) => {
+    setSelected((prev) => [...prev, p]);
+    setSearch("");
+    inputRef.current?.focus();
+  }, []);
+
+  const removeParticipant = useCallback((id: string, type: string) => {
+    setSelected((prev) => prev.filter((p) => !(p.id === id && p.type === type)));
+  }, []);
+
+  const handleGo = useCallback(async () => {
+    if (selected.length === 0) return;
+
+    // Single agent selected → DM
+    if (selected.length === 1 && selected[0].type === "agent") {
+      onClose();
+      router.push(`/agent/${selected[0].id}`);
+      return;
+    }
+
+    // Multiple participants → create team
+    if (!showTeamName) {
+      setShowTeamName(true);
+      return;
+    }
+
+    if (!teamName.trim()) return;
+    setCreating(true);
+    try {
+      const agentIds = selected.filter((p) => p.type === "agent").map((p) => p.id);
+      const memberIds = selected.filter((p) => p.type === "member").map((p) => p.id);
+      const res = await fetch("/api/teams", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: teamName.trim(),
+          description: "",
+          agent_ids: agentIds,
+          visibility: memberIds.length > 0 ? "private" : "public",
+          member_ids: memberIds.length > 0 ? memberIds : undefined,
+        }),
+      });
+      if (res.ok) {
+        const team = await res.json();
+        onClose();
+        router.push(`/team/${team.id}`);
+      }
+    } finally {
+      setCreating(false);
+    }
+  }, [selected, showTeamName, teamName, onClose, router]);
+
+  if (!open) return null;
+
+  const needsTeamName = selected.length > 1 || (selected.length === 1 && selected[0].type === "member");
+  const buttonLabel =
+    selected.length === 0
+      ? "Select participants"
+      : selected.length === 1 && selected[0].type === "agent"
+      ? "Open DM"
+      : showTeamName
+      ? creating ? "Creating..." : "Create Team"
+      : "Next";
+
+  return (
+    <div className="fixed inset-0 z-[400] flex items-start justify-center pt-[15vh]">
+      <div className="fixed inset-0 bg-black/20" />
+      <div
+        ref={modalRef}
+        className="relative bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-xl w-[400px] max-w-[90vw] max-h-[60vh] flex flex-col overflow-hidden"
+      >
+        {/* Header */}
+        <div className="px-4 py-3 border-b border-[var(--color-border)] flex items-center justify-between shrink-0">
+          <span className="text-[15px] font-semibold text-[var(--color-text)]">New conversation</span>
+          <button
+            onClick={onClose}
+            className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0.5 flex hover:text-[var(--color-text-secondary)]"
+          >
+            <XIcon />
+          </button>
+        </div>
+
+        {/* Selected pills + search input */}
+        <div className="px-3 py-2 border-b border-[var(--color-border)] shrink-0">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {selected.map((p) => (
+              <span
+                key={`${p.type}:${p.id}`}
+                className="flex items-center gap-1 px-2 py-1 rounded-full text-[12px] font-medium bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
+              >
+                {p.type === "agent" && (
+                  <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
+                )}
+                {p.name}
+                <button
+                  onClick={() => removeParticipant(p.id, p.type)}
+                  className="bg-transparent border-none text-[var(--color-accent)] cursor-pointer p-0 flex ml-0.5 hover:opacity-70"
+                >
+                  <XIcon />
+                </button>
+              </span>
+            ))}
+            <input
+              ref={inputRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={selected.length === 0 ? "Search agents or members..." : "Add more..."}
+              className="flex-1 min-w-[120px] bg-transparent border-none outline-none text-[13px] text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] py-1"
+              onKeyDown={(e) => {
+                if (e.key === "Backspace" && !search && selected.length > 0) {
+                  const last = selected[selected.length - 1];
+                  removeParticipant(last.id, last.type);
+                }
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Team name input (shown when multiple participants) */}
+        {showTeamName && needsTeamName && (
+          <div className="px-3 py-2.5 border-b border-[var(--color-border)] shrink-0">
+            <label className="text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider mb-1.5 block">
+              Team name
+            </label>
+            <input
+              type="text"
+              value={teamName}
+              onChange={(e) => setTeamName(e.target.value)}
+              placeholder="e.g. Marketing, Scrum..."
+              className="w-full bg-transparent border border-[var(--color-border)] rounded-lg px-3 py-2 text-[14px] text-[var(--color-text)] outline-none focus:border-[var(--color-accent)]"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && teamName.trim()) handleGo();
+              }}
+            />
+          </div>
+        )}
+
+        {/* Results list */}
+        {!showTeamName && (
+          <div className="flex-1 overflow-y-auto py-1">
+            {filteredParticipants.length === 0 ? (
+              <div className="px-4 py-6 text-center text-[13px] text-[var(--color-text-tertiary)]">
+                {search ? "No matches found" : "No participants available"}
+              </div>
+            ) : (
+              filteredParticipants.map((p) => (
+                <button
+                  key={`${p.type}:${p.id}`}
+                  onClick={() => addParticipant(p)}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 bg-transparent border-none cursor-pointer text-left hover:bg-[var(--color-hover)] transition-colors"
+                >
+                  {p.type === "agent" ? (
+                    <div className="w-3 h-3 rounded-full shrink-0" style={{ background: p.color }} />
+                  ) : (
+                    <div className="w-3 h-3 rounded-full shrink-0 bg-[var(--color-text-tertiary)] opacity-40" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[14px] text-[var(--color-text)] truncate">
+                      {p.name}
+                      {p.role && (
+                        <span className="text-[11px] text-[var(--color-text-tertiary)] font-normal ml-1.5">{p.role}</span>
+                      )}
+                    </div>
+                    {p.type === "member" && p.email && p.email !== p.name && (
+                      <div className="text-[11px] text-[var(--color-text-tertiary)] truncate">{p.email}</div>
+                    )}
+                  </div>
+                  <span className="text-[10px] font-medium text-[var(--color-text-tertiary)] uppercase">
+                    {p.type === "agent" ? "Agent" : "Member"}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* Action button */}
+        <div className="px-3 py-3 border-t border-[var(--color-border)] shrink-0">
+          <button
+            onClick={handleGo}
+            disabled={
+              selected.length === 0 ||
+              creating ||
+              (showTeamName && !teamName.trim()) ||
+              (!canCreateTeam && needsTeamName)
+            }
+            className="w-full py-2.5 rounded-lg text-[14px] font-semibold border-none cursor-pointer disabled:cursor-default transition-colors"
+            style={{
+              background: selected.length > 0 ? "var(--color-accent)" : "var(--color-active)",
+              color: selected.length > 0 ? "#fff" : "var(--color-text-tertiary)",
+            }}
+          >
+            {buttonLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SidebarContent({
   agents,
   teams = [],
@@ -213,12 +506,26 @@ export function SidebarContent({
   // Collapsible state with localStorage persistence
   const [channelsCollapsed, setChannelsCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
-    return localStorage.getItem("sidebar_channels_collapsed") === "true";
+    return localStorage.getItem("sidebar_teams_collapsed") === "true";
   });
   const [dmsCollapsed, setDmsCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("sidebar_dms_collapsed") === "true";
   });
+
+  // Compose modal
+  const [composeOpen, setComposeOpen] = useState(false);
+
+  // Active DMs — agents the user has actually chatted with
+  const [activeDmAgentIds, setActiveDmAgentIds] = useState<string[] | null>(null);
+  useEffect(() => {
+    fetch("/api/conversations/active-dms")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: { agent_id: string; last_message_at: string }[]) => {
+        setActiveDmAgentIds(data.map((d) => d.agent_id));
+      })
+      .catch(() => {});
+  }, []);
 
   // Search filter
   const [search, setSearch] = useState("");
@@ -227,7 +534,7 @@ export function SidebarContent({
   const toggleChannels = () => {
     const next = !channelsCollapsed;
     setChannelsCollapsed(next);
-    localStorage.setItem("sidebar_channels_collapsed", String(next));
+    localStorage.setItem("sidebar_teams_collapsed", String(next));
   };
 
   const toggleDms = () => {
@@ -260,13 +567,20 @@ export function SidebarContent({
     return teams.filter((t) => t.name.toLowerCase().includes(lowerSearch));
   }, [teams, lowerSearch]);
 
-  const filteredAgents = useMemo(() => {
-    if (!lowerSearch) return agents;
-    return agents.filter((a) =>
-      a.name.toLowerCase().includes(lowerSearch) ||
-      (a.role && a.role.toLowerCase().includes(lowerSearch))
-    );
-  }, [agents, lowerSearch]);
+  // When searching, show all agents. Otherwise, show only agents with active conversations.
+  const activeAgents = useMemo(() => {
+    if (lowerSearch) {
+      // During search, show all agents that match
+      return agents.filter((a) =>
+        a.name.toLowerCase().includes(lowerSearch) ||
+        (a.role && a.role.toLowerCase().includes(lowerSearch))
+      );
+    }
+    // Not searching — show only agents with active DM conversations
+    if (!activeDmAgentIds) return []; // Still loading
+    const activeSet = new Set(activeDmAgentIds);
+    return agents.filter((a) => activeSet.has(a.id));
+  }, [agents, lowerSearch, activeDmAgentIds]);
 
   // When searching, expand both sections
   const showChannels = search ? true : !channelsCollapsed;
@@ -366,9 +680,22 @@ export function SidebarContent({
           <span>History</span>
         </NavItem>
 
-        {/* Channels section — collapsible */}
+        {/* New conversation button */}
+        {!search && (
+          <button
+            onClick={() => setComposeOpen(true)}
+            className="flex items-center gap-2.5 px-3 py-2 rounded-lg w-full text-[13px] bg-transparent border border-dashed border-[var(--color-border)] cursor-pointer transition-colors font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] mt-2"
+          >
+            <span className="opacity-60">
+              <PlusIcon />
+            </span>
+            <span>New conversation</span>
+          </button>
+        )}
+
+        {/* Teams section — collapsible */}
         <SectionHeader
-          label="Channels"
+          label="Teams"
           collapsed={channelsCollapsed && !search}
           onToggle={toggleChannels}
           totalUnread={channelUnread}
@@ -433,17 +760,6 @@ export function SidebarContent({
                 </NavItem>
               );
             })}
-            {canManage && !search && (
-              <Link
-                href="/team/new"
-                className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg w-full text-[13px] no-underline transition-colors font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] hover:bg-[var(--color-hover)]"
-              >
-                <span className="opacity-60">
-                  <PlusIcon />
-                </span>
-                <span>New channel</span>
-              </Link>
-            )}
           </>
         ) : (
           /* Collapsed peek: show channels with unread */
@@ -475,7 +791,7 @@ export function SidebarContent({
         )}
 
         {/* Direct messages section — collapsible with internal scroll */}
-        {agents.length > 0 && (
+        {(activeAgents.length > 0 || search) && (
           <>
             <SectionHeader
               label="Direct messages"
@@ -486,7 +802,7 @@ export function SidebarContent({
 
             {showDms ? (
               <div className="flex flex-col gap-0.5" style={{ maxHeight: "40vh", overflowY: "auto" }}>
-                {filteredAgents.map((a) => {
+                {activeAgents.map((a) => {
                   const unread = unreadCounts[a.id] || 0;
                   return (
                     <NavItem
@@ -614,6 +930,14 @@ export function SidebarContent({
         />
         <LogOutButton />
       </div>
+
+      <ComposeModal
+        open={composeOpen}
+        onClose={() => setComposeOpen(false)}
+        agents={agents}
+        workspaceId={workspace?.id || null}
+        canCreateTeam={canManage}
+      />
     </>
   );
 }

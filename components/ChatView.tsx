@@ -439,7 +439,7 @@ function ChatInput({
             onChange={handleInput}
             onKeyDown={handleKeyDown}
             onBlur={() => { setTimeout(() => setChannelOpen(false), 150); }}
-            placeholder={`Message ${agentName}... (# for channels)`}
+            placeholder={`Message ${agentName}... (# for teams)`}
             rows={1}
             className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[15px] outline-none py-2 resize-none leading-relaxed"
             style={{ maxHeight: 120 }}
