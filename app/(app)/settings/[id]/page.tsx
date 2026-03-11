@@ -157,12 +157,12 @@ export default function AgentEditorPage() {
           ...(!isNew ? { team_expectations: teamExpectations.length > 0 ? teamExpectations : null } : {}),
         }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `Save failed (${res.status})`);
       }
       await refreshAgents();
-      router.push("/settings");
+      router.push(isNew ? `/settings/${data.id}` : "/settings");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save agent");
     } finally {
