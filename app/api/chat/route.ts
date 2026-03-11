@@ -8,6 +8,7 @@ import { runGroupOrchestration } from "@/lib/group-orchestration";
 import { logApiUsage, estimateCost } from "@/lib/api-usage";
 import { estimateTokens, trimHistory, trimRagChunks, shouldArchive, calculateBudget } from "@/lib/context-manager";
 import { getWorkspaceContext } from "@/lib/workspace";
+import { listTasks, getTask, createTask, updateTask, addComment } from "@/lib/asana";
 
 export async function POST(request: Request) {
   const ctx = await getWorkspaceContext();
@@ -471,6 +472,42 @@ export async function POST(request: Request) {
     }
   } catch { /* non-fatal */ }
 
+  // Load Asana projects if agent has Asana enabled
+  let asanaProjects: Array<{ gid: string; name: string }> = [];
+  if (agent.asana_enabled) {
+    try {
+      const { data: projects } = await serviceDb
+        .from("agent_asana_projects")
+        .select("asana_project_gid, asana_project_name")
+        .eq("agent_id", agent_id);
+      if (projects) {
+        asanaProjects = projects.map((p: { asana_project_gid: string; asana_project_name: string }) => ({
+          gid: p.asana_project_gid,
+          name: p.asana_project_name,
+        }));
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  // Check if Asana is available at workspace level but not enabled on this agent
+  if (!agent.asana_enabled) {
+    try {
+      const { data: integration } = await serviceDb
+        .from("integrations")
+        .select("id")
+        .eq("workspace_id", ctx.workspaceId)
+        .eq("provider", "asana")
+        .single();
+      if (integration) {
+        disabledFeatures.push({
+          feature: "asana",
+          label: "Asana",
+          description: "Create, view, and manage Asana tasks from chat",
+        });
+      }
+    } catch { /* non-fatal */ }
+  }
+
   // Stream response from Claude
   const anthropic = getAnthropicClient();
   let systemPrompt = buildSystemPrompt(
@@ -486,6 +523,7 @@ export async function POST(request: Request) {
       reportEdits: reportEdits.length > 0 ? reportEdits : undefined,
       reportTemplates: reportTemplates.length > 0 ? reportTemplates : undefined,
       recentReports: recentReports.length > 0 ? recentReports : undefined,
+      asanaProjects: asanaProjects.length > 0 ? asanaProjects : undefined,
     }
   );
 
@@ -599,6 +637,11 @@ export async function POST(request: Request) {
         );
         const updateReportMatch = fullResponse.match(
           /```update_report\s*\n?([\s\S]*?)\n?```/
+        );
+
+        // Asana tool blocks
+        const asanaMatch = fullResponse.match(
+          /```(asana_list_tasks|asana_get_task|asana_create_task|asana_update_task|asana_add_comment)\s*\n?([\s\S]*?)\n?```/
         );
 
         // Clean the response: strip <search> blocks, schedule_request blocks, feature_request blocks, etc.
@@ -823,8 +866,129 @@ export async function POST(request: Request) {
           }
         }
 
+        // Handle Asana tool blocks — execute operation and stream follow-up
+        if (asanaMatch && agent.asana_enabled && asanaProjects.length > 0) {
+          try {
+            const asanaAction = asanaMatch[1];
+            const asanaPayload = JSON.parse(asanaMatch[2].trim());
+            let asanaResult = "";
+
+            // Validate project access for operations that reference a project
+            const allowedGids = new Set(asanaProjects.map((p) => p.gid));
+
+            if (asanaAction === "asana_list_tasks") {
+              if (asanaPayload.project_gid && !allowedGids.has(asanaPayload.project_gid)) {
+                asanaResult = "Error: You don't have access to that project.";
+              } else {
+                const targetGids = asanaPayload.project_gid ? [asanaPayload.project_gid] : [...allowedGids];
+                const allTasks: Array<{ name: string; gid: string; completed: boolean; due_on: string | null; assignee: string | null }> = [];
+                for (const gid of targetGids) {
+                  const result = await listTasks(ctx.workspaceId, gid, {
+                    completedSince: asanaPayload.completed_since === "now" ? "now" : undefined,
+                  });
+                  if (result.ok && result.tasks) {
+                    allTasks.push(...result.tasks.map((t) => ({
+                      name: t.name,
+                      gid: t.gid,
+                      completed: t.completed,
+                      due_on: t.due_on,
+                      assignee: t.assignee?.name || null,
+                    })));
+                  } else if (!result.ok) {
+                    asanaResult = `Error: ${result.error}`;
+                    break;
+                  }
+                }
+                if (!asanaResult) {
+                  asanaResult = allTasks.length > 0
+                    ? `Found ${allTasks.length} task(s):\n${allTasks.map((t) => `- ${t.name} (GID: ${t.gid})${t.assignee ? ` [${t.assignee}]` : ""}${t.due_on ? ` due ${t.due_on}` : ""}${t.completed ? " [DONE]" : ""}`).join("\n")}`
+                    : "No tasks found.";
+                }
+              }
+            } else if (asanaAction === "asana_get_task") {
+              const result = await getTask(ctx.workspaceId, asanaPayload.task_gid);
+              if (result.ok && result.task) {
+                const t = result.task;
+                asanaResult = `Task: ${t.name} (GID: ${t.gid})\nStatus: ${t.completed ? "Complete" : "Incomplete"}\nAssignee: ${t.assignee?.name || "Unassigned"}\nDue: ${t.due_on || "No due date"}${t.notes ? `\nDescription: ${t.notes}` : ""}${t.permalink_url ? `\nURL: ${t.permalink_url}` : ""}`;
+                if (t.stories && t.stories.length > 0) {
+                  asanaResult += `\n\nComments (${t.stories.length}):\n${t.stories.map((s) => `- ${s.created_by?.name || "Unknown"} (${new Date(s.created_at).toLocaleDateString()}): ${s.text}`).join("\n")}`;
+                }
+              } else {
+                asanaResult = `Error: ${result.error}`;
+              }
+            } else if (asanaAction === "asana_create_task") {
+              if (!allowedGids.has(asanaPayload.project_gid)) {
+                asanaResult = "Error: You don't have access to that project.";
+              } else {
+                const result = await createTask(ctx.workspaceId, asanaPayload);
+                if (result.ok && result.task) {
+                  asanaResult = `Task created: "${result.task.name}" (GID: ${result.task.gid})${result.task.permalink_url ? `\nURL: ${result.task.permalink_url}` : ""}`;
+                  logActivity(supabase, user.id, agent_id, "asana_create_task", `${agent.name} created Asana task: ${result.task.name}`, { conversation_id: convId, task_gid: result.task.gid });
+                } else {
+                  asanaResult = `Error: ${result.error}`;
+                }
+              }
+            } else if (asanaAction === "asana_update_task") {
+              const result = await updateTask(ctx.workspaceId, asanaPayload.task_gid, asanaPayload);
+              if (result.ok && result.task) {
+                asanaResult = `Task updated: "${result.task.name}" (GID: ${result.task.gid})`;
+                logActivity(supabase, user.id, agent_id, "asana_update_task", `${agent.name} updated Asana task: ${result.task.name}`, { conversation_id: convId, task_gid: result.task.gid });
+              } else {
+                asanaResult = `Error: ${result.error}`;
+              }
+            } else if (asanaAction === "asana_add_comment") {
+              const result = await addComment(ctx.workspaceId, asanaPayload.task_gid, asanaPayload.text);
+              if (result.ok) {
+                asanaResult = `Comment added (GID: ${result.commentGid})`;
+              } else {
+                asanaResult = `Error: ${result.error}`;
+              }
+            }
+
+            // Do a follow-up call so the agent can summarize the results naturally
+            if (asanaResult) {
+              const followUpMessages = [
+                ...messages,
+                { role: "assistant" as const, content: cleaned || "" },
+                { role: "user" as const, content: `[System: Asana operation result]\n${asanaResult}` },
+              ];
+
+              const followUpStream = anthropic.messages.stream({
+                model: "claude-sonnet-4-5-20250929",
+                max_tokens: 4096,
+                system: systemPrompt,
+                messages: followUpMessages,
+              });
+
+              let followUpText = "";
+              for await (const event of followUpStream) {
+                if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+                  followUpText += event.delta.text;
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify({ type: "text", text: event.delta.text })}\n\n`)
+                  );
+                }
+              }
+
+              const followUpCleaned = cleanResponse(followUpText);
+              if (followUpCleaned) {
+                await supabase.from("messages").insert({
+                  conversation_id: convId,
+                  role: "assistant",
+                  content: followUpCleaned,
+                });
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ type: "replace", text: (cleaned ? cleaned + "\n\n" : "") + followUpCleaned })}\n\n`)
+                );
+              }
+            }
+          } catch (e) {
+            console.error("[Chat] Asana operation failed:", e);
+          }
+        }
+
         // If cleaning changed the text, send a replace event so the client shows clean text
-        if (cleaned !== fullResponse) {
+        if (cleaned !== fullResponse && !asanaMatch) {
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({ type: "replace", text: cleaned })}\n\n`

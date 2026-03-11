@@ -71,6 +71,7 @@ export function buildSystemPrompt(
     name: string;
     purpose: string;
     web_search_enabled?: boolean;
+    asana_enabled?: boolean;
     working_style?: string[] | null;
     communication_style?: string[] | null;
     voice_profile?: string | null;
@@ -90,6 +91,7 @@ export function buildSystemPrompt(
     reportEdits?: Array<{ title: string; original: string; edited: string }>;
     reportTemplates?: Array<{ name: string; description: string }>;
     recentReports?: Array<{ id: string; title: string; generated_title?: string; content: string; agent_name?: string; updated_at: string; is_mine?: boolean }>;
+    asanaProjects?: Array<{ gid: string; name: string }>;
   }
 ): string {
   let prompt: string;
@@ -134,6 +136,42 @@ CRITICAL — YOU ARE NOT A TOOL-USING SYSTEM: Never output XML tags, tool calls,
   if (options?.webSearchResults) {
     prompt += `\n\nWeb search results:\n\n${options.webSearchResults}`;
     prompt += `\n\nYou may reference these web search results when they're relevant. Cite URLs when quoting specific information.`;
+  }
+
+  if (agent.asana_enabled && options?.asanaProjects && options.asanaProjects.length > 0) {
+    const projectList = options.asanaProjects.map((p) => `- ${p.name} (GID: ${p.gid})`).join("\n");
+    prompt += `\n\nASANA INTEGRATION:
+You have access to Asana for task management. You are connected to these projects:
+${projectList}
+
+To perform Asana operations, include one of these blocks at the END of your response (only one per response):
+
+\`\`\`asana_list_tasks
+{"project_gid": "...", "completed_since": "now"}
+\`\`\`
+Lists incomplete tasks. Use "completed_since": "now" for incomplete only, omit for all tasks.
+
+\`\`\`asana_get_task
+{"task_gid": "..."}
+\`\`\`
+Gets full task details including description, subtasks, and comments.
+
+\`\`\`asana_create_task
+{"project_gid": "...", "name": "Task name", "notes": "Description", "due_on": "YYYY-MM-DD", "assignee": "email@example.com"}
+\`\`\`
+Creates a new task. Only project_gid and name are required.
+
+\`\`\`asana_update_task
+{"task_gid": "...", "name": "...", "completed": true, "due_on": "YYYY-MM-DD"}
+\`\`\`
+Updates a task. Include only the fields you want to change.
+
+\`\`\`asana_add_comment
+{"task_gid": "...", "text": "Comment text"}
+\`\`\`
+Adds a comment to a task.
+
+Write your visible reply naturally, then include the block at the end. The system will execute the operation and provide results in a follow-up. Only access projects listed above — if asked about other projects, say you don't have access.`;
   }
 
   if (options?.enableScheduleDetection) {
@@ -344,6 +382,7 @@ export function cleanResponse(text: string, streaming = false): string {
   cleaned = cleaned.replace(/```save_report\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```read_report\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```update_report\s*\n?[\s\S]*?\n?```/g, "");
+  cleaned = cleaned.replace(/```asana_\w+\s*\n?[\s\S]*?\n?```/g, "");
 
   if (streaming) {
     // Remove incomplete opening tags whose closing tag hasn't arrived yet.
@@ -358,6 +397,7 @@ export function cleanResponse(text: string, streaming = false): string {
     cleaned = cleaned.replace(/```save_report[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```read_report[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```update_report[\s\S]*$/g, "");
+    cleaned = cleaned.replace(/```asana_\w+[\s\S]*$/g, "");
   }
 
   // Strip leading [AgentName] or [You] bracket prefix that agents sometimes generate

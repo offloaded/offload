@@ -7,6 +7,7 @@ export interface Agent {
   purpose: string;
   color: string;
   web_search_enabled: boolean;
+  asana_enabled: boolean;
   // Working style tags
   working_style: string[] | null;
   // Communication style tags

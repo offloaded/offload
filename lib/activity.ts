@@ -6,7 +6,9 @@ export type ActivityType =
   | "task_failed"
   | "document_processed"
   | "document_failed"
-  | "web_search";
+  | "web_search"
+  | "asana_create_task"
+  | "asana_update_task";
 
 export async function logActivity(
   supabase: SupabaseClient,

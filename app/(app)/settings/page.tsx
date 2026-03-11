@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { useApp } from "../layout";
 import { Avatar } from "@/components/Avatar";
-import { PlusIcon, ArrowIcon, MenuIcon, ChevronDownIcon } from "@/components/Icons";
+import { PlusIcon, ArrowIcon, MenuIcon, ChevronDownIcon, GlobeIcon } from "@/components/Icons";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 const COMMON_TIMEZONES = [
   "UTC",
@@ -47,12 +48,16 @@ const COMMON_TIMEZONES = [
   "Pacific/Auckland",
 ];
 
-type Tab = "profile" | "agents";
+type Tab = "profile" | "agents" | "integrations";
 
 export default function SettingsPage() {
   const { agents, openDrawer, workspaceRole } = useApp();
   const canManage = workspaceRole === "owner" || workspaceRole === "admin";
-  const [tab, setTab] = useState<Tab>("profile");
+  const searchParams = useSearchParams();
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = searchParams.get("tab");
+    return t === "integrations" || t === "agents" ? t : "profile";
+  });
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-[var(--color-surface)]">
@@ -80,16 +85,16 @@ export default function SettingsPage() {
 
         {/* Tabs */}
         <div className="flex gap-0 mt-3 max-w-[520px]">
-          {(["profile", "agents"] as Tab[]).map((t) => (
+          {(["profile", "agents", "integrations"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className="py-2 px-4 bg-transparent border-none text-[14px] font-medium cursor-pointer transition-colors relative"
+              className="py-2 px-4 bg-transparent border-none text-[14px] font-medium cursor-pointer transition-colors relative capitalize"
               style={{
                 color: tab === t ? "var(--color-accent)" : "var(--color-text-secondary)",
               }}
             >
-              {t === "profile" ? "Profile" : "Agents"}
+              {t}
               {tab === t && (
                 <div
                   className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full"
@@ -105,8 +110,10 @@ export default function SettingsPage() {
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
         {tab === "profile" ? (
           <ProfileTab />
-        ) : (
+        ) : tab === "agents" ? (
           <AgentsTab agents={agents} canManage={canManage} />
+        ) : (
+          <IntegrationsTab />
         )}
       </div>
     </div>
@@ -299,6 +306,155 @@ function AgentsTab({
             </div>
           </Link>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Integrations Tab ───
+
+function IntegrationsTab() {
+  const [asanaStatus, setAsanaStatus] = useState<{
+    connected: boolean;
+    asana_user_name?: string;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+
+  const fetchStatus = useCallback(() => {
+    fetch("/api/integrations/asana/status")
+      .then((r) => (r.ok ? r.json() : { connected: false }))
+      .then(setAsanaStatus)
+      .catch(() => setAsanaStatus({ connected: false }))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
+
+  const handleDisconnect = async () => {
+    setDisconnecting(true);
+    try {
+      const res = await fetch("/api/integrations/asana/disconnect", { method: "DELETE" });
+      if (res.ok) {
+        setAsanaStatus({ connected: false });
+        setConfirmDisconnect(false);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setDisconnecting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="max-w-[520px] p-4 pt-3 md:px-10 md:pt-5">
+        <span className="text-[14px] text-[var(--color-text-tertiary)]">Loading...</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-[520px] p-4 pt-3 md:px-10 md:pt-5 md:pb-8">
+      <p className="text-[13px] text-[var(--color-text-tertiary)] mb-5">
+        Connect external services to give your agents new capabilities.
+      </p>
+
+      {/* Asana card */}
+      <div className="border border-[var(--color-border)] rounded-xl p-4">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 rounded-lg bg-[var(--color-hover)] flex items-center justify-center text-lg">
+            📋
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[15px] font-semibold text-[var(--color-text)]">Asana</div>
+            <div className="text-[13px] text-[var(--color-text-tertiary)]">
+              Task management and project tracking
+            </div>
+          </div>
+          <span
+            className="text-[12px] font-medium px-2 py-0.5 rounded-full"
+            style={{
+              color: asanaStatus?.connected ? "var(--color-green, #16a34a)" : "var(--color-text-tertiary)",
+              background: asanaStatus?.connected ? "var(--color-green-bg, rgba(22,163,74,0.1))" : "var(--color-hover)",
+            }}
+          >
+            {asanaStatus?.connected ? "Connected" : "Not connected"}
+          </span>
+        </div>
+
+        {asanaStatus?.connected && asanaStatus.asana_user_name && (
+          <div className="text-[13px] text-[var(--color-text-secondary)] mb-3 px-1">
+            Connected as <span className="font-medium">{asanaStatus.asana_user_name}</span>
+          </div>
+        )}
+
+        {asanaStatus?.connected ? (
+          <>
+            {confirmDisconnect ? (
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] text-[var(--color-text-secondary)] flex-1">
+                  This will remove Asana access from all agents. Continue?
+                </span>
+                <button
+                  onClick={() => setConfirmDisconnect(false)}
+                  className="py-1.5 px-3 bg-transparent border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text-secondary)] cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDisconnect}
+                  disabled={disconnecting}
+                  className="py-1.5 px-3 bg-red-600 border-none rounded-lg text-[13px] text-white font-medium cursor-pointer disabled:opacity-50"
+                >
+                  {disconnecting ? "Disconnecting..." : "Disconnect"}
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmDisconnect(true)}
+                className="py-2 px-4 bg-transparent border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
+              >
+                Disconnect
+              </button>
+            )}
+          </>
+        ) : (
+          <a
+            href="/api/integrations/asana/connect"
+            className="inline-flex items-center gap-2 py-2 px-4 bg-[var(--color-accent)] border-none rounded-lg text-[13px] text-white font-medium cursor-pointer no-underline hover:opacity-90 transition-opacity"
+          >
+            Connect Asana
+          </a>
+        )}
+      </div>
+
+      {/* Placeholder for future integrations */}
+      <div className="border border-dashed border-[var(--color-border)] rounded-xl p-4 mt-3 opacity-50">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-[var(--color-hover)] flex items-center justify-center text-lg">
+            📅
+          </div>
+          <div className="flex-1">
+            <div className="text-[15px] font-semibold text-[var(--color-text)]">Google Calendar</div>
+            <div className="text-[13px] text-[var(--color-text-tertiary)]">Coming soon</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="border border-dashed border-[var(--color-border)] rounded-xl p-4 mt-3 opacity-50">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-[var(--color-hover)] flex items-center justify-center text-lg">
+            ✉️
+          </div>
+          <div className="flex-1">
+            <div className="text-[15px] font-semibold text-[var(--color-text)]">Email</div>
+            <div className="text-[13px] text-[var(--color-text-tertiary)]">Coming soon</div>
+          </div>
+        </div>
       </div>
     </div>
   );

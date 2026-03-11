@@ -81,6 +81,13 @@ export default function AgentEditorPage() {
   const [publishing, setPublishing] = useState(false);
   const [publishedId, setPublishedId] = useState<string | null>(null);
   const [unpublishing, setUnpublishing] = useState(false);
+  // Asana
+  const [asanaEnabled, setAsanaEnabled] = useState(false);
+  const [asanaConnected, setAsanaConnected] = useState(false);
+  const [asanaProjects, setAsanaProjects] = useState<Array<{ id: string; asana_project_gid: string; asana_project_name: string; asana_workspace_name?: string }>>([]);
+  const [availableAsanaProjects, setAvailableAsanaProjects] = useState<Array<{ gid: string; name: string; projects: Array<{ gid: string; name: string }> }>>([]);
+  const [loadingAsanaProjects, setLoadingAsanaProjects] = useState(false);
+  const [asanaProjectPickerOpen, setAsanaProjectPickerOpen] = useState(false);
 
   useEffect(() => {
     if (existing) {
@@ -89,6 +96,7 @@ export default function AgentEditorPage() {
       setPurpose(existing.purpose);
       setColor(existing.color);
       setWebSearchEnabled(existing.web_search_enabled ?? false);
+      setAsanaEnabled(existing.asana_enabled ?? false);
       setWorkingStyle(existing.working_style ?? []);
       setCommunicationStyle(existing.communication_style ?? []);
       setVoiceSamples(existing.voice_samples ?? []);
@@ -132,6 +140,58 @@ export default function AgentEditorPage() {
       .catch(() => {});
   }, [isNew, params.id, existing?.name]);
 
+  // Check Asana connection status and load agent's Asana projects
+  useEffect(() => {
+    fetch("/api/integrations/asana/status")
+      .then((r) => (r.ok ? r.json() : { connected: false }))
+      .then((d) => setAsanaConnected(d.connected))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!isNew && params.id) {
+      fetch(`/api/agents/asana-projects?agent_id=${params.id}`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then(setAsanaProjects)
+        .catch(() => {});
+    }
+  }, [isNew, params.id]);
+
+  const loadAvailableAsanaProjects = useCallback(() => {
+    if (availableAsanaProjects.length > 0) return;
+    setLoadingAsanaProjects(true);
+    fetch("/api/integrations/asana/projects")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setAvailableAsanaProjects)
+      .catch(() => {})
+      .finally(() => setLoadingAsanaProjects(false));
+  }, [availableAsanaProjects.length]);
+
+  const addAsanaProject = async (projectGid: string, projectName: string, workspaceName: string) => {
+    const res = await fetch("/api/agents/asana-projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        agent_id: params.id,
+        asana_project_gid: projectGid,
+        asana_project_name: projectName,
+        asana_workspace_name: workspaceName,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setAsanaProjects((prev) => [...prev, data]);
+    }
+    setAsanaProjectPickerOpen(false);
+  };
+
+  const removeAsanaProject = async (id: string) => {
+    const res = await fetch(`/api/agents/asana-projects?id=${id}`, { method: "DELETE" });
+    if (res.ok) {
+      setAsanaProjects((prev) => prev.filter((p) => p.id !== id));
+    }
+  };
+
   const save = async () => {
     if (!name.trim() || saving) return;
     setSaving(true);
@@ -147,6 +207,7 @@ export default function AgentEditorPage() {
           purpose: purpose.trim(),
           color,
           web_search_enabled: webSearchEnabled,
+          asana_enabled: asanaEnabled,
           working_style: workingStyle.length > 0 ? workingStyle : null,
           communication_style: communicationStyle.length > 0 ? communicationStyle : null,
           ...(!isNew && (voiceSamples.some((s) => s.trim()) || voiceProfile) ? {
@@ -837,36 +898,145 @@ export default function AgentEditorPage() {
             )}
           </div>
 
-          {/* Web search */}
+          {/* Skills */}
           {!isNew && (
             <div className="mb-7">
               <label className="block text-[13px] font-semibold text-[var(--color-text-secondary)] mb-2.5">
-                Web Search
+                Skills
               </label>
-              <button
-                onClick={() => setWebSearchEnabled(!webSearchEnabled)}
-                className="w-full flex items-center gap-3 py-3 px-4 border border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-left"
-              >
-                <span className="text-[var(--color-text-tertiary)]">
-                  <GlobeIcon />
-                </span>
-                <span className="flex-1 text-[14px] text-[var(--color-text)]">
-                  Allow this agent to search the web
-                </span>
-                <span
-                  className="text-[14px] font-medium"
-                  style={{
-                    color: webSearchEnabled
-                      ? "var(--color-accent)"
-                      : "var(--color-text-tertiary)",
-                  }}
+              <div className="flex flex-col gap-2">
+                {/* Web Browsing */}
+                <button
+                  onClick={() => setWebSearchEnabled(!webSearchEnabled)}
+                  className="w-full flex items-center gap-3 py-3 px-4 border border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-left"
                 >
-                  {webSearchEnabled ? "On" : "Off"}
-                </span>
-              </button>
-              <p className="text-[12px] text-[var(--color-text-tertiary)] mt-1.5 px-1">
-                Requires a Tavily API key in environment variables
-              </p>
+                  <span className="text-[var(--color-text-tertiary)]">
+                    <GlobeIcon />
+                  </span>
+                  <span className="flex-1 text-[14px] text-[var(--color-text)]">
+                    Web Browsing
+                  </span>
+                  <span
+                    className="text-[14px] font-medium"
+                    style={{
+                      color: webSearchEnabled
+                        ? "var(--color-accent)"
+                        : "var(--color-text-tertiary)",
+                    }}
+                  >
+                    {webSearchEnabled ? "On" : "Off"}
+                  </span>
+                </button>
+
+                {/* Asana */}
+                <div className="border border-[var(--color-border)] rounded-lg">
+                  <button
+                    onClick={() => {
+                      if (!asanaConnected) return;
+                      setAsanaEnabled(!asanaEnabled);
+                    }}
+                    className="w-full flex items-center gap-3 py-3 px-4 bg-transparent border-none cursor-pointer text-left"
+                    style={{ opacity: asanaConnected ? 1 : 0.5 }}
+                  >
+                    <span className="text-lg">📋</span>
+                    <span className="flex-1 text-[14px] text-[var(--color-text)]">
+                      Asana
+                    </span>
+                    <span
+                      className="text-[14px] font-medium"
+                      style={{
+                        color: asanaEnabled && asanaConnected
+                          ? "var(--color-accent)"
+                          : "var(--color-text-tertiary)",
+                      }}
+                    >
+                      {!asanaConnected ? "Not connected" : asanaEnabled ? "On" : "Off"}
+                    </span>
+                  </button>
+
+                  {!asanaConnected && (
+                    <div className="px-4 pb-3 text-[12px] text-[var(--color-text-tertiary)]">
+                      <a href="/settings?tab=integrations" className="text-[var(--color-accent)] no-underline hover:underline">
+                        Connect Asana in Settings → Integrations
+                      </a>
+                    </div>
+                  )}
+
+                  {asanaConnected && asanaEnabled && (
+                    <div className="px-4 pb-3 border-t border-[var(--color-border)] pt-3">
+                      <div className="text-[12px] font-semibold text-[var(--color-text-tertiary)] mb-2">
+                        Assigned projects
+                      </div>
+
+                      {asanaProjects.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mb-2">
+                          {asanaProjects.map((p) => (
+                            <span
+                              key={p.id}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-[var(--color-accent-soft)] border border-[var(--color-accent)] text-[12px] text-[var(--color-text)]"
+                            >
+                              {p.asana_project_name}
+                              <button
+                                onClick={() => removeAsanaProject(p.id)}
+                                className="bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] cursor-pointer p-0 flex"
+                              >
+                                <XIcon />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {asanaProjectPickerOpen ? (
+                        <div className="border border-[var(--color-border)] rounded-lg bg-[var(--color-surface)] max-h-[200px] overflow-y-auto">
+                          {loadingAsanaProjects ? (
+                            <div className="p-3 text-[13px] text-[var(--color-text-tertiary)]">Loading projects...</div>
+                          ) : availableAsanaProjects.length === 0 ? (
+                            <div className="p-3 text-[13px] text-[var(--color-text-tertiary)]">No projects found</div>
+                          ) : (
+                            availableAsanaProjects.map((ws) => (
+                              <div key={ws.gid}>
+                                {availableAsanaProjects.length > 1 && (
+                                  <div className="px-3 py-1.5 text-[11px] font-semibold text-[var(--color-text-tertiary)] bg-[var(--color-hover)]">
+                                    {ws.name}
+                                  </div>
+                                )}
+                                {ws.projects
+                                  .filter((p) => !asanaProjects.some((ap) => ap.asana_project_gid === p.gid))
+                                  .map((p) => (
+                                    <button
+                                      key={p.gid}
+                                      onClick={() => addAsanaProject(p.gid, p.name, ws.name)}
+                                      className="w-full text-left px-3 py-2 bg-transparent border-none text-[13px] text-[var(--color-text)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
+                                    >
+                                      {p.name}
+                                    </button>
+                                  ))}
+                              </div>
+                            ))
+                          )}
+                          <button
+                            onClick={() => setAsanaProjectPickerOpen(false)}
+                            className="w-full px-3 py-2 bg-transparent border-t border-[var(--color-border)] text-[12px] text-[var(--color-text-tertiary)] cursor-pointer hover:bg-[var(--color-hover)]"
+                          >
+                            Close
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setAsanaProjectPickerOpen(true);
+                            loadAvailableAsanaProjects();
+                          }}
+                          className="flex items-center gap-1.5 py-1.5 px-3 border border-dashed border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[var(--color-accent)] text-[12px] font-medium hover:bg-[var(--color-hover)] transition-colors"
+                        >
+                          <PlusIcon /> Add project
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
