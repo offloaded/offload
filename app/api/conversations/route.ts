@@ -24,11 +24,44 @@ export async function GET(request: Request) {
 
   // Fetch messages newer than a timestamp (for polling)
   if (conversationId && after) {
+    // Verify the conversation belongs to this user or their workspace before returning messages
+    const { data: convCheck } = await service
+      .from("conversations")
+      .select("id, user_id, team_id")
+      .eq("id", conversationId)
+      .eq("workspace_id", ctx.workspaceId)
+      .single();
+
+    if (!convCheck) {
+      return NextResponse.json({ messages: [] });
+    }
+
+    // For DM conversations, verify the requesting user owns it
+    if (convCheck.user_id !== user.id && !convCheck.team_id) {
+      return NextResponse.json({ messages: [] });
+    }
+
     return loadNewMessages(service, conversationId, after);
   }
 
-  // Load a specific conversation by ID — use service to allow shared channel access
+  // Load a specific conversation by ID — verify ownership/workspace membership
   if (conversationId) {
+    const { data: convCheck } = await service
+      .from("conversations")
+      .select("id, user_id, team_id")
+      .eq("id", conversationId)
+      .eq("workspace_id", ctx.workspaceId)
+      .single();
+
+    if (!convCheck) {
+      return NextResponse.json({ conversation_id: null, messages: [], has_more: false });
+    }
+
+    // For DM conversations (no team_id), only the owner can access
+    if (!convCheck.team_id && convCheck.user_id !== user.id) {
+      return NextResponse.json({ conversation_id: null, messages: [], has_more: false });
+    }
+
     return loadConversation(service, null, conversationId, before, limit);
   }
 

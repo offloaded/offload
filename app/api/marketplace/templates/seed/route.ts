@@ -2,8 +2,14 @@ import { createServiceSupabase } from "@/lib/supabase-server";
 import { NextResponse } from "next/server";
 import templateData from "@/agent-marketplace-templates.json";
 
-// POST /api/marketplace/templates/seed — upsert all templates from JSON
-export async function POST() {
+// POST /api/marketplace/templates/seed — upsert all templates from JSON (admin only)
+export async function POST(request: Request) {
+  // Require CRON_SECRET bearer token (same as cron endpoints)
+  const cronSecret = process.env.CRON_SECRET;
+  const authHeader = request.headers.get("authorization");
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const service = createServiceSupabase();
 
   const templates = templateData.marketplace_agents;
