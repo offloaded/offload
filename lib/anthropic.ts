@@ -89,7 +89,7 @@ export function buildSystemPrompt(
     teamMemberships?: Array<{ id: string; name: string }>;
     reportEdits?: Array<{ title: string; original: string; edited: string }>;
     reportTemplates?: Array<{ name: string; description: string }>;
-    recentReports?: Array<{ id: string; title: string; generated_title?: string; content: string; agent_name?: string; updated_at: string }>;
+    recentReports?: Array<{ id: string; title: string; generated_title?: string; content: string; agent_name?: string; updated_at: string; is_mine?: boolean }>;
   }
 ): string {
   let prompt: string;
@@ -226,15 +226,31 @@ When the user approves changes to a report (e.g. "sounds good, make those change
 The title field is optional — only include it if the title should change. The content field replaces the entire report. The previous version is automatically preserved in version history.`;
 
   if (options?.recentReports && options.recentReports.length > 0) {
-    prompt += `\n\nYOUR RECENT REPORTS (available for reference):`;
-    for (const r of options.recentReports) {
-      prompt += `\n\n--- Report: "${r.title}" (ID: ${r.id}) ---`;
-      if (r.generated_title) prompt += `\nOriginal generated title: "${r.generated_title}"`;
-      if (r.agent_name) prompt += `\nBy: ${r.agent_name}`;
-      prompt += `\nLast updated: ${r.updated_at}`;
-      prompt += `\n${r.content.slice(0, 2000)}${r.content.length > 2000 ? "\n[... truncated ...]" : ""}`;
+    const myReports = options.recentReports.filter((r) => r.is_mine);
+    const otherReports = options.recentReports.filter((r) => !r.is_mine);
+
+    if (myReports.length > 0) {
+      prompt += `\n\nREPORTS YOU AUTHORED (these are yours — you wrote these):`;
+      for (const r of myReports) {
+        prompt += `\n\n--- Report: "${r.title}" (ID: ${r.id}) ---`;
+        if (r.generated_title) prompt += `\nOriginal generated title: "${r.generated_title}"`;
+        prompt += `\nLast updated: ${r.updated_at}`;
+        prompt += `\n${r.content.slice(0, 2000)}${r.content.length > 2000 ? "\n[... truncated ...]" : ""}`;
+      }
     }
-    prompt += `\n\nYou can reference these reports directly. Always use the report's display name (the first title shown) when referring to reports in conversation — this is the name the user sees. If a user asks about a report listed above, you already have its content — no need to use read_report.`;
+
+    if (otherReports.length > 0) {
+      prompt += `\n\nOTHER WORKSPACE REPORTS (written by other agents — not yours):`;
+      for (const r of otherReports) {
+        prompt += `\n\n--- Report: "${r.title}" (ID: ${r.id}) ---`;
+        if (r.generated_title) prompt += `\nOriginal generated title: "${r.generated_title}"`;
+        if (r.agent_name) prompt += `\nBy: ${r.agent_name}`;
+        prompt += `\nLast updated: ${r.updated_at}`;
+        prompt += `\n${r.content.slice(0, 2000)}${r.content.length > 2000 ? "\n[... truncated ...]" : ""}`;
+      }
+    }
+
+    prompt += `\n\nIMPORTANT: When the user asks "what reports have you written" or "show me your reports", ONLY list the reports under "REPORTS YOU AUTHORED" — these are the reports you actually wrote. Do NOT claim authorship of reports listed under "OTHER WORKSPACE REPORTS". You can still read and reference any report when the user asks about a specific one. Always use the report's display name (the first title shown) when referring to reports.`;
   }
 
   if (options?.reportTemplates && options.reportTemplates.length > 0) {

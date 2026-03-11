@@ -413,15 +413,15 @@ export async function POST(request: Request) {
     if (templates) reportTemplates = templates;
   } catch { /* non-fatal */ }
 
-  // Fetch recent reports for this agent (and workspace) so agents can reference them
-  let recentReports: Array<{ id: string; title: string; generated_title?: string; content: string; agent_name?: string; updated_at: string }> = [];
+  // Fetch recent reports — split into "mine" (authored by this agent) and "others" (by other agents)
+  let recentReports: Array<{ id: string; title: string; generated_title?: string; content: string; agent_name?: string; updated_at: string; is_mine?: boolean }> = [];
   try {
     const { data: reports } = await serviceDb
       .from("reports")
       .select("id, title, display_name, content, agent_id, updated_at")
       .eq("workspace_id", ctx.workspaceId)
       .order("updated_at", { ascending: false })
-      .limit(5);
+      .limit(10);
     if (reports && reports.length > 0) {
       // Enrich with agent names
       const agentIds = [...new Set(reports.filter((r: { agent_id: string | null }) => r.agent_id).map((r: { agent_id: string }) => r.agent_id))];
@@ -435,13 +435,18 @@ export async function POST(request: Request) {
           agentNameMap = Object.fromEntries(agentRows.map((a: { id: string; name: string }) => [a.id, a.name]));
         }
       }
-      recentReports = reports.map((r: { id: string; title: string; display_name: string | null; content: string; agent_id: string | null; updated_at: string }) => ({
+      // Put this agent's reports first, then others
+      const mine = reports.filter((r: { agent_id: string | null }) => r.agent_id === agent.id);
+      const others = reports.filter((r: { agent_id: string | null }) => r.agent_id !== agent.id);
+      const ordered = [...mine, ...others].slice(0, 8);
+      recentReports = ordered.map((r: { id: string; title: string; display_name: string | null; content: string; agent_id: string | null; updated_at: string }) => ({
         id: r.id,
         title: r.display_name || r.title,
         generated_title: r.display_name ? r.title : undefined,
         content: r.content,
         agent_name: r.agent_id ? agentNameMap[r.agent_id] : undefined,
         updated_at: r.updated_at,
+        is_mine: r.agent_id === agent.id,
       }));
     }
   } catch { /* non-fatal */ }
