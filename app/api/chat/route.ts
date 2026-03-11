@@ -1,6 +1,7 @@
 import { createServerSupabase, createServiceSupabase } from "@/lib/supabase-server";
 import { getAnthropicClient, buildSystemPrompt, cleanResponse } from "@/lib/anthropic";
 import { retrieveContext, type RetrievedChunk } from "@/lib/rag";
+import { extractText } from "@/lib/rag";
 import { webSearch, formatSearchResults } from "@/lib/web-search";
 import { logActivity, isStandupQuestion, getAgentActivitySummary } from "@/lib/activity";
 import { runGroupOrchestration } from "@/lib/group-orchestration";
@@ -49,8 +50,43 @@ export async function POST(request: Request) {
     }
   }
 
-  const body = await request.json();
-  const { agent_id, message, conversation_id } = body;
+  // Support both JSON and FormData (for file attachments)
+  let agent_id: string;
+  let message: string;
+  let conversation_id: string | null = null;
+  let fileContext: string | null = null;
+  let fileName: string | null = null;
+
+  const contentType = request.headers.get("content-type") || "";
+  if (contentType.includes("multipart/form-data")) {
+    const formData = await request.formData();
+    agent_id = formData.get("agent_id") as string;
+    message = formData.get("message") as string;
+    conversation_id = formData.get("conversation_id") as string | null;
+    const file = formData.get("file") as File | null;
+    if (file) {
+      try {
+        const buffer = Buffer.from(await file.arrayBuffer());
+        fileContext = await extractText(buffer, file.name);
+        fileName = file.name;
+        // Truncate very large files to ~50k chars to stay within context limits
+        if (fileContext.length > 50000) {
+          fileContext = fileContext.slice(0, 50000) + "\n\n[... file truncated ...]";
+        }
+      } catch (err) {
+        console.error("[Chat] File extraction failed:", err);
+        return new Response(
+          JSON.stringify({ error: `Could not read file: ${err instanceof Error ? err.message : "unsupported format"}` }),
+          { status: 400 }
+        );
+      }
+    }
+  } else {
+    const body = await request.json();
+    agent_id = body.agent_id;
+    message = body.message;
+    conversation_id = body.conversation_id || null;
+  }
 
   if (!agent_id || !message?.trim()) {
     return new Response(
@@ -163,6 +199,11 @@ export async function POST(request: Request) {
   let explicitChannelId: string | null = null;
   let explicitChannelName: string | null = null;
   let messageForLLM = message.trim();
+
+  // Inject file content into the LLM message if a file was attached
+  if (fileContext && fileName) {
+    messageForLLM = `${messageForLLM}\n\n--- Attached file: ${fileName} ---\n${fileContext}`;
+  }
 
   // Load all workspace teams for channel resolution
   const { data: allUserTeams } = await serviceDb

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { Avatar } from "./Avatar";
-import { SendIcon, MenuIcon, HashIcon, NewChatIcon, CalendarIcon, SaveIcon } from "./Icons";
+import { SendIcon, MenuIcon, HashIcon, NewChatIcon, CalendarIcon, SaveIcon, PaperclipIcon, XIcon } from "./Icons";
 import type { Agent, Message } from "@/lib/types";
 import {
   getCached,
@@ -416,9 +416,10 @@ function GroupChatInput({
   agents: Agent[];
   channels: ChannelOption[];
   streaming: boolean;
-  onSend: (text: string, mentions: string[]) => void;
+  onSend: (text: string, mentions: string[], file?: File) => void;
 }) {
   const [input, setInput] = useState("");
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
   // @mention state
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionFilter, setMentionFilter] = useState("");
@@ -431,6 +432,7 @@ function GroupChatInput({
   const [channelStart, setChannelStart] = useState(-1);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const filteredMentionAgents = mentionOpen
     ? agents.filter((a) =>
@@ -492,18 +494,28 @@ function GroupChatInput({
     [input, channelStart, channelFilter]
   );
 
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 20 * 1024 * 1024) { alert("File too large. Maximum size is 20MB."); return; }
+    setAttachedFile(file);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    inputRef.current?.focus();
+  }, []);
+
   const send = useCallback(() => {
     const text = input.trim();
-    if (!text || streaming) return;
-    const mentions = extractMentions(text, agents);
-    onSend(text, mentions);
+    if ((!text && !attachedFile) || streaming) return;
+    const mentions = extractMentions(text || "", agents);
+    onSend(text || `[Attached: ${attachedFile!.name}]`, mentions, attachedFile || undefined);
     setInput("");
+    setAttachedFile(null);
     setMentionOpen(false);
     setChannelOpen(false);
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
     }
-  }, [input, streaming, agents, onSend]);
+  }, [input, attachedFile, streaming, agents, onSend]);
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
@@ -604,7 +616,7 @@ function GroupChatInput({
     }
   }, [streaming]);
 
-  const canSend = input.trim() && !streaming;
+  const canSend = (input.trim() || attachedFile) && !streaming;
 
   return (
     <div
@@ -629,7 +641,41 @@ function GroupChatInput({
           />
         )}
 
-        <div className="flex gap-2 items-end bg-[var(--color-input-bg)] rounded-xl pl-4 pr-1.5 py-1.5 border border-[var(--color-border)]">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.docx,.xlsx,.xls,.txt,.md,.csv"
+          onChange={handleFileChange}
+          className="hidden"
+        />
+
+        {attachedFile && (
+          <div className="flex items-center gap-2 mb-1.5 px-1">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--color-accent-soft)] border border-[var(--color-accent)] text-[12px] text-[var(--color-text)]">
+              <PaperclipIcon />
+              <span className="max-w-[200px] truncate">{attachedFile.name}</span>
+              <span className="text-[var(--color-text-tertiary)]">
+                ({(attachedFile.size / 1024).toFixed(0)}KB)
+              </span>
+              <button
+                onClick={() => setAttachedFile(null)}
+                className="bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] cursor-pointer p-0 flex"
+              >
+                <XIcon />
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-2 items-end bg-[var(--color-input-bg)] rounded-xl pl-2 pr-1.5 py-1.5 border border-[var(--color-border)]">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={streaming}
+            className="w-9 h-9 rounded-lg border-none shrink-0 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] transition-colors cursor-pointer bg-transparent mb-0.5 disabled:opacity-50"
+            title="Attach file"
+          >
+            <PaperclipIcon />
+          </button>
           <textarea
             ref={inputRef}
             value={input}
@@ -921,8 +967,8 @@ export function GroupChatView({
     }
   }, [loadingMore, conversationId, messages]);
 
-  const handleSend = useCallback((text: string, mentions: string[]) => {
-    sendGroup(CHAT_ID, text, conversationIdRef.current, mentions);
+  const handleSend = useCallback((text: string, mentions: string[], file?: File) => {
+    sendGroup(CHAT_ID, text, conversationIdRef.current, mentions, file);
   }, [CHAT_ID]);
 
   const confirmSchedule = useCallback(async () => {

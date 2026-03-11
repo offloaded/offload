@@ -1,5 +1,6 @@
 import { createServerSupabase, createServiceSupabase } from "@/lib/supabase-server";
 import { getAnthropicClient, cleanResponse } from "@/lib/anthropic";
+import { extractText } from "@/lib/rag";
 import { logApiUsage, estimateCost } from "@/lib/api-usage";
 import {
   classifyIntent,
@@ -73,12 +74,36 @@ export async function POST(request: Request) {
     }
   }
 
-  const body = await request.json();
-  const { message, conversation_id, mentions } = body as {
-    message: string;
-    conversation_id?: string;
-    mentions?: string[];
-  };
+  // Support both JSON and FormData (for file attachments)
+  let message: string;
+  let conversation_id: string | undefined;
+  let mentions: string[] | undefined;
+  let fileContext: string | null = null;
+
+  const contentType = request.headers.get("content-type") || "";
+  if (contentType.includes("multipart/form-data")) {
+    const formData = await request.formData();
+    message = formData.get("message") as string;
+    conversation_id = formData.get("conversation_id") as string | undefined;
+    const mentionsStr = formData.get("mentions") as string | null;
+    mentions = mentionsStr ? JSON.parse(mentionsStr) : undefined;
+    const file = formData.get("file") as File | null;
+    if (file) {
+      try {
+        const buffer = Buffer.from(await file.arrayBuffer());
+        let text = await extractText(buffer, file.name);
+        if (text.length > 50000) text = text.slice(0, 50000) + "\n\n[... file truncated ...]";
+        fileContext = `\n\n--- Attached file: ${file.name} ---\n${text}`;
+      } catch (err) {
+        console.error(`${LOG} File extraction failed:`, err);
+      }
+    }
+  } else {
+    const body = await request.json();
+    message = body.message;
+    conversation_id = body.conversation_id;
+    mentions = body.mentions;
+  }
 
   console.log(`${LOG} Message: "${message?.slice(0, 100)}${message?.length > 100 ? "..." : ""}"`);
 
@@ -130,6 +155,9 @@ export async function POST(request: Request) {
       .limit(20);
     if (templates) reportTemplatesList = templates;
   } catch { /* non-fatal */ }
+
+  // Build the message that goes to agents (with file context if attached)
+  const messageForAgents = fileContext ? message.trim() + fileContext : message.trim();
 
   // Classify intent and detect addressing
   const intent = classifyIntent(message.trim());
@@ -260,7 +288,7 @@ export async function POST(request: Request) {
           // Generate response and enforce minimum delay simultaneously
           const [rawText] = await Promise.all([
             generateAgentResponse(
-              anthropic, supabase, agent, messages, message.trim(),
+              anthropic, supabase, agent, messages, messageForAgents,
               docsByAgent, teamMemberNames, scheduleInstructions, priorResponses, weight,
               user.id, undefined, undefined,
               reportEditsByAgent.get(agent.id),

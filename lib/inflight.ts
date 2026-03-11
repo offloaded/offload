@@ -136,7 +136,8 @@ export function sendDM(
   chatId: string,
   agentId: string,
   message: string,
-  conversationId: string | null
+  conversationId: string | null,
+  file?: File
 ) {
   const entry = getOrCreate(chatId);
   entry.state = { ...EMPTY_STATE(), streaming: true, streamText: "", conversationId };
@@ -151,27 +152,41 @@ export function sendDM(
   notify(chatId);
 
   // Fire and forget — runs in background
-  _streamDM(chatId, agentId, message, conversationId).catch(() => {});
+  _streamDM(chatId, agentId, message, conversationId, file).catch(() => {});
 }
 
 async function _streamDM(
   chatId: string,
   agentId: string,
   message: string,
-  conversationId: string | null
+  conversationId: string | null,
+  file?: File
 ) {
   const entry = getOrCreate(chatId);
 
   try {
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        agent_id: agentId,
-        message,
-        conversation_id: conversationId,
-      }),
-    });
+    let res: Response;
+    if (file) {
+      const formData = new FormData();
+      formData.append("agent_id", agentId);
+      formData.append("message", message);
+      if (conversationId) formData.append("conversation_id", conversationId);
+      formData.append("file", file);
+      res = await fetch("/api/chat", {
+        method: "POST",
+        body: formData,
+      });
+    } else {
+      res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_id: agentId,
+          message,
+          conversation_id: conversationId,
+        }),
+      });
+    }
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -295,12 +310,12 @@ export function sendGroup(
   chatId: string,
   message: string,
   conversationId: string | null,
-  mentions: string[]
+  mentions: string[],
+  file?: File
 ) {
   const entry = getOrCreate(chatId);
   entry.state = { ...EMPTY_STATE(), streaming: true, conversationId };
 
-  // Add user message to cache BEFORE notifying so subscribers see it
   const userMsg: ChatMessage = {
     role: "user",
     content: message,
@@ -309,7 +324,7 @@ export function sendGroup(
   updateMessages(chatId, (prev) => [...prev, userMsg]);
   notify(chatId);
 
-  _streamGroup(chatId, message, conversationId, mentions).catch(() => {});
+  _streamGroup(chatId, message, conversationId, mentions, file).catch(() => {});
 }
 
 // ─── Send Team chat ───
@@ -319,7 +334,8 @@ export function sendTeam(
   teamId: string,
   message: string,
   conversationId: string | null,
-  mentions: string[]
+  mentions: string[],
+  file?: File
 ) {
   const entry = getOrCreate(chatId);
   entry.state = { ...EMPTY_STATE(), streaming: true, conversationId };
@@ -332,7 +348,7 @@ export function sendTeam(
   updateMessages(chatId, (prev) => [...prev, userMsg]);
   notify(chatId);
 
-  _streamTeam(chatId, teamId, message, conversationId, mentions).catch(() => {});
+  _streamTeam(chatId, teamId, message, conversationId, mentions, file).catch(() => {});
 }
 
 async function _streamTeam(
@@ -340,22 +356,37 @@ async function _streamTeam(
   teamId: string,
   message: string,
   conversationId: string | null,
-  mentions: string[]
+  mentions: string[],
+  file?: File
 ) {
   const entry = getOrCreate(chatId);
   const streamMessages: ChatMessage[] = [];
 
   try {
-    const res = await fetch("/api/chat/team", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message,
-        conversation_id: conversationId,
-        team_id: teamId,
-        ...(mentions.length > 0 ? { mentions } : {}),
-      }),
-    });
+    let res: Response;
+    if (file) {
+      const formData = new FormData();
+      formData.append("message", message);
+      if (conversationId) formData.append("conversation_id", conversationId);
+      formData.append("team_id", teamId);
+      if (mentions.length > 0) formData.append("mentions", JSON.stringify(mentions));
+      formData.append("file", file);
+      res = await fetch("/api/chat/team", {
+        method: "POST",
+        body: formData,
+      });
+    } else {
+      res = await fetch("/api/chat/team", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message,
+          conversation_id: conversationId,
+          team_id: teamId,
+          ...(mentions.length > 0 ? { mentions } : {}),
+        }),
+      });
+    }
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -448,21 +479,35 @@ async function _streamGroup(
   chatId: string,
   message: string,
   conversationId: string | null,
-  mentions: string[]
+  mentions: string[],
+  file?: File
 ) {
   const entry = getOrCreate(chatId);
   const streamMessages: ChatMessage[] = [];
 
   try {
-    const res = await fetch("/api/chat/group", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message,
-        conversation_id: conversationId,
-        ...(mentions.length > 0 ? { mentions } : {}),
-      }),
-    });
+    let res: Response;
+    if (file) {
+      const formData = new FormData();
+      formData.append("message", message);
+      if (conversationId) formData.append("conversation_id", conversationId);
+      if (mentions.length > 0) formData.append("mentions", JSON.stringify(mentions));
+      formData.append("file", file);
+      res = await fetch("/api/chat/group", {
+        method: "POST",
+        body: formData,
+      });
+    } else {
+      res = await fetch("/api/chat/group", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message,
+          conversation_id: conversationId,
+          ...(mentions.length > 0 ? { mentions } : {}),
+        }),
+      });
+    }
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
