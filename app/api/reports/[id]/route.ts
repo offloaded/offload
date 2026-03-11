@@ -52,9 +52,9 @@ export async function PATCH(
 
   const { id } = await params;
   const body = await request.json();
-  const { title, content } = body as { title?: string; content?: string };
+  const { title, content, display_name } = body as { title?: string; content?: string; display_name?: string };
 
-  if (!title && !content) {
+  if (!title && !content && display_name === undefined) {
     return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
   }
 
@@ -72,8 +72,9 @@ export async function PATCH(
     return NextResponse.json({ error: "Report not found" }, { status: 404 });
   }
 
-  const updates: Record<string, string> = { updated_at: new Date().toISOString() };
+  const updates: Record<string, string | null> = { updated_at: new Date().toISOString() };
   if (title) updates.title = title;
+  if (display_name !== undefined) updates.display_name = display_name || null;
   if (content) {
     // On first edit, snapshot the original agent content
     if (!existing.original_content) {
@@ -82,17 +83,19 @@ export async function PATCH(
     updates.content = content;
   }
 
-  // Save current version to history before overwriting
-  try {
-    await service.from("report_versions").insert({
-      report_id: id,
-      title: title || existing.content ? "Untitled" : "",
-      content: existing.content,
-      author_type: "human",
-      author_id: ctx.user.id,
-      change_type: "human_edit",
-    });
-  } catch { /* non-fatal — versioning is best-effort */ }
+  // Save current version to history before overwriting (only for content changes)
+  if (content) {
+    try {
+      await service.from("report_versions").insert({
+        report_id: id,
+        title: title || "Untitled",
+        content: existing.content,
+        author_type: "human",
+        author_id: ctx.user.id,
+        change_type: "human_edit",
+      });
+    } catch { /* non-fatal — versioning is best-effort */ }
+  }
 
   const { error } = await service
     .from("reports")

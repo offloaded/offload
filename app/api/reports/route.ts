@@ -24,7 +24,7 @@ export async function GET(request: Request) {
 
   const { data: reports, error } = await service
     .from("reports")
-    .select("id, title, source, agent_id, created_at, updated_at")
+    .select("id, title, display_name, source, agent_id, created_at, updated_at")
     .eq("workspace_id", ctx.workspaceId)
     .order("created_at", { ascending: false })
     .limit(100);

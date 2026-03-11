@@ -8,6 +8,7 @@ import { MenuIcon, BackIcon, CopyIcon, DownloadIcon, TrashIcon, SaveIcon } from 
 interface Report {
   id: string;
   title: string;
+  display_name: string | null;
   content: string;
   source: string;
   agent_id: string | null;
@@ -42,7 +43,7 @@ export default function ReportDetailPage() {
 
   const startEditing = useCallback(() => {
     if (!report) return;
-    setEditTitle(report.title);
+    setEditTitle(report.display_name || report.title);
     setEditContent(report.content);
     setEditing(true);
   }, [report]);
@@ -53,7 +54,8 @@ export default function ReportDetailPage() {
 
   const handleSave = useCallback(async () => {
     if (!report) return;
-    const titleChanged = editTitle.trim() !== report.title;
+    const currentDisplayName = report.display_name || report.title;
+    const titleChanged = editTitle.trim() !== currentDisplayName;
     const contentChanged = editContent !== report.content;
     if (!titleChanged && !contentChanged) {
       setEditing(false);
@@ -62,7 +64,7 @@ export default function ReportDetailPage() {
     setSaving(true);
     try {
       const body: Record<string, string> = {};
-      if (titleChanged) body.title = editTitle.trim();
+      if (titleChanged) body.display_name = editTitle.trim();
       if (contentChanged) body.content = editContent;
       const res = await fetch(`/api/reports/${report.id}`, {
         method: "PATCH",
@@ -72,7 +74,7 @@ export default function ReportDetailPage() {
       if (res.ok) {
         setReport({
           ...report,
-          title: titleChanged ? editTitle.trim() : report.title,
+          display_name: titleChanged ? editTitle.trim() : report.display_name,
           content: contentChanged ? editContent : report.content,
           updated_at: new Date().toISOString(),
         });
@@ -101,13 +103,14 @@ export default function ReportDetailPage() {
 
   const handleDownloadPdf = useCallback(() => {
     if (!report) return;
+    const displayTitle = report.display_name || report.title;
     const win = window.open("", "_blank");
     if (!win) return;
     win.document.write(`
       <!DOCTYPE html>
       <html>
       <head>
-        <title>${report.title}</title>
+        <title>${displayTitle}</title>
         <style>
           body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; line-height: 1.6; color: #333; }
           h1 { font-size: 24px; margin-bottom: 8px; }
@@ -117,7 +120,7 @@ export default function ReportDetailPage() {
         </style>
       </head>
       <body>
-        <h1>${report.title}</h1>
+        <h1>${displayTitle}</h1>
         <div class="meta">${report.agent_name ? `By ${report.agent_name} · ` : ""}${new Date(report.created_at).toLocaleDateString()}</div>
         <div style="white-space: pre-wrap;">${report.content.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
       </body>
@@ -179,7 +182,7 @@ export default function ReportDetailPage() {
           <BackIcon />
         </button>
         <span className="text-[16px] font-semibold text-[var(--color-text)] flex-1 truncate">
-          {report.title}
+          {report.display_name || report.title}
         </span>
         <div className="flex items-center gap-1">
           {editing ? (
@@ -247,7 +250,7 @@ export default function ReportDetailPage() {
               />
             ) : (
               <h1 className="text-[22px] font-bold text-[var(--color-text)] mb-2">
-                {report.title}
+                {report.display_name || report.title}
               </h1>
             )}
             <div className="text-[13px] text-[var(--color-text-tertiary)] flex items-center gap-2 flex-wrap">

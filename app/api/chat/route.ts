@@ -414,11 +414,11 @@ export async function POST(request: Request) {
   } catch { /* non-fatal */ }
 
   // Fetch recent reports for this agent (and workspace) so agents can reference them
-  let recentReports: Array<{ id: string; title: string; content: string; agent_name?: string; updated_at: string }> = [];
+  let recentReports: Array<{ id: string; title: string; generated_title?: string; content: string; agent_name?: string; updated_at: string }> = [];
   try {
     const { data: reports } = await serviceDb
       .from("reports")
-      .select("id, title, content, agent_id, updated_at")
+      .select("id, title, display_name, content, agent_id, updated_at")
       .eq("workspace_id", ctx.workspaceId)
       .order("updated_at", { ascending: false })
       .limit(5);
@@ -435,9 +435,10 @@ export async function POST(request: Request) {
           agentNameMap = Object.fromEntries(agentRows.map((a: { id: string; name: string }) => [a.id, a.name]));
         }
       }
-      recentReports = reports.map((r: { id: string; title: string; content: string; agent_id: string | null; updated_at: string }) => ({
+      recentReports = reports.map((r: { id: string; title: string; display_name: string | null; content: string; agent_id: string | null; updated_at: string }) => ({
         id: r.id,
-        title: r.title,
+        title: r.display_name || r.title,
+        generated_title: r.display_name ? r.title : undefined,
         content: r.content,
         agent_name: r.agent_id ? agentNameMap[r.agent_id] : undefined,
         updated_at: r.updated_at,
@@ -637,17 +638,18 @@ export async function POST(request: Request) {
             if (readReq.id) {
               const { data } = await serviceDb
                 .from("reports")
-                .select("id, title, content, agent_id, updated_at")
+                .select("id, title, display_name, content, agent_id, updated_at")
                 .eq("id", readReq.id)
                 .eq("workspace_id", ctx.workspaceId)
                 .single();
               reportData = data;
             } else if (readReq.title) {
+              // Search both display_name and original title
               const { data } = await serviceDb
                 .from("reports")
-                .select("id, title, content, agent_id, updated_at")
+                .select("id, title, display_name, content, agent_id, updated_at")
                 .eq("workspace_id", ctx.workspaceId)
-                .ilike("title", `%${readReq.title}%`)
+                .or(`display_name.ilike.%${readReq.title}%,title.ilike.%${readReq.title}%`)
                 .order("updated_at", { ascending: false })
                 .limit(1)
                 .single();
@@ -656,7 +658,8 @@ export async function POST(request: Request) {
 
             if (reportData) {
               // Inject report content as a system message and re-call Claude for a follow-up
-              const reportContext = `[System: Here is the requested report]\nTitle: ${reportData.title}\nID: ${reportData.id}\nLast updated: ${reportData.updated_at}\n\n${reportData.content}`;
+              const displayName = reportData.display_name || reportData.title;
+              const reportContext = `[System: Here is the requested report]\nTitle: ${displayName}${reportData.display_name && reportData.display_name !== reportData.title ? `\nOriginal title: ${reportData.title}` : ""}\nID: ${reportData.id}\nLast updated: ${reportData.updated_at}\n\n${reportData.content}`;
               const followUpMessages = [
                 ...messages,
                 { role: "assistant" as const, content: cleaned || "" },

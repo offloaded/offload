@@ -7,6 +7,7 @@ import { MenuIcon, ReportIcon, TrashIcon, UploadIcon, PlusIcon, FileIcon } from 
 interface ReportSummary {
   id: string;
   title: string;
+  display_name: string | null;
   source: string;
   agent_id: string | null;
   created_at: string;
@@ -30,6 +31,9 @@ export default function ReportsPage() {
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [templatesLoaded, setTemplatesLoaded] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [renamingReport, setRenamingReport] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const renameInputRef = useRef<HTMLInputElement>(null);
   const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
@@ -67,6 +71,27 @@ export default function ReportsPage() {
       setReports((prev) => prev.filter((r) => r.id !== id));
       refreshReportCount();
     }
+  };
+
+  const handleRenameReport = async (id: string) => {
+    const trimmed = renameValue.trim();
+    if (!trimmed) { setRenamingReport(null); return; }
+    const res = await fetch(`/api/reports/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ display_name: trimmed }),
+    });
+    if (res.ok) {
+      setReports((prev) => prev.map((r) => r.id === id ? { ...r, display_name: trimmed } : r));
+    }
+    setRenamingReport(null);
+  };
+
+  const startRename = (report: ReportSummary, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingReport(report.id);
+    setRenameValue(report.display_name || report.title);
+    setTimeout(() => renameInputRef.current?.select(), 0);
   };
 
   const handleDeleteTemplate = async (id: string) => {
@@ -194,11 +219,14 @@ export default function ReportsPage() {
                 <div className="flex flex-col gap-1">
                   {reports.map((report) => {
                     const agent = report.agent_id ? agentMap[report.agent_id] : null;
+                    const displayTitle = report.display_name || report.title;
+                    const isRenaming = renamingReport === report.id;
                     return (
                       <div
                         key={report.id}
                         className="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-[var(--color-hover)] transition-colors group cursor-pointer"
                         onClick={() => {
+                          if (isRenaming) return;
                           if (mobile) {
                             window.location.href = `/reports/${report.id}`;
                           } else {
@@ -213,9 +241,28 @@ export default function ReportsPage() {
                             <ReportIcon />
                           </span>
                           <div className="flex-1 min-w-0">
-                            <div className="text-[14px] font-medium text-[var(--color-text)] truncate">
-                              {report.title}
-                            </div>
+                            {isRenaming ? (
+                              <input
+                                ref={renameInputRef}
+                                value={renameValue}
+                                onChange={(e) => setRenameValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") handleRenameReport(report.id);
+                                  if (e.key === "Escape") setRenamingReport(null);
+                                }}
+                                onBlur={() => handleRenameReport(report.id)}
+                                onClick={(e) => e.stopPropagation()}
+                                className="w-full text-[14px] font-medium text-[var(--color-text)] bg-transparent border border-[var(--color-accent)] rounded px-1.5 py-0.5 outline-none"
+                                autoFocus
+                              />
+                            ) : (
+                              <div
+                                className="text-[14px] font-medium text-[var(--color-text)] truncate"
+                                onDoubleClick={(e) => startRename(report, e)}
+                              >
+                                {displayTitle}
+                              </div>
+                            )}
                             <div className="text-[12px] text-[var(--color-text-tertiary)] flex items-center gap-2 mt-0.5">
                               {agent && (
                                 <>
@@ -237,6 +284,13 @@ export default function ReportsPage() {
                             </div>
                           </div>
                         </div>
+                        <button
+                          onClick={(e) => startRename(report, e)}
+                          className="opacity-0 group-hover:opacity-100 bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] cursor-pointer p-1 transition-opacity text-[11px]"
+                          title="Rename"
+                        >
+                          Rename
+                        </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); handleDelete(report.id); }}
                           className="opacity-0 group-hover:opacity-100 bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-red-500 cursor-pointer p-1 transition-opacity"

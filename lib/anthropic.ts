@@ -89,7 +89,7 @@ export function buildSystemPrompt(
     teamMemberships?: Array<{ id: string; name: string }>;
     reportEdits?: Array<{ title: string; original: string; edited: string }>;
     reportTemplates?: Array<{ name: string; description: string }>;
-    recentReports?: Array<{ id: string; title: string; content: string; agent_name?: string; updated_at: string }>;
+    recentReports?: Array<{ id: string; title: string; generated_title?: string; content: string; agent_name?: string; updated_at: string }>;
   }
 ): string {
   let prompt: string;
@@ -229,11 +229,12 @@ The title field is optional — only include it if the title should change. The 
     prompt += `\n\nYOUR RECENT REPORTS (available for reference):`;
     for (const r of options.recentReports) {
       prompt += `\n\n--- Report: "${r.title}" (ID: ${r.id}) ---`;
+      if (r.generated_title) prompt += `\nOriginal generated title: "${r.generated_title}"`;
       if (r.agent_name) prompt += `\nBy: ${r.agent_name}`;
       prompt += `\nLast updated: ${r.updated_at}`;
       prompt += `\n${r.content.slice(0, 2000)}${r.content.length > 2000 ? "\n[... truncated ...]" : ""}`;
     }
-    prompt += `\n\nYou can reference these reports directly. If a user asks about a report listed above, you already have its content — no need to use read_report.`;
+    prompt += `\n\nYou can reference these reports directly. Always use the report's display name (the first title shown) when referring to reports in conversation — this is the name the user sees. If a user asks about a report listed above, you already have its content — no need to use read_report.`;
   }
 
   if (options?.reportTemplates && options.reportTemplates.length > 0) {

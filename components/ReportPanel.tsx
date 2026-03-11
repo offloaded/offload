@@ -6,6 +6,7 @@ import { XIcon, SaveIcon } from "./Icons";
 interface Report {
   id: string;
   title: string;
+  display_name: string | null;
   content: string;
   source: string;
   agent_id: string | null;
@@ -32,6 +33,7 @@ export function ReportPanel({ reportId, onClose, onDoneEditing, liveUpdate, init
       return {
         id: reportId,
         title: initialData.title,
+        display_name: null,
         content: initialData.content,
         source: "agent",
         agent_id: initialData.agent_id || null,
@@ -129,6 +131,36 @@ export function ReportPanel({ reportId, onClose, onDoneEditing, liveUpdate, init
     setEditing(false);
   }, []);
 
+  // Inline title rename
+  const [renamingTitle, setRenamingTitle] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const renameTitleRef = useRef<HTMLInputElement>(null);
+
+  const startRenaming = useCallback(() => {
+    if (!report) return;
+    setRenameValue(report.display_name || report.title);
+    setRenamingTitle(true);
+    setTimeout(() => renameTitleRef.current?.select(), 0);
+  }, [report]);
+
+  const commitRename = useCallback(async () => {
+    if (!report) { setRenamingTitle(false); return; }
+    const trimmed = renameValue.trim();
+    if (!trimmed || trimmed === (report.display_name || report.title)) {
+      setRenamingTitle(false);
+      return;
+    }
+    const res = await fetch(`/api/reports/${report.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ display_name: trimmed }),
+    });
+    if (res.ok) {
+      setReport({ ...report, display_name: trimmed });
+    }
+    setRenamingTitle(false);
+  }, [report, renameValue]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full bg-[var(--color-surface)]">
@@ -150,9 +182,28 @@ export function ReportPanel({ reportId, onClose, onDoneEditing, liveUpdate, init
       {/* Panel header */}
       <div className="shrink-0 border-b border-[var(--color-border)] px-4 py-3 flex items-center gap-3">
         <div className="flex-1 min-w-0">
-          <div className="text-[15px] font-semibold text-[var(--color-text)] truncate">
-            {report.title}
-          </div>
+          {renamingTitle ? (
+            <input
+              ref={renameTitleRef}
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitRename();
+                if (e.key === "Escape") setRenamingTitle(false);
+              }}
+              onBlur={commitRename}
+              className="w-full text-[15px] font-semibold text-[var(--color-text)] bg-transparent border border-[var(--color-accent)] rounded px-1.5 py-0.5 outline-none"
+              autoFocus
+            />
+          ) : (
+            <div
+              className="text-[15px] font-semibold text-[var(--color-text)] truncate cursor-text"
+              onDoubleClick={startRenaming}
+              title="Double-click to rename"
+            >
+              {report.display_name || report.title}
+            </div>
+          )}
           <div className="text-[11px] text-[var(--color-text-tertiary)]">
             {report.agent_name && `By ${report.agent_name}`}
             {report.agent_name && report.source === "agent" && " · Auto-generated"}
