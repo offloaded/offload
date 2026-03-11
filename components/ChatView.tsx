@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, memo } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, memo } from "react";
 import { Avatar } from "./Avatar";
 import { SendIcon, MenuIcon, NewChatIcon, CalendarIcon, GlobeIcon, SaveIcon, PaperclipIcon, XIcon } from "./Icons";
 import type { Agent, Message } from "@/lib/types";
@@ -504,6 +504,7 @@ export function ChatView({
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const initialScrollDone = useRef(false);
+  const [scrollReady, setScrollReady] = useState(false);
   const conversationIdRef = useRef(conversationId);
   conversationIdRef.current = conversationId;
 
@@ -553,6 +554,7 @@ export function ChatView({
   // Fetch initial messages
   useEffect(() => {
     initialScrollDone.current = false;
+    setScrollReady(false);
 
     if (cached) {
       setMessages(cached.messages);
@@ -604,15 +606,19 @@ export function ChatView({
       .finally(() => setLoading(false));
   }, [agent.id, chatId, initialConversationId]);
 
-  // Scroll to bottom — instant on first render, smooth on subsequent updates
-  useEffect(() => {
-    if (!endRef.current) return;
-    if (!initialScrollDone.current) {
-      endRef.current.scrollIntoView({ behavior: "instant" as ScrollBehavior });
+  // Scroll to bottom — instant on first render (before paint), smooth on subsequent updates
+  useLayoutEffect(() => {
+    if (!scrollRef.current || loading) return;
+    if (!initialScrollDone.current && messages.length > 0) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
       initialScrollDone.current = true;
-    } else {
-      endRef.current.scrollIntoView({ behavior: "smooth" });
+      setScrollReady(true);
     }
+  }, [messages, loading]);
+
+  useEffect(() => {
+    if (!endRef.current || !initialScrollDone.current) return;
+    endRef.current.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamText]);
 
   // Auto-open report panel when a report is saved — pass content so no API fetch needed
@@ -907,6 +913,7 @@ export function ChatView({
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto overflow-x-hidden pt-[52px] pb-[72px] md:pt-4 md:pb-2 min-h-0"
+        style={{ opacity: !loading && (scrollReady || messages.length === 0) ? 1 : 0 }}
       >
         <div className="flex flex-col justify-end min-h-full">
         <div ref={sentinelRef} className="h-1" />
