@@ -275,7 +275,7 @@ async function runTask(
   } else {
     let nextRun: string;
     try {
-      nextRun = getNextRun(task.cron!, new Date()).toISOString();
+      nextRun = getNextRun(task.cron!, new Date(), task.timezone || "UTC").toISOString();
     } catch {
       nextRun = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     }

@@ -81,9 +81,11 @@ export async function POST(request: Request) {
   let nextRun: string;
   let cronToStore: string | null = null;
 
+  const tz = timezone || "UTC";
+
   if (isRecurring) {
     try {
-      nextRun = getNextRun(cron.trim(), new Date()).toISOString();
+      nextRun = getNextRun(cron.trim(), new Date(), tz).toISOString();
       cronToStore = cron.trim();
     } catch {
       return NextResponse.json(
@@ -104,7 +106,7 @@ export async function POST(request: Request) {
   } else {
     // Fallback: one-off but cron was provided (backward compat)
     try {
-      nextRun = getNextRun(cron.trim(), new Date()).toISOString();
+      nextRun = getNextRun(cron.trim(), new Date(), tz).toISOString();
       cronToStore = cron.trim();
     } catch {
       return NextResponse.json(
@@ -157,10 +159,27 @@ export async function PUT(request: Request) {
   };
 
   if (instruction !== undefined) updates.instruction = instruction.trim();
+
+  // We may need the existing task to get its timezone/cron for recalculation
+  let existingTask: { cron: string; timezone: string } | null = null;
+  const fetchExisting = async () => {
+    if (existingTask) return existingTask;
+    const { data } = await service
+      .from("scheduled_tasks")
+      .select("cron, timezone")
+      .eq("id", id)
+      .eq("workspace_id", ctx.workspaceId)
+      .single();
+    existingTask = data;
+    return existingTask;
+  };
+
   if (cron !== undefined) {
     updates.cron = cron.trim();
+    const existing = await fetchExisting();
+    const tz = (timezone as string) || existing?.timezone || "UTC";
     try {
-      updates.next_run_at = getNextRun(cron, new Date()).toISOString();
+      updates.next_run_at = getNextRun(cron.trim(), new Date(), tz).toISOString();
     } catch {
       return NextResponse.json(
         { error: "Invalid cron expression" },
@@ -172,18 +191,12 @@ export async function PUT(request: Request) {
   if (enabled !== undefined) {
     updates.enabled = enabled;
     if (enabled && !updates.next_run_at) {
-      const { data: existing } = await service
-        .from("scheduled_tasks")
-        .select("cron")
-        .eq("id", id)
-        .eq("workspace_id", ctx.workspaceId)
-        .single();
+      const existing = await fetchExisting();
       if (existing) {
+        const cronExpr = (cron as string) || existing.cron;
+        const tz = (timezone as string) || existing.timezone || "UTC";
         try {
-          updates.next_run_at = getNextRun(
-            (cron as string) || existing.cron,
-            new Date()
-          ).toISOString();
+          updates.next_run_at = getNextRun(cronExpr, new Date(), tz).toISOString();
         } catch {
           // ignore
         }

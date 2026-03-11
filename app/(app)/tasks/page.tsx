@@ -27,6 +27,29 @@ const DAYS_OF_WEEK = [
   { value: 6, label: "Saturday" },
 ];
 
+const _COMMON_TIMEZONES = [
+  "UTC",
+  "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
+  "America/Anchorage", "Pacific/Honolulu", "America/Toronto", "America/Vancouver",
+  "America/Sao_Paulo", "America/Argentina/Buenos_Aires", "America/Mexico_City",
+  "Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Amsterdam",
+  "Europe/Madrid", "Europe/Rome", "Europe/Stockholm", "Europe/Helsinki",
+  "Europe/Moscow", "Europe/Istanbul",
+  "Africa/Cairo", "Africa/Lagos", "Africa/Johannesburg",
+  "Asia/Dubai", "Asia/Kolkata", "Asia/Bangkok", "Asia/Singapore",
+  "Asia/Shanghai", "Asia/Hong_Kong", "Asia/Tokyo", "Asia/Seoul",
+  "Australia/Sydney", "Australia/Melbourne", "Australia/Perth", "Australia/Brisbane",
+  "Pacific/Auckland",
+];
+
+// Include browser timezone if not in the common list
+const _browserTz = typeof window !== "undefined"
+  ? Intl.DateTimeFormat().resolvedOptions().timeZone
+  : "UTC";
+const TIMEZONES = _COMMON_TIMEZONES.includes(_browserTz)
+  ? _COMMON_TIMEZONES
+  : [_browserTz, ..._COMMON_TIMEZONES];
+
 function buildCron(
   frequency: Frequency,
   hour: number,
@@ -360,13 +383,14 @@ function AddTaskForm({
 
   let nextRunPreview = "";
   try {
-    const next = getNextRun(cron, new Date());
+    const next = getNextRun(cron, new Date(), timezone);
     nextRunPreview = next.toLocaleDateString("en-US", {
       weekday: "short",
       month: "short",
       day: "numeric",
       hour: "numeric",
       minute: "2-digit",
+      timeZone: timezone,
     });
   } catch {
     nextRunPreview = "Unable to calculate";
@@ -622,11 +646,22 @@ function AddTaskForm({
         <label className="block text-[12px] font-semibold text-[var(--color-text-tertiary)] mb-1.5">
           Timezone
         </label>
-        <input
-          value={timezone}
-          onChange={(e) => setTimezone(e.target.value)}
-          className="w-full py-2.5 px-3 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
-        />
+        <div className="relative">
+          <select
+            value={timezone}
+            onChange={(e) => setTimezone(e.target.value)}
+            className="w-full py-2.5 pl-3 pr-8 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)]"
+          >
+            {TIMEZONES.map((tz) => (
+              <option key={tz} value={tz}>
+                {tz.replace(/_/g, " ")}
+              </option>
+            ))}
+          </select>
+          <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--color-text-tertiary)]">
+            <ChevronDownIcon />
+          </div>
+        </div>
       </div>
 
       {/* Deliver to */}
