@@ -898,9 +898,11 @@ export async function runGroupOrchestration(
   console.log(`${LOG} triggered — conv=${conversationId} msg="${triggerMessage.slice(0, 80)}"`);
 
   // 1. Load agents — prefer workspace_id if available, fall back to user_id
+  //    Exclude soft-deleted agents so they don't participate in new conversations
   let agentsQuery = supabase
     .from("agents")
     .select("*")
+    .is("deleted_at", null)
     .order("created_at", { ascending: true });
   if (workspaceId) {
     agentsQuery = agentsQuery.eq("workspace_id", workspaceId);

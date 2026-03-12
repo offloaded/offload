@@ -14,6 +14,7 @@ interface TeamWithAgents extends Team {
 
 interface AppContextValue {
   agents: Agent[];
+  allAgents: Agent[];
   refreshAgents: () => Promise<void>;
   teams: TeamWithAgents[];
   refreshTeams: () => Promise<void>;
@@ -52,6 +53,7 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue>({
   agents: [],
+  allAgents: [],
   refreshAgents: async () => {},
   teams: [],
   refreshTeams: async () => {},
@@ -146,6 +148,7 @@ function ResizeHandle({ onResize }: { onResize: (pct: number) => void }) {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [allAgents, setAllAgents] = useState<Agent[]>([]);
   const [teams, setTeams] = useState<TeamWithAgents[]>([]);
   const [activeTaskCount, setActiveTaskCount] = useState(0);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
@@ -169,11 +172,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = useMemo(() => createClient(), []);
 
   const refreshAgents = useCallback(async () => {
-    const res = await fetch("/api/agents");
+    const [res, resAll] = await Promise.all([
+      fetch("/api/agents"),
+      fetch("/api/agents?include_deleted=true"),
+    ]);
     if (res.ok) {
       const data = await res.json();
       setAgents(data);
       preloadAllChats(data.map((a: Agent) => a.id));
+    }
+    if (resAll.ok) {
+      const dataAll = await resAll.json();
+      setAllAgents(dataAll);
     }
   }, []);
 
@@ -398,7 +408,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AppContext value={{ agents, refreshAgents, teams, refreshTeams, activeDmAgentIds, refreshActiveDms, ensureActiveDm, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, switchWorkspace, refreshWorkspace, reportCount, refreshReportCount, openReportId, openReport, closeReport, reportEditCallback, reportLiveUpdate, setReportLiveUpdate }}>
+    <AppContext value={{ agents, allAgents, refreshAgents, teams, refreshTeams, activeDmAgentIds, refreshActiveDms, ensureActiveDm, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, switchWorkspace, refreshWorkspace, reportCount, refreshReportCount, openReportId, openReport, closeReport, reportEditCallback, reportLiveUpdate, setReportLiveUpdate }}>
       <div className="flex h-screen w-full bg-[var(--color-page-bg)] overflow-hidden">
         {/* Desktop sidebar */}
         <div className="hidden md:flex w-[260px] min-w-[260px] bg-[var(--color-sidebar-bg)] border-r border-[var(--color-border)] flex-col">

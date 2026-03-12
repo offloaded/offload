@@ -7,7 +7,7 @@ import { TeamChatView } from "@/components/TeamChatView";
 export default function TeamChatPage() {
   const params = useParams();
   const teamId = params.id as string;
-  const { agents, openDrawer, teams } = useApp();
+  const { allAgents, openDrawer, teams } = useApp();
 
   const team = teams.find((t) => t.id === teamId);
 
@@ -19,7 +19,7 @@ export default function TeamChatPage() {
     );
   }
 
-  const teamAgents = team.is_system ? [] : agents.filter((a) => team.agent_ids.includes(a.id));
+  const teamAgents = team.is_system ? [] : allAgents.filter((a) => team.agent_ids.includes(a.id));
 
   return (
     <TeamChatView

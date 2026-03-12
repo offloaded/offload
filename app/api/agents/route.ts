@@ -2,21 +2,41 @@ import { createServerSupabase, createServiceSupabase } from "@/lib/supabase-serv
 import { getWorkspaceContext, hasPermission } from "@/lib/workspace";
 import { NextResponse } from "next/server";
 
-export async function GET() {
+export async function GET(request: Request) {
   const ctx = await getWorkspaceContext();
   if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const { searchParams } = new URL(request.url);
+  const includeDeleted = searchParams.get("include_deleted") === "true";
+
   const service = createServiceSupabase();
-  const { data, error } = await service
+  let query = service
     .from("agents")
     .select("*")
-    .eq("workspace_id", ctx.workspaceId)
+    .eq("workspace_id", ctx.workspaceId);
+
+  if (!includeDeleted) {
+    query = query.is("deleted_at", null);
+  }
+
+  const { data, error } = await query
     .order("last_message_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: true });
 
   if (error) {
+    // Graceful fallback if deleted_at column doesn't exist yet
+    if (error.message?.includes("deleted_at")) {
+      const { data: fallback, error: fbError } = await service
+        .from("agents")
+        .select("*")
+        .eq("workspace_id", ctx.workspaceId)
+        .order("last_message_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: true });
+      if (fbError) return NextResponse.json({ error: fbError.message }, { status: 500 });
+      return NextResponse.json(fallback);
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
@@ -142,26 +162,53 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Agent not found" }, { status: 404 });
   }
 
-  // Explicit cleanup before agent delete
-  await service
-    .from("conversations")
-    .delete()
-    .eq("agent_id", id);
-
-  await service
-    .from("activity_log")
-    .delete()
-    .eq("agent_id", id);
-
+  // Soft delete: set deleted_at instead of removing the row.
+  // This preserves message history, report authorship, etc.
   const { error } = await service
     .from("agents")
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq("id", id)
     .eq("workspace_id", ctx.workspaceId);
 
   if (error) {
+    // Fallback: if deleted_at column doesn't exist yet, hard delete
+    if (error.message?.includes("deleted_at")) {
+      await service.from("conversations").delete().eq("agent_id", id);
+      await service.from("activity_log").delete().eq("agent_id", id);
+      const { error: delErr } = await service
+        .from("agents")
+        .delete()
+        .eq("id", id)
+        .eq("workspace_id", ctx.workspaceId);
+      if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
+      return NextResponse.json({ success: true });
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  // Remove from team memberships so the deleted agent doesn't participate in team chats
+  await service
+    .from("team_members")
+    .delete()
+    .eq("agent_id", id);
+
+  // Hide DM conversations with this agent from sidebar
+  const hidPayload: Record<string, unknown> = { sidebar_hidden: true };
+  try {
+    await service
+      .from("conversations")
+      .update(hidPayload)
+      .eq("agent_id", id)
+      .eq("archived", false);
+  } catch {
+    // sidebar_hidden column may not exist yet
+  }
+
+  // Disable scheduled tasks for this agent
+  await service
+    .from("scheduled_tasks")
+    .update({ enabled: false })
+    .eq("agent_id", id);
 
   return NextResponse.json({ success: true });
 }

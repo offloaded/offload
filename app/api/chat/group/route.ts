@@ -111,11 +111,14 @@ export async function POST(request: Request) {
     return new Response(JSON.stringify({ error: "message is required" }), { status: 400 });
   }
 
-  // Load all workspace agents (shared)
-  const { data: agents, error: agentsError } = await serviceDb
+  // Load all workspace agents (shared) — exclude soft-deleted agents
+  let agentsQuery = serviceDb
     .from("agents")
     .select("*")
-    .eq("workspace_id", ctx.workspaceId)
+    .eq("workspace_id", ctx.workspaceId);
+  // Filter out soft-deleted agents (graceful if column doesn't exist yet)
+  agentsQuery = agentsQuery.is("deleted_at", null);
+  const { data: agents, error: agentsError } = await agentsQuery
     .order("created_at", { ascending: true });
 
   if (agentsError || !agents?.length) {

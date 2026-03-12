@@ -23,7 +23,7 @@ interface ReportTemplate {
 }
 
 export default function ReportsPage() {
-  const { openDrawer, agents, refreshReportCount, openReport, mobile, reportCount } = useApp();
+  const { openDrawer, allAgents: agents, refreshReportCount, openReport, mobile, reportCount } = useApp();
   const [tab, setTab] = useState<"reports" | "templates">("reports");
   const [reports, setReports] = useState<ReportSummary[]>([]);
   const [templates, setTemplates] = useState<ReportTemplate[]>([]);

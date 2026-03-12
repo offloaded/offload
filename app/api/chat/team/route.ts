@@ -207,15 +207,16 @@ export async function POST(request: Request) {
 
   const teamAgentIds = new Set((teamMembers || []).map((m) => m.agent_id));
 
-  // Load all workspace agents and filter to team members
-  const { data: allAgents } = await serviceDb
+  // Load all workspace agents and filter to team members (exclude soft-deleted)
+  const { data: allWsAgents } = await serviceDb
     .from("agents")
     .select("*")
     .eq("workspace_id", ctx.workspaceId)
+    .is("deleted_at", null)
     .order("created_at", { ascending: true });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const agents = (allAgents || []).filter((a: any) => teamAgentIds.has(a.id));
+  const agents = (allWsAgents || []).filter((a: any) => teamAgentIds.has(a.id));
 
   if (agents.length === 0) {
     return new Response(JSON.stringify({ error: "No agents in this team." }), { status: 400 });
