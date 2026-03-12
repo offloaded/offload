@@ -642,8 +642,12 @@ export async function POST(request: Request) {
         // Clean the response: strip <search> blocks, schedule_request blocks, feature_request blocks, etc.
         const cleaned = cleanResponse(fullResponse);
 
+        // Check if any tool blocks will produce follow-up content
+        const hasFollowUpTool = !!(readReportMatch || readTemplateMatch);
+
         // Never save empty responses — show error instead
-        if (!cleaned) {
+        // But skip if a follow-up tool will generate content
+        if (!cleaned && !hasFollowUpTool) {
           console.warn(`[Chat] Empty response from API. Raw length: ${fullResponse.length}`);
           const fallbackMsg = "I'm having trouble responding right now. Please try again.";
           controller.enqueue(
@@ -656,7 +660,7 @@ export async function POST(request: Request) {
             role: "assistant",
             content: fallbackMsg,
           });
-        } else {
+        } else if (cleaned) {
           // Save the cleaned response
           await supabase.from("messages").insert({
             conversation_id: convId,
@@ -748,11 +752,16 @@ export async function POST(request: Request) {
               // Inject report content as a system message and re-call Claude for a follow-up
               const displayName = reportData.display_name || reportData.title;
               const reportContext = `[System: Here is the requested report]\nTitle: ${displayName}${reportData.display_name && reportData.display_name !== reportData.title ? `\nOriginal title: ${reportData.title}` : ""}\nID: ${reportData.id}\nLast updated: ${reportData.updated_at}\n\n${reportData.content}`;
-              const followUpMessages = [
-                ...messages,
-                { role: "assistant" as const, content: cleaned || "" },
-                { role: "user" as const, content: reportContext },
-              ];
+              const followUpMessages = cleaned
+                ? [
+                    ...messages,
+                    { role: "assistant" as const, content: cleaned },
+                    { role: "user" as const, content: reportContext },
+                  ]
+                : [
+                    ...messages,
+                    { role: "user" as const, content: reportContext },
+                  ];
 
               // Stream the follow-up response
               const followUpStream = anthropic.messages.stream({
@@ -828,11 +837,16 @@ export async function POST(request: Request) {
               }
               templateContext += `\nUse these headings and descriptions to structure the report. Include each section heading and follow the descriptions for what content to write in each section.`;
 
-              const followUpMessages = [
-                ...messages,
-                { role: "assistant" as const, content: cleaned || "" },
-                { role: "user" as const, content: templateContext },
-              ];
+              const followUpMessages = cleaned
+                ? [
+                    ...messages,
+                    { role: "assistant" as const, content: cleaned },
+                    { role: "user" as const, content: templateContext },
+                  ]
+                : [
+                    ...messages,
+                    { role: "user" as const, content: templateContext },
+                  ];
 
               const followUpStream = anthropic.messages.stream({
                 model: "claude-sonnet-4-5-20250929",

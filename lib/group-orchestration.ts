@@ -640,11 +640,16 @@ export async function generateAgentResponse(
         templateContext += `\nUse these headings and descriptions to structure the report.`;
 
         const cleanedFirst = cleanResponse(rawText);
-        const followUpMessages = [
-          ...messages,
-          { role: "assistant" as const, content: cleanedFirst || "" },
-          { role: "user" as const, content: templateContext },
-        ];
+        const followUpMessages = cleanedFirst
+          ? [
+              ...messages,
+              { role: "assistant" as const, content: cleanedFirst },
+              { role: "user" as const, content: templateContext },
+            ]
+          : [
+              ...messages,
+              { role: "user" as const, content: templateContext },
+            ];
         const followUpResponse = await anthropic.messages.create({
           model: "claude-sonnet-4-5-20250929",
           max_tokens: detectLongFormRequest("write report"),
