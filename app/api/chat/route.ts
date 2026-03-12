@@ -213,6 +213,13 @@ export async function POST(request: Request) {
     }
   }
 
+  // Unhide conversation if it was hidden from sidebar
+  await supabase
+    .from("conversations")
+    .update({ sidebar_hidden: false })
+    .eq("id", convId)
+    .eq("sidebar_hidden", true);
+
   // ─── Explicit channel routing: extract #channel-name before LLM ───
   // This replaces the unreliable LLM-based group_message_request detection.
   // When a user types "#Scrum do standup", we extract the channel, resolve it,

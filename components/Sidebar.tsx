@@ -414,6 +414,7 @@ export function SidebarContent({
   workspaceRole = "member",
   onSwitchWorkspace,
   reportCount = 0,
+  onHideDm,
 }: {
   agents: Agent[];
   teams?: TeamWithAgents[];
@@ -429,6 +430,7 @@ export function SidebarContent({
   workspaceRole?: "owner" | "admin" | "member";
   onSwitchWorkspace?: (id: string) => void;
   reportCount?: number;
+  onHideDm?: (agentId: string) => void;
 }) {
   const pathname = usePathname();
   const canManage = workspaceRole === "owner" || workspaceRole === "admin";
@@ -628,13 +630,33 @@ export function SidebarContent({
                   const unread = unreadCounts[a.id] || 0;
                   const active = pathname === `/agent/${a.id}`;
                   return (
-                    <NavItem key={a.id} href={`/agent/${a.id}`} isActive={active}>
-                      <div className="w-[18px] h-[18px] rounded-md flex items-center justify-center text-[9px] font-semibold shrink-0" style={{ background: `${a.color}18`, color: a.color }}>
-                        {a.name.charAt(0)}
-                      </div>
-                      <span className="flex-1 truncate">{a.name}</span>
-                      {unread > 0 && <UnreadBadge count={unread} color={a.color} />}
-                    </NavItem>
+                    <div key={a.id} className="group/dm relative flex items-center">
+                      <NavItem href={`/agent/${a.id}`} isActive={active}>
+                        <div className="w-[18px] h-[18px] rounded-md flex items-center justify-center text-[9px] font-semibold shrink-0" style={{ background: `${a.color}18`, color: a.color }}>
+                          {a.name.charAt(0)}
+                        </div>
+                        <span className="flex-1 truncate">{a.name}</span>
+                        {unread > 0 && <UnreadBadge count={unread} color={a.color} />}
+                      </NavItem>
+                      <button
+                        onClick={async (e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          try {
+                            await fetch("/api/conversations/hide", {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ agent_id: a.id }),
+                            });
+                            onHideDm?.(a.id);
+                          } catch { /* ignore */ }
+                        }}
+                        className="absolute right-1 opacity-0 group-hover/dm:opacity-100 transition-opacity p-0.5 rounded hover:bg-[var(--color-hover)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+                        title="Hide from sidebar"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                      </button>
+                    </div>
                   );
                 })}
               </div>
@@ -727,7 +749,7 @@ function LogOutButton() {
 }
 
 export function Drawer({
-  agents, teams, activeDmAgentIds, open, onClose, activeTaskCount, unreadCounts, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, onSwitchWorkspace, reportCount,
+  agents, teams, activeDmAgentIds, open, onClose, activeTaskCount, unreadCounts, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, onSwitchWorkspace, reportCount, onHideDm,
 }: {
   agents: Agent[];
   teams?: TeamWithAgents[];
@@ -743,6 +765,7 @@ export function Drawer({
   workspaceRole?: "owner" | "admin" | "member";
   onSwitchWorkspace?: (id: string) => void;
   reportCount?: number;
+  onHideDm?: (agentId: string) => void;
 }) {
   return (
     <>
@@ -758,7 +781,7 @@ export function Drawer({
         <SidebarContent
           agents={agents} teams={teams} activeDmAgentIds={activeDmAgentIds} showClose onClose={onClose}
           activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} isAdmin={isAdmin}
-          workspace={workspace} workspaces={workspaces} workspaceRole={workspaceRole} onSwitchWorkspace={onSwitchWorkspace} reportCount={reportCount}
+          workspace={workspace} workspaces={workspaces} workspaceRole={workspaceRole} onSwitchWorkspace={onSwitchWorkspace} reportCount={reportCount} onHideDm={onHideDm}
         />
       </div>
     </>

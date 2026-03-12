@@ -366,7 +366,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <div className="flex h-screen w-full bg-[var(--color-page-bg)] overflow-hidden">
         {/* Desktop sidebar */}
         <div className="hidden md:flex w-[260px] min-w-[260px] bg-[var(--color-sidebar-bg)] border-r border-[var(--color-border)] flex-col">
-          <SidebarContent agents={agents} teams={teams} activeDmAgentIds={activeDmAgentIds} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} isAdmin={isAdmin} workspace={workspace} workspaces={workspaces} workspaceRole={workspaceRole} onSwitchWorkspace={switchWorkspace} reportCount={reportCount} />
+          <SidebarContent agents={agents} teams={teams} activeDmAgentIds={activeDmAgentIds} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} isAdmin={isAdmin} workspace={workspace} workspaces={workspaces} workspaceRole={workspaceRole} onSwitchWorkspace={switchWorkspace} reportCount={reportCount} onHideDm={refreshActiveDms} />
         </div>
 
         {/* Mobile drawer — always mounted, visibility controlled by open state */}
@@ -385,6 +385,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           workspaceRole={workspaceRole}
           onSwitchWorkspace={switchWorkspace}
           reportCount={reportCount}
+          onHideDm={refreshActiveDms}
         />
 
         <div className="flex-1 flex flex-row overflow-hidden">

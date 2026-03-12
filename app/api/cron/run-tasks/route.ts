@@ -223,10 +223,10 @@ async function runTask(
     content: savedContent,
   });
 
-  // 8. Update conversation timestamp
+  // 8. Update conversation timestamp and unhide from sidebar (if hidden)
   await supabase
     .from("conversations")
-    .update({ updated_at: new Date().toISOString() })
+    .update({ updated_at: new Date().toISOString(), sidebar_hidden: false })
     .eq("id", convId);
 
   // 8b. For group/team chat, trigger other agents to react via full orchestration

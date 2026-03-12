@@ -24,6 +24,7 @@ export async function GET() {
     .not("agent_id", "is", null)
     .is("team_id", null)
     .eq("archived", false)
+    .eq("sidebar_hidden", false)
     .order("updated_at", { ascending: false });
 
   if (error) {
