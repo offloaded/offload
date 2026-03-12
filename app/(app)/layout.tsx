@@ -284,6 +284,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       if (prev.includes(agentId)) return prev;
       return [agentId, ...prev];
     });
+    // Also unhide in DB so the next poll doesn't revert the optimistic update
+    fetch("/api/conversations/hide", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent_id: agentId, hidden: false }),
+    }).catch(() => {});
   }, []);
 
   const refreshWorkspace = useCallback(async () => {
