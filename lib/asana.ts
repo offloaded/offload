@@ -123,7 +123,7 @@ export interface AsanaTask {
   completed: boolean;
   start_on: string | null;
   due_on: string | null;
-  assignee: { gid: string; name: string } | null;
+  assignee: { gid: string; name: string; email?: string } | null;
   notes?: string;
   custom_fields?: Array<{ name: string; display_value: string | null }>;
   permalink_url?: string;
@@ -135,7 +135,7 @@ export async function listTasks(
   opts?: { completedSince?: string; assignee?: string }
 ): Promise<{ ok: boolean; tasks?: AsanaTask[]; error?: string }> {
   const params = new URLSearchParams({
-    opt_fields: "name,completed,start_on,due_on,assignee.name,custom_fields.name,custom_fields.display_value,permalink_url",
+    opt_fields: "name,completed,start_on,due_on,assignee,assignee.name,assignee.email,custom_fields.name,custom_fields.display_value,permalink_url",
   });
   if (opts?.completedSince) params.set("completed_since", opts.completedSince);
   if (opts?.assignee) params.set("assignee", opts.assignee);
@@ -151,7 +151,7 @@ export async function getTask(
 ): Promise<{ ok: boolean; task?: AsanaTask & { stories?: Array<{ text: string; created_by: { name: string }; created_at: string; type: string }> }; error?: string }> {
   const result = await asanaFetch(
     workspaceId,
-    `/tasks/${taskGid}?opt_fields=name,completed,start_on,due_on,assignee.name,notes,custom_fields.name,custom_fields.display_value,permalink_url,subtasks.name,subtasks.completed,tags.name`
+    `/tasks/${taskGid}?opt_fields=name,completed,start_on,due_on,assignee,assignee.name,assignee.email,notes,custom_fields.name,custom_fields.display_value,permalink_url,subtasks.name,subtasks.completed,tags.name`
   );
   if (!result.ok) return { ok: false, error: result.error };
 

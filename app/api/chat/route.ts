@@ -885,7 +885,7 @@ export async function POST(request: Request) {
                       completed: t.completed,
                       start_on: t.start_on,
                       due_on: t.due_on,
-                      assignee: t.assignee?.name || null,
+                      assignee: t.assignee ? (t.assignee.name || t.assignee.email || t.assignee.gid) : null,
                     })));
                   } else if (!result.ok) {
                     asanaResult = `Error: ${result.error}`;
@@ -908,7 +908,8 @@ export async function POST(request: Request) {
               const result = await getTask(ctx.workspaceId, asanaPayload.task_gid);
               if (result.ok && result.task) {
                 const t = result.task;
-                asanaResult = `Task: ${t.name} (GID: ${t.gid})\nStatus: ${t.completed ? "Complete" : "Incomplete"}\nAssignee: ${t.assignee?.name || "Unassigned"}\nStart: ${t.start_on || "No start date"}\nDue: ${t.due_on || "No due date"}${t.notes ? `\nDescription: ${t.notes}` : ""}${t.permalink_url ? `\nURL: ${t.permalink_url}` : ""}`;
+                const assigneeLabel = t.assignee ? (t.assignee.name || t.assignee.email || t.assignee.gid) : "Unassigned";
+                asanaResult = `Task: ${t.name} (GID: ${t.gid})\nStatus: ${t.completed ? "Complete" : "Incomplete"}\nAssignee: ${assigneeLabel}${t.assignee?.email ? ` (${t.assignee.email})` : ""}\nStart: ${t.start_on || "No start date"}\nDue: ${t.due_on || "No due date"}${t.notes ? `\nDescription: ${t.notes}` : ""}${t.permalink_url ? `\nURL: ${t.permalink_url}` : ""}`;
                 if (t.stories && t.stories.length > 0) {
                   asanaResult += `\n\nComments (${t.stories.length}):\n${t.stories.map((s) => `- ${s.created_by?.name || "Unknown"} (${new Date(s.created_at).toLocaleDateString()}): ${s.text}`).join("\n")}`;
                 }
