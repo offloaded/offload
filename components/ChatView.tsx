@@ -254,19 +254,32 @@ const MessageList = memo(function MessageList({
         </div>
       )}
 
-      {messages.map((m, i) => (
-        <MessageRow
-          key={m.id || i}
-          isUser={m.role === "user"}
-          agent={m.role === "assistant" ? agent : undefined}
-          text={m.content}
-          time={formatTime(m.created_at)}
-          messageId={m.id}
-          conversationId={conversationId}
-          fileName={m.file_name}
-          onSaveReport={m.role === "assistant" ? onSaveReport : undefined}
-        />
-      ))}
+      {messages.map((m, i) => {
+        // Report edit messages: show as a system notification instead of the raw diff
+        const editMatch = m.role === "user" && m.content.match(/^\[report_edit:([^\]]+)\]/);
+        if (editMatch) {
+          return (
+            <div key={m.id || i} className="flex justify-center py-3 px-5">
+              <span className="text-[12px] text-[var(--color-text-tertiary)] italic">
+                Your edits to &ldquo;{editMatch[1]}&rdquo; were sent to {agent.name} for review
+              </span>
+            </div>
+          );
+        }
+        return (
+          <MessageRow
+            key={m.id || i}
+            isUser={m.role === "user"}
+            agent={m.role === "assistant" ? agent : undefined}
+            text={m.content}
+            time={formatTime(m.created_at)}
+            messageId={m.id}
+            conversationId={conversationId}
+            fileName={m.file_name}
+            onSaveReport={m.role === "assistant" ? onSaveReport : undefined}
+          />
+        );
+      })}
 
       {streaming && (
         <TypingRow
@@ -595,7 +608,7 @@ export function ChatView({
   // Register report edit feedback callback — sends diff to agent when user edits report
   useEffect(() => {
     reportEditCallback.current = (reportId: string, reportTitle: string, original: string, edited: string) => {
-      const feedbackMessage = `I edited the report "${reportTitle}" (ID: ${reportId}). Here is the original version and my edited version for you to review.\n\nOriginal version:\n${original.slice(0, 3000)}${original.length > 3000 ? "\n[... truncated ...]" : ""}\n\nMy edited version:\n${edited.slice(0, 3000)}${edited.length > 3000 ? "\n[... truncated ...]" : ""}\n\nReview my changes and provide brief feedback — acknowledge what I changed, flag anything my edits may have introduced or missed, and suggest any improvements. If I approve your suggestions, you can update the report directly using the update_report tool with ID: ${reportId}`;
+      const feedbackMessage = `[report_edit:${reportTitle}]\nI edited the report "${reportTitle}" (ID: ${reportId}). Here is the original version and my edited version for you to review.\n\nOriginal version:\n${original.slice(0, 3000)}${original.length > 3000 ? "\n[... truncated ...]" : ""}\n\nMy edited version:\n${edited.slice(0, 3000)}${edited.length > 3000 ? "\n[... truncated ...]" : ""}\n\nReview my changes and provide brief feedback — acknowledge what I changed, flag anything my edits may have introduced or missed, and suggest any improvements. If I approve your suggestions, you can update the report directly using the update_report tool with ID: ${reportId}`;
       sendDM(chatId, agent.id, feedbackMessage, conversationIdRef.current);
     };
     return () => {
