@@ -5,10 +5,10 @@
  * to stay within the model's context budget.
  */
 
-// Rough heuristic: 1 token ≈ 4 characters for English text.
-// This is conservative (actual ratio is closer to 3.5), which is fine — better to over-trim than overflow.
+// Rough heuristic: 1 token ≈ 3.2 characters for mixed content (prose + code + JSON).
+// Using 3.2 instead of 4 to avoid underestimating — better to over-trim than overflow.
 export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+  return Math.ceil(text.length / 3.2);
 }
 
 // Claude Sonnet 4.5: 200k context, 8k max output
@@ -52,12 +52,12 @@ export function calculateBudget(
 export function trimHistory<T extends { role: string; content: string }>(
   systemPrompt: string,
   messages: T[],
-  maxMessages = 50
+  maxMessages = 30
 ): T[] {
   if (messages.length === 0) return messages;
 
   const systemTokens = estimateTokens(systemPrompt);
-  const historyBudget = MODEL_CONTEXT_LIMIT - systemTokens - MAX_OUTPUT_TOKENS - 1000; // 1k safety buffer
+  const historyBudget = MODEL_CONTEXT_LIMIT - systemTokens - MAX_OUTPUT_TOKENS - 4000; // 4k safety buffer for estimation error
 
   // Start with all messages (up to maxMessages)
   let trimmed = messages.slice(-maxMessages);
@@ -113,7 +113,7 @@ export function shouldArchive(
   systemPromptTokens: number,
   messages: { role: string; content: string }[]
 ): boolean {
-  const historyBudget = MODEL_CONTEXT_LIMIT - systemPromptTokens - MAX_OUTPUT_TOKENS - 1000;
+  const historyBudget = MODEL_CONTEXT_LIMIT - systemPromptTokens - MAX_OUTPUT_TOKENS - 4000;
   const archiveThreshold = historyBudget * ARCHIVE_THRESHOLD_RATIO;
   const historyTokens = messages.reduce((sum, m) => sum + estimateTokens(m.content) + 4, 0);
   return historyTokens > archiveThreshold;

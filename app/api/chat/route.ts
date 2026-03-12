@@ -648,6 +648,11 @@ export async function POST(request: Request) {
         // Clean the response: strip <search> blocks, schedule_request blocks, feature_request blocks, etc.
         const cleaned = cleanResponse(fullResponse);
 
+        // Log what cleanResponse stripped (helps debug empty responses)
+        if (fullResponse.length > 0 && (!cleaned || cleaned.length < fullResponse.length * 0.5)) {
+          console.log(`[Chat] cleanResponse stripped content: rawLen=${fullResponse.length} cleanedLen=${cleaned?.length ?? 0} raw=${fullResponse.slice(0, 300)}...`);
+        }
+
         // Check if any tool blocks will produce follow-up content or handle the response
         const hasFollowUpTool = !!(readReportMatch || readTemplateMatch || saveReportMatch || updateReportMatch);
 
