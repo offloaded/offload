@@ -245,8 +245,8 @@ Multiple lines are fine.
 \`\`\`
 The content after the --- line should be the actual report text. IMPORTANT: When the user asks you to save a report, you must include this block — do not just say "I've saved it", the block is what actually saves it. Without the block, nothing is saved. But NEVER include this block unless the user explicitly asked for a report to be saved.
 
-READING REPORTS:
-You can read any saved report. If a user asks you to look at, review, or reference a report, use this block:
+READING REPORTS (not templates — for templates see REPORT TEMPLATES section below):
+You can read any saved report. If a user asks you to look at, review, or reference a report, use this block. Do NOT use read_report to fetch report templates — templates are provided separately in your prompt.
 \`\`\`read_report
 {"title": "partial or full title to search for"}
 \`\`\`
@@ -292,12 +292,13 @@ The title field is optional — only include it if the title should change. The 
   }
 
   if (options?.reportTemplates && options.reportTemplates.length > 0) {
-    prompt += `\n\nAVAILABLE REPORT TEMPLATES:\nThe user has configured these report templates. When they ask for a report using a template, use that template's structure to organize the report — include each heading as a section and follow the section descriptions for what content to write.\n`;
+    prompt += `\n\nREPORT TEMPLATES (already loaded — do NOT use read_report to fetch these):
+Templates are NOT reports. Their full structure is provided below. When the user asks for a report using a template, use the template's sections directly from here — do NOT call read_report with a template ID. read_report is ONLY for reading saved reports, not templates.\n`;
     for (const t of options.reportTemplates) {
       prompt += `\n### Template: ${t.name} (ID: ${t.id})`;
       if (t.description) prompt += `\n${t.description}`;
       if (t.structure && t.structure.length > 0) {
-        prompt += `\nSections:`;
+        prompt += `\nSections to include in the report:`;
         for (const s of t.structure) {
           prompt += `\n- **${s.heading}**`;
           if (s.description) prompt += `: ${s.description}`;
@@ -305,6 +306,7 @@ The title field is optional — only include it if the title should change. The 
       }
       prompt += `\n`;
     }
+    prompt += `\nWhen generating a report from a template: use each section heading above as a heading in your report, and follow the description for what to write in each section. Write the report directly — you already have everything you need.`;
   }
 
   if (options?.reportEdits && options.reportEdits.length > 0) {

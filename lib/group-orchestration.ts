@@ -441,12 +441,13 @@ CONTEXT: Only respond to the MOST RECENT message in the conversation. Ignore old
   }
 
   if (reportTemplates && reportTemplates.length > 0) {
-    prompt += `\n\nAVAILABLE REPORT TEMPLATES:\nWhen the user asks for a report using a template, use that template's structure to organize the report — include each heading as a section and follow the section descriptions for what content to write.\n`;
+    prompt += `\n\nREPORT TEMPLATES (already loaded — do NOT use read_report to fetch these):
+Templates are NOT reports. Their full structure is provided below. When the user asks for a report using a template, use the sections directly — do NOT call read_report with a template ID.\n`;
     for (const t of reportTemplates) {
       prompt += `\n### Template: ${t.name} (ID: ${t.id})`;
       if (t.description) prompt += `\n${t.description}`;
       if (t.structure && t.structure.length > 0) {
-        prompt += `\nSections:`;
+        prompt += `\nSections to include in the report:`;
         for (const s of t.structure) {
           prompt += `\n- **${s.heading}**`;
           if (s.description) prompt += `: ${s.description}`;
@@ -454,6 +455,7 @@ CONTEXT: Only respond to the MOST RECENT message in the conversation. Ignore old
       }
       prompt += `\n`;
     }
+    prompt += `\nWhen generating a report from a template: use each section heading above as a heading in your report, and follow the description for what to write in each section. Write the report directly — you already have everything you need.`;
   }
 
   return prompt;
