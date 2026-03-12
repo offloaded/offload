@@ -536,6 +536,25 @@ export async function POST(request: Request) {
   // Trim history to fit within context window
   messages = trimHistory(systemPrompt, messages);
 
+  // Coalesce consecutive same-role messages (Claude API requires alternating roles)
+  // This can happen from report edit diffs, system injections, or DB quirks
+  const coalesced: typeof messages = [];
+  for (const m of messages) {
+    if (coalesced.length > 0 && coalesced[coalesced.length - 1].role === m.role) {
+      coalesced[coalesced.length - 1] = {
+        ...coalesced[coalesced.length - 1],
+        content: coalesced[coalesced.length - 1].content + "\n\n" + m.content,
+      };
+    } else {
+      coalesced.push({ ...m });
+    }
+  }
+  // Ensure conversation starts with a user message (required by Claude API)
+  while (coalesced.length > 0 && coalesced[0].role !== "user") {
+    coalesced.shift();
+  }
+  messages = coalesced;
+
   // Log context budget
   const budget = calculateBudget(systemPrompt, messages);
   console.log(`[Chat] Context budget: system=${budget.systemTokens} history=${budget.historyTokens} total=${budget.totalTokens} msgs=${messages.length} remaining=${budget.remainingForOutput} overBudget=${budget.overBudget}`);
@@ -591,11 +610,19 @@ export async function POST(request: Request) {
           )
         );
 
+        let sawTextDelta = false;
         for await (const event of stream) {
+          // Log non-text events for diagnostics (tool_use blocks, stop reasons, etc.)
+          if (event.type === "content_block_start") {
+            console.log(`[Chat] Stream content_block_start: type=${event.content_block?.type}`);
+          } else if (event.type === "message_delta") {
+            console.log(`[Chat] Stream message_delta: stop_reason=${(event as any).delta?.stop_reason}`);
+          }
           if (
             event.type === "content_block_delta" &&
             event.delta.type === "text_delta"
           ) {
+            sawTextDelta = true;
             const text = event.delta.text;
             fullResponse += text;
             controller.enqueue(
@@ -606,8 +633,25 @@ export async function POST(request: Request) {
           }
         }
 
-        // Log full response for debugging cross-post detection
-        console.log(`[Chat] Full response length: ${fullResponse.length}, contains "group_message_request": ${fullResponse.includes("group_message_request")}, contains "channel": ${fullResponse.includes('"channel"')}`);
+        // Log full response for debugging
+        console.log(`[Chat] Full response length: ${fullResponse.length}, sawTextDelta=${sawTextDelta}, contains "group_message_request": ${fullResponse.includes("group_message_request")}, contains "channel": ${fullResponse.includes('"channel"')}`);
+        if (!sawTextDelta) {
+          console.warn(`[Chat] WARNING: Stream produced no text_delta events. Claude may have returned a tool_use or empty response.`);
+          // Try to get the final message for more details
+          try {
+            const finalMsg = await stream.finalMessage();
+            console.warn(`[Chat] Final message stop_reason=${finalMsg.stop_reason} content_types=${finalMsg.content.map((b: any) => b.type).join(",")}`);
+            // If Claude returned tool_use blocks, extract the text from them
+            for (const block of finalMsg.content) {
+              if ((block as any).type === "tool_use") {
+                console.warn(`[Chat] Tool use block: name=${(block as any).name} input=${JSON.stringify((block as any).input).slice(0, 200)}`);
+              } else if ((block as any).type === "text" && (block as any).text) {
+                fullResponse += (block as any).text;
+              }
+            }
+          } catch { /* stream may already be consumed */ }
+        }
+
 
         // Detect schedule_request, feature_request, and group_message_request before cleaning
         const scheduleMatch = fullResponse.match(
