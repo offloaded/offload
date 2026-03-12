@@ -786,17 +786,20 @@ export function GroupChatView({
     });
   }, [CHAT_ID, markRead]);
 
-  // Fetch initial messages (skip if cached)
+  // Fetch initial messages — read cache inside effect to avoid stale closures
   useEffect(() => {
     initialScrollDone.current = false;
 
-    if (cached) {
-      setMessages(cached.messages);
-      setConversationId(inflight.conversationId || cached.conversationId);
-      setHasMore(cached.hasMore);
+    const currentInflight = getInflightState(CHAT_ID);
+    const currentCached = getCached(CHAT_ID);
+
+    if (currentCached) {
+      setMessages(currentCached.messages);
+      setConversationId(currentInflight.conversationId || currentCached.conversationId);
+      setHasMore(currentCached.hasMore);
       setLoading(false);
-      if (inflight.conversationId || cached.conversationId) {
-        markRead(inflight.conversationId || cached.conversationId!);
+      if (currentInflight.conversationId || currentCached.conversationId) {
+        markRead(currentInflight.conversationId || currentCached.conversationId!);
       }
       return;
     }

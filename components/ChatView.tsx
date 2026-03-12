@@ -578,18 +578,21 @@ export function ChatView({
     });
   }, [chatId, markRead]);
 
-  // Fetch initial messages
+  // Fetch initial messages — read cache inside effect to avoid stale closures
   useEffect(() => {
     initialScrollDone.current = false;
     setScrollReady(false);
 
-    if (cached) {
-      setMessages(cached.messages);
-      setConversationId(inflight.conversationId || cached.conversationId);
-      setHasMore(cached.hasMore);
+    const currentInflight = getInflightState(chatId);
+    const currentCached = getCached(chatId);
+
+    if (currentCached) {
+      setMessages(currentCached.messages);
+      setConversationId(currentInflight.conversationId || currentCached.conversationId);
+      setHasMore(currentCached.hasMore);
       setLoading(false);
-      if (inflight.conversationId || cached.conversationId) {
-        markRead(inflight.conversationId || cached.conversationId!);
+      if (currentInflight.conversationId || currentCached.conversationId) {
+        markRead(currentInflight.conversationId || currentCached.conversationId!);
       }
       return;
     }
