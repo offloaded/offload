@@ -55,6 +55,7 @@ export default function AgentEditorPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const existing = !isNew ? agents.find((a) => a.id === params.id) : null;
+  const initializedRef = useRef(false);
 
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
@@ -89,8 +90,10 @@ export default function AgentEditorPage() {
   const [loadingAsanaProjects, setLoadingAsanaProjects] = useState(false);
   const [asanaProjectPickerOpen, setAsanaProjectPickerOpen] = useState(false);
 
+  // Initialize form state from existing agent — only once, not on every poll refresh
   useEffect(() => {
-    if (existing) {
+    if (existing && !initializedRef.current) {
+      initializedRef.current = true;
       setName(existing.name);
       setRole(existing.role ?? "");
       setPurpose(existing.purpose);
@@ -181,6 +184,14 @@ export default function AgentEditorPage() {
     if (res.ok) {
       const data = await res.json();
       setAsanaProjects((prev) => [...prev, data]);
+      // Persist asana_enabled to the agent record so the toggle survives page reload
+      if (!isNew) {
+        fetch("/api/agents", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: params.id, asana_enabled: true }),
+        }).catch(() => {});
+      }
     }
     setAsanaProjectPickerOpen(false);
   };
@@ -933,7 +944,16 @@ export default function AgentEditorPage() {
                   <button
                     onClick={() => {
                       if (!asanaConnected) return;
-                      setAsanaEnabled(!asanaEnabled);
+                      const newVal = !asanaEnabled;
+                      setAsanaEnabled(newVal);
+                      // Persist toggle immediately so it's not lost on poll refresh
+                      if (!isNew) {
+                        fetch("/api/agents", {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ id: params.id, asana_enabled: newVal }),
+                        }).catch(() => {});
+                      }
                     }}
                     className="w-full flex items-center gap-3 py-3 px-4 bg-transparent border-none cursor-pointer text-left"
                     style={{ opacity: asanaConnected ? 1 : 0.5 }}
