@@ -389,10 +389,10 @@ export function cleanResponse(text: string, streaming = false): string {
   cleaned = cleaned.replace(/```group_message_request\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```skills_update\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```expectations_update\s*\n?[\s\S]*?\n?```/g, "");
-  cleaned = cleaned.replace(/```save_report\s*\n?[\s\S]*?\n?```/g, "");
-  cleaned = cleaned.replace(/```read_report\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```read_report_template\s*\n?[\s\S]*?\n?```/g, "");
-  cleaned = cleaned.replace(/```update_report\s*\n?[\s\S]*?\n?```/g, "");
+  cleaned = cleaned.replace(/```save_report(?!_)\s*\n?[\s\S]*?\n?```/g, "");
+  cleaned = cleaned.replace(/```read_report(?!_)\s*\n?[\s\S]*?\n?```/g, "");
+  cleaned = cleaned.replace(/```update_report(?!_)\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```asana_\w+\s*\n?[\s\S]*?\n?```/g, "");
 
   if (streaming) {
@@ -405,10 +405,10 @@ export function cleanResponse(text: string, streaming = false): string {
     cleaned = cleaned.replace(/```group_message_request[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```skills_update[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```expectations_update[\s\S]*$/g, "");
-    cleaned = cleaned.replace(/```save_report[\s\S]*$/g, "");
-    cleaned = cleaned.replace(/```read_report[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```read_report_template[\s\S]*$/g, "");
-    cleaned = cleaned.replace(/```update_report[\s\S]*$/g, "");
+    cleaned = cleaned.replace(/```save_report(?!_)[\s\S]*$/g, "");
+    cleaned = cleaned.replace(/```read_report(?!_)[\s\S]*$/g, "");
+    cleaned = cleaned.replace(/```update_report(?!_)[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```asana_\w+[\s\S]*$/g, "");
   }
 

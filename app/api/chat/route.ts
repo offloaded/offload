@@ -621,17 +621,19 @@ export async function POST(request: Request) {
         const expectationsMatch = fullResponse.match(
           /```expectations_update\s*\n?([\s\S]*?)\n?```/
         );
-        const saveReportMatch = fullResponse.match(
-          /```save_report\s*\n?([\s\S]*?)\n?```/
-        );
-        const readReportMatch = fullResponse.match(
-          /```read_report\s*\n?([\s\S]*?)\n?```/
-        );
+        // Match longer tool names before shorter ones to avoid prefix collisions
+        // (e.g. read_report must not match read_report_template)
         const readTemplateMatch = fullResponse.match(
           /```read_report_template\s*\n?([\s\S]*?)\n?```/
         );
+        const saveReportMatch = fullResponse.match(
+          /```save_report(?!_)\s*\n?([\s\S]*?)\n?```/
+        );
+        const readReportMatch = fullResponse.match(
+          /```read_report(?!_)\s*\n?([\s\S]*?)\n?```/
+        );
         const updateReportMatch = fullResponse.match(
-          /```update_report\s*\n?([\s\S]*?)\n?```/
+          /```update_report(?!_)\s*\n?([\s\S]*?)\n?```/
         );
 
         // Asana tool blocks
