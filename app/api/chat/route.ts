@@ -873,7 +873,7 @@ export async function POST(request: Request) {
                 asanaResult = "Error: You don't have access to that project.";
               } else {
                 const targetGids = asanaPayload.project_gid ? [asanaPayload.project_gid] : [...allowedGids];
-                const allTasks: Array<{ name: string; gid: string; completed: boolean; due_on: string | null; assignee: string | null }> = [];
+                const allTasks: Array<{ name: string; gid: string; completed: boolean; start_on: string | null; due_on: string | null; assignee: string | null }> = [];
                 for (const gid of targetGids) {
                   const result = await listTasks(ctx.workspaceId, gid, {
                     completedSince: asanaPayload.completed_since === "now" ? "now" : undefined,
@@ -883,6 +883,7 @@ export async function POST(request: Request) {
                       name: t.name,
                       gid: t.gid,
                       completed: t.completed,
+                      start_on: t.start_on,
                       due_on: t.due_on,
                       assignee: t.assignee?.name || null,
                     })));
@@ -893,7 +894,13 @@ export async function POST(request: Request) {
                 }
                 if (!asanaResult) {
                   asanaResult = allTasks.length > 0
-                    ? `Found ${allTasks.length} task(s):\n${allTasks.map((t) => `- ${t.name} (GID: ${t.gid})${t.assignee ? ` [${t.assignee}]` : ""}${t.due_on ? ` due ${t.due_on}` : ""}${t.completed ? " [DONE]" : ""}`).join("\n")}`
+                    ? `Found ${allTasks.length} task(s):\n${allTasks.map((t) => {
+                        let dates = "";
+                        if (t.start_on && t.due_on) dates = ` ${t.start_on} → ${t.due_on}`;
+                        else if (t.start_on) dates = ` starts ${t.start_on}`;
+                        else if (t.due_on) dates = ` due ${t.due_on}`;
+                        return `- ${t.name} (GID: ${t.gid})${t.assignee ? ` [${t.assignee}]` : ""}${dates}${t.completed ? " [DONE]" : ""}`;
+                      }).join("\n")}`
                     : "No tasks found.";
                 }
               }
@@ -901,7 +908,7 @@ export async function POST(request: Request) {
               const result = await getTask(ctx.workspaceId, asanaPayload.task_gid);
               if (result.ok && result.task) {
                 const t = result.task;
-                asanaResult = `Task: ${t.name} (GID: ${t.gid})\nStatus: ${t.completed ? "Complete" : "Incomplete"}\nAssignee: ${t.assignee?.name || "Unassigned"}\nDue: ${t.due_on || "No due date"}${t.notes ? `\nDescription: ${t.notes}` : ""}${t.permalink_url ? `\nURL: ${t.permalink_url}` : ""}`;
+                asanaResult = `Task: ${t.name} (GID: ${t.gid})\nStatus: ${t.completed ? "Complete" : "Incomplete"}\nAssignee: ${t.assignee?.name || "Unassigned"}\nStart: ${t.start_on || "No start date"}\nDue: ${t.due_on || "No due date"}${t.notes ? `\nDescription: ${t.notes}` : ""}${t.permalink_url ? `\nURL: ${t.permalink_url}` : ""}`;
                 if (t.stories && t.stories.length > 0) {
                   asanaResult += `\n\nComments (${t.stories.length}):\n${t.stories.map((s) => `- ${s.created_by?.name || "Unknown"} (${new Date(s.created_at).toLocaleDateString()}): ${s.text}`).join("\n")}`;
                 }

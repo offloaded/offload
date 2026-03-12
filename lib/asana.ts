@@ -121,6 +121,7 @@ export interface AsanaTask {
   gid: string;
   name: string;
   completed: boolean;
+  start_on: string | null;
   due_on: string | null;
   assignee: { gid: string; name: string } | null;
   notes?: string;
@@ -134,7 +135,7 @@ export async function listTasks(
   opts?: { completedSince?: string; assignee?: string }
 ): Promise<{ ok: boolean; tasks?: AsanaTask[]; error?: string }> {
   const params = new URLSearchParams({
-    opt_fields: "name,completed,due_on,assignee.name,custom_fields.name,custom_fields.display_value,permalink_url",
+    opt_fields: "name,completed,start_on,due_on,assignee.name,custom_fields.name,custom_fields.display_value,permalink_url",
   });
   if (opts?.completedSince) params.set("completed_since", opts.completedSince);
   if (opts?.assignee) params.set("assignee", opts.assignee);
@@ -150,7 +151,7 @@ export async function getTask(
 ): Promise<{ ok: boolean; task?: AsanaTask & { stories?: Array<{ text: string; created_by: { name: string }; created_at: string; type: string }> }; error?: string }> {
   const result = await asanaFetch(
     workspaceId,
-    `/tasks/${taskGid}?opt_fields=name,completed,due_on,assignee.name,notes,custom_fields.name,custom_fields.display_value,permalink_url,subtasks.name,subtasks.completed,tags.name`
+    `/tasks/${taskGid}?opt_fields=name,completed,start_on,due_on,assignee.name,notes,custom_fields.name,custom_fields.display_value,permalink_url,subtasks.name,subtasks.completed,tags.name`
   );
   if (!result.ok) return { ok: false, error: result.error };
 
@@ -166,7 +167,7 @@ export async function getTask(
 
 export async function createTask(
   workspaceId: string,
-  data: { project_gid: string; name: string; notes?: string; assignee?: string; due_on?: string; custom_fields?: Record<string, string> }
+  data: { project_gid: string; name: string; notes?: string; assignee?: string; start_on?: string; due_on?: string; custom_fields?: Record<string, string> }
 ): Promise<{ ok: boolean; task?: AsanaTask; error?: string }> {
   const body: Record<string, unknown> = {
     name: data.name,
@@ -174,6 +175,7 @@ export async function createTask(
   };
   if (data.notes) body.notes = data.notes;
   if (data.assignee) body.assignee = data.assignee;
+  if (data.start_on) body.start_on = data.start_on;
   if (data.due_on) body.due_on = data.due_on;
   if (data.custom_fields) body.custom_fields = data.custom_fields;
 
@@ -188,7 +190,7 @@ export async function createTask(
 export async function updateTask(
   workspaceId: string,
   taskGid: string,
-  data: { name?: string; notes?: string; assignee?: string; due_on?: string; completed?: boolean; custom_fields?: Record<string, string> }
+  data: { name?: string; notes?: string; assignee?: string; start_on?: string; due_on?: string; completed?: boolean; custom_fields?: Record<string, string> }
 ): Promise<{ ok: boolean; task?: AsanaTask; error?: string }> {
   const result = await asanaFetch(workspaceId, `/tasks/${taskGid}`, {
     method: "PUT",

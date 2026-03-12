@@ -157,12 +157,12 @@ Lists incomplete tasks. Use "completed_since": "now" for incomplete only, omit f
 Gets full task details including description, subtasks, and comments.
 
 \`\`\`asana_create_task
-{"project_gid": "...", "name": "Task name", "notes": "Description", "due_on": "YYYY-MM-DD", "assignee": "email@example.com"}
+{"project_gid": "...", "name": "Task name", "notes": "Description", "start_on": "YYYY-MM-DD", "due_on": "YYYY-MM-DD", "assignee": "email@example.com"}
 \`\`\`
 Creates a new task. Only project_gid and name are required.
 
 \`\`\`asana_update_task
-{"task_gid": "...", "name": "...", "completed": true, "due_on": "YYYY-MM-DD"}
+{"task_gid": "...", "name": "...", "completed": true, "start_on": "YYYY-MM-DD", "due_on": "YYYY-MM-DD"}
 \`\`\`
 Updates a task. Include only the fields you want to change.
 
