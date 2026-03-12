@@ -648,8 +648,8 @@ export async function POST(request: Request) {
         // Clean the response: strip <search> blocks, schedule_request blocks, feature_request blocks, etc.
         const cleaned = cleanResponse(fullResponse);
 
-        // Check if any tool blocks will produce follow-up content
-        const hasFollowUpTool = !!(readReportMatch || readTemplateMatch);
+        // Check if any tool blocks will produce follow-up content or handle the response
+        const hasFollowUpTool = !!(readReportMatch || readTemplateMatch || saveReportMatch || updateReportMatch);
 
         // Never save empty responses — show error instead
         // But skip if a follow-up tool will generate content
