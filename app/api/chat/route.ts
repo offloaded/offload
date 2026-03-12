@@ -9,6 +9,7 @@ import { logApiUsage, estimateCost } from "@/lib/api-usage";
 import { estimateTokens, trimHistory, trimRagChunks, shouldArchive, calculateBudget } from "@/lib/context-manager";
 import { getWorkspaceContext } from "@/lib/workspace";
 import { listTasks, getTask, createTask, updateTask, addComment } from "@/lib/asana";
+import { listIssues, getIssue, createIssue, updateIssue, addIssueComment, listLabels } from "@/lib/github";
 
 export async function POST(request: Request) {
   const ctx = await getWorkspaceContext();
@@ -504,6 +505,34 @@ export async function POST(request: Request) {
     } catch { /* non-fatal */ }
   }
 
+  // Load GitHub repos from agent record
+  let githubRepos: Array<{ full_name: string; name: string }> = [];
+  if (agent.github_enabled && agent.github_repositories) {
+    githubRepos = (agent.github_repositories as Array<{ full_name: string; name: string }>).map((r) => ({
+      full_name: r.full_name,
+      name: r.name,
+    }));
+  }
+
+  // Check if GitHub is available at workspace level but not enabled on this agent
+  if (!agent.github_enabled) {
+    try {
+      const { data: integration } = await serviceDb
+        .from("integrations")
+        .select("id")
+        .eq("workspace_id", ctx.workspaceId)
+        .eq("provider", "github")
+        .single();
+      if (integration) {
+        disabledFeatures.push({
+          feature: "github",
+          label: "GitHub",
+          description: "View, create, and manage GitHub issues from chat",
+        });
+      }
+    } catch { /* non-fatal */ }
+  }
+
   // Stream response from Claude
   const anthropic = getAnthropicClient();
   let systemPrompt = buildSystemPrompt(
@@ -520,6 +549,7 @@ export async function POST(request: Request) {
       reportTemplates: reportTemplates.length > 0 ? reportTemplates : undefined,
       recentReports: recentReports.length > 0 ? recentReports : undefined,
       asanaProjects: asanaProjects.length > 0 ? asanaProjects : undefined,
+      githubRepos: githubRepos.length > 0 ? githubRepos : undefined,
     }
   );
 
@@ -691,6 +721,11 @@ export async function POST(request: Request) {
         // Asana tool blocks
         const asanaMatch = fullResponse.match(
           /```(asana_list_tasks|asana_get_task|asana_create_task|asana_update_task|asana_add_comment)\s*\n?([\s\S]*?)\n?```/
+        );
+
+        // GitHub tool blocks
+        const githubMatch = fullResponse.match(
+          /```(github_list_issues|github_get_issue|github_create_issue|github_update_issue|github_add_comment|github_list_labels)\s*\n?([\s\S]*?)\n?```/
         );
 
         // Clean the response: strip <search> blocks, schedule_request blocks, feature_request blocks, etc.
@@ -1387,8 +1422,138 @@ export async function POST(request: Request) {
           }
         }
 
+        // Handle GitHub tool blocks — execute operation and stream follow-up
+        if (githubMatch && agent.github_enabled && githubRepos.length > 0) {
+          try {
+            const githubAction = githubMatch[1];
+            const githubPayload = JSON.parse(githubMatch[2].trim());
+            let githubResult = "";
+
+            // Validate repo access
+            const allowedRepos = new Set(githubRepos.map((r) => r.full_name));
+            const repoFullName = githubPayload.owner && githubPayload.repo
+              ? `${githubPayload.owner}/${githubPayload.repo}`
+              : null;
+
+            if (repoFullName && !allowedRepos.has(repoFullName)) {
+              githubResult = "Error: You don't have access to that repository.";
+            } else if (githubAction === "github_list_issues") {
+              const result = await listIssues(ctx.workspaceId, githubPayload.owner, githubPayload.repo, {
+                state: githubPayload.state || "open",
+                labels: githubPayload.labels,
+              });
+              if (result.ok && result.issues) {
+                githubResult = result.issues.length > 0
+                  ? `Found ${result.issues.length} issue(s):\n${result.issues.map((i) =>
+                      `- #${i.number}: ${i.title} [${i.state}]${i.labels && i.labels.length > 0 ? ` (${i.labels.map((l) => l.name).join(", ")})` : ""}${i.assignees && i.assignees.length > 0 ? ` [${i.assignees.map((a) => a.login).join(", ")}]` : ""}`
+                    ).join("\n")}`
+                  : "No issues found.";
+              } else {
+                githubResult = `Error: ${result.error}`;
+              }
+            } else if (githubAction === "github_get_issue") {
+              const result = await getIssue(ctx.workspaceId, githubPayload.owner, githubPayload.repo, githubPayload.issue_number);
+              if (result.ok && result.issue) {
+                const i = result.issue;
+                githubResult = `Issue #${i.number}: ${i.title}\nState: ${i.state}\nAuthor: ${i.user?.login || "Unknown"}${i.assignees && i.assignees.length > 0 ? `\nAssignees: ${i.assignees.map((a) => a.login).join(", ")}` : ""}${i.labels && i.labels.length > 0 ? `\nLabels: ${i.labels.map((l) => l.name).join(", ")}` : ""}${i.body ? `\nDescription: ${i.body}` : ""}\nURL: ${i.html_url}`;
+                if (result.comments && result.comments.length > 0) {
+                  githubResult += `\n\nComments (${result.comments.length}):\n${result.comments.map((c) =>
+                    `- ${c.user?.login || "Unknown"} (${new Date(c.created_at).toLocaleDateString()}): ${c.body}`
+                  ).join("\n")}`;
+                }
+              } else {
+                githubResult = `Error: ${result.error}`;
+              }
+            } else if (githubAction === "github_create_issue") {
+              const result = await createIssue(ctx.workspaceId, githubPayload.owner, githubPayload.repo, {
+                title: githubPayload.title,
+                body: githubPayload.body,
+                labels: githubPayload.labels,
+              });
+              if (result.ok && result.issue) {
+                githubResult = `Issue created: #${result.issue.number} "${result.issue.title}"\nURL: ${result.issue.html_url}`;
+                logActivity(supabase, user.id, agent_id, "github_create_issue", `${agent.name} created GitHub issue: ${result.issue.title}`, { conversation_id: convId, issue_number: result.issue.number, repo: repoFullName });
+              } else {
+                githubResult = `Error: ${result.error}`;
+              }
+            } else if (githubAction === "github_update_issue") {
+              const updateData: Record<string, unknown> = {};
+              if (githubPayload.title !== undefined) updateData.title = githubPayload.title;
+              if (githubPayload.body !== undefined) updateData.body = githubPayload.body;
+              if (githubPayload.state !== undefined) updateData.state = githubPayload.state;
+              if (githubPayload.labels !== undefined) updateData.labels = githubPayload.labels;
+              const result = await updateIssue(ctx.workspaceId, githubPayload.owner, githubPayload.repo, githubPayload.issue_number, updateData);
+              if (result.ok && result.issue) {
+                githubResult = `Issue updated: #${result.issue.number} "${result.issue.title}" [${result.issue.state}]`;
+                logActivity(supabase, user.id, agent_id, "github_update_issue", `${agent.name} updated GitHub issue: ${result.issue.title}`, { conversation_id: convId, issue_number: result.issue.number, repo: repoFullName });
+              } else {
+                githubResult = `Error: ${result.error}`;
+              }
+            } else if (githubAction === "github_add_comment") {
+              const result = await addIssueComment(ctx.workspaceId, githubPayload.owner, githubPayload.repo, githubPayload.issue_number, githubPayload.body);
+              if (result.ok) {
+                githubResult = `Comment added to issue #${githubPayload.issue_number}`;
+              } else {
+                githubResult = `Error: ${result.error}`;
+              }
+            } else if (githubAction === "github_list_labels") {
+              const result = await listLabels(ctx.workspaceId, githubPayload.owner, githubPayload.repo);
+              if (result.ok && result.labels) {
+                githubResult = result.labels.length > 0
+                  ? `Available labels:\n${result.labels.map((l) => `- ${l.name}${l.description ? `: ${l.description}` : ""}`).join("\n")}`
+                  : "No labels found.";
+              } else {
+                githubResult = `Error: ${result.error}`;
+              }
+            }
+
+            // Do a follow-up call so the agent can summarize the results naturally
+            if (githubResult) {
+              const followUpMessages = [
+                ...messages,
+                { role: "assistant" as const, content: cleaned || "" },
+                { role: "user" as const, content: `[System: GitHub operation result]\n${githubResult}` },
+              ];
+
+              const followUpStream = anthropic.messages.stream({
+                model: "claude-sonnet-4-5-20250929",
+                max_tokens: 4096,
+                system: systemPrompt,
+                messages: followUpMessages,
+              });
+
+              let followUpText = "";
+              for await (const event of followUpStream) {
+                if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+                  followUpText += event.delta.text;
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify({ type: "text", text: event.delta.text })}\n\n`)
+                  );
+                }
+              }
+
+              const followUpCleaned = cleanResponse(followUpText);
+              if (followUpCleaned) {
+                const combined = savedContent ? savedContent + "\n\n" + followUpCleaned : followUpCleaned;
+                if (savedAssistantMsgId) {
+                  await supabase.from("messages").update({ content: combined }).eq("id", savedAssistantMsgId);
+                } else {
+                  const { data: newRow } = await supabase.from("messages").insert({ conversation_id: convId, role: "assistant", content: combined }).select("id").single();
+                  savedAssistantMsgId = newRow?.id || null;
+                }
+                savedContent = combined;
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ type: "replace", text: combined })}\n\n`)
+                );
+              }
+            }
+          } catch (e) {
+            console.error("[Chat] GitHub operation failed:", e);
+          }
+        }
+
         // If cleaning changed the text, send a replace event so the client shows clean text
-        if (cleaned !== fullResponse && !asanaMatch) {
+        if (cleaned !== fullResponse && !asanaMatch && !githubMatch) {
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({ type: "replace", text: cleaned })}\n\n`

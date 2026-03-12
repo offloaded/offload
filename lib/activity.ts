@@ -8,7 +8,9 @@ export type ActivityType =
   | "document_failed"
   | "web_search"
   | "asana_create_task"
-  | "asana_update_task";
+  | "asana_update_task"
+  | "github_create_issue"
+  | "github_update_issue";
 
 export async function logActivity(
   supabase: SupabaseClient,

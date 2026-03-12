@@ -89,6 +89,13 @@ export default function AgentEditorPage() {
   const [availableAsanaProjects, setAvailableAsanaProjects] = useState<Array<{ gid: string; name: string; projects: Array<{ gid: string; name: string }> }>>([]);
   const [loadingAsanaProjects, setLoadingAsanaProjects] = useState(false);
   const [asanaProjectPickerOpen, setAsanaProjectPickerOpen] = useState(false);
+  // GitHub
+  const [githubEnabled, setGithubEnabled] = useState(false);
+  const [githubConnected, setGithubConnected] = useState(false);
+  const [githubRepos, setGithubRepos] = useState<Array<{ full_name: string; name: string }>>([]);
+  const [availableGithubRepos, setAvailableGithubRepos] = useState<Array<{ full_name: string; name: string; owner: string; private: boolean; description: string | null }>>([]);
+  const [loadingGithubRepos, setLoadingGithubRepos] = useState(false);
+  const [githubRepoPickerOpen, setGithubRepoPickerOpen] = useState(false);
 
   // Initialize form state from existing agent — only once, not on every poll refresh
   useEffect(() => {
@@ -101,6 +108,8 @@ export default function AgentEditorPage() {
       setWebSearchEnabled(existing.web_search_enabled ?? false);
       setAsanaEnabled(existing.asana_enabled ?? false);
       setAsanaProjects(existing.asana_projects ?? []);
+      setGithubEnabled(existing.github_enabled ?? false);
+      setGithubRepos(existing.github_repositories ?? []);
       setWorkingStyle(existing.working_style ?? []);
       setCommunicationStyle(existing.communication_style ?? []);
       setVoiceSamples(existing.voice_samples ?? []);
@@ -144,11 +153,15 @@ export default function AgentEditorPage() {
       .catch(() => {});
   }, [isNew, params.id, existing?.name]);
 
-  // Check Asana connection status and load agent's Asana projects
+  // Check Asana and GitHub connection status
   useEffect(() => {
     fetch("/api/integrations/asana/status")
       .then((r) => (r.ok ? r.json() : { connected: false }))
       .then((d) => setAsanaConnected(d.connected))
+      .catch(() => {});
+    fetch("/api/integrations/github/status")
+      .then((r) => (r.ok ? r.json() : { connected: false }))
+      .then((d) => setGithubConnected(d.connected))
       .catch(() => {});
   }, []);
 
@@ -191,6 +204,45 @@ export default function AgentEditorPage() {
     }
   };
 
+  const loadAvailableGithubRepos = useCallback(() => {
+    if (availableGithubRepos.length > 0) return;
+    setLoadingGithubRepos(true);
+    fetch("/api/integrations/github/repos")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setAvailableGithubRepos)
+      .catch(() => {})
+      .finally(() => setLoadingGithubRepos(false));
+  }, [availableGithubRepos.length]);
+
+  const persistGithubRepos = useCallback((repos: Array<{ full_name: string; name: string }>) => {
+    if (isNew) return;
+    fetch("/api/agents", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: params.id, github_enabled: true, github_repositories: repos }),
+    }).catch(() => {});
+  }, [isNew, params.id]);
+
+  const addGithubRepo = (fullName: string, repoName: string) => {
+    const entry = { full_name: fullName, name: repoName };
+    const updated = [...githubRepos, entry];
+    setGithubRepos(updated);
+    persistGithubRepos(updated);
+    setGithubRepoPickerOpen(false);
+  };
+
+  const removeGithubRepo = (fullName: string) => {
+    const updated = githubRepos.filter((r) => r.full_name !== fullName);
+    setGithubRepos(updated);
+    if (!isNew) {
+      fetch("/api/agents", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: params.id, github_repositories: updated.length > 0 ? updated : null }),
+      }).catch(() => {});
+    }
+  };
+
   const save = async () => {
     if (!name.trim() || saving) return;
     setSaving(true);
@@ -208,6 +260,8 @@ export default function AgentEditorPage() {
           web_search_enabled: webSearchEnabled,
           asana_enabled: asanaEnabled,
           asana_projects: asanaProjects.length > 0 ? asanaProjects : null,
+          github_enabled: githubEnabled,
+          github_repositories: githubRepos.length > 0 ? githubRepos : null,
           working_style: workingStyle.length > 0 ? workingStyle : null,
           communication_style: communicationStyle.length > 0 ? communicationStyle : null,
           ...(!isNew && (voiceSamples.some((s) => s.trim()) || voiceProfile) ? {
@@ -1041,6 +1095,115 @@ export default function AgentEditorPage() {
                           className="flex items-center gap-1.5 py-1.5 px-3 border border-dashed border-[var(--color-border)] rounded-xl bg-transparent cursor-pointer text-[var(--color-accent)] text-[12px] font-medium hover:bg-[var(--color-hover)] transition-colors"
                         >
                           <PlusIcon /> Add project
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* GitHub */}
+                <div className="border border-[var(--color-border)] rounded-xl">
+                  <button
+                    onClick={() => {
+                      if (!githubConnected) return;
+                      const newVal = !githubEnabled;
+                      setGithubEnabled(newVal);
+                      if (!newVal) setGithubRepos([]);
+                      if (!isNew) {
+                        fetch("/api/agents", {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ id: params.id, github_enabled: newVal, ...(!newVal ? { github_repositories: null } : {}) }),
+                        }).catch(() => {});
+                      }
+                    }}
+                    className="w-full flex items-center gap-3 py-3 px-4 bg-transparent border-none cursor-pointer text-left"
+                    style={{ opacity: githubConnected ? 1 : 0.5 }}
+                  >
+                    <span className="text-lg">🐙</span>
+                    <span className="flex-1 text-[14px] text-[var(--color-text)]">
+                      GitHub
+                    </span>
+                    <span
+                      className="text-[14px] font-medium"
+                      style={{
+                        color: githubEnabled && githubConnected
+                          ? "var(--color-accent)"
+                          : "var(--color-text-tertiary)",
+                      }}
+                    >
+                      {!githubConnected ? "Not connected" : githubEnabled ? "On" : "Off"}
+                    </span>
+                  </button>
+
+                  {!githubConnected && (
+                    <div className="px-4 pb-3 text-[12px] text-[var(--color-text-tertiary)]">
+                      <a href="/settings?tab=integrations" className="text-[var(--color-accent)] no-underline hover:underline">
+                        Connect GitHub in Settings → Integrations
+                      </a>
+                    </div>
+                  )}
+
+                  {githubConnected && githubEnabled && (
+                    <div className="px-4 pb-3 border-t border-[var(--color-border)] pt-3">
+                      <div className="text-[12px] font-semibold text-[var(--color-text-tertiary)] mb-2">
+                        Assigned repositories
+                      </div>
+
+                      {githubRepos.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mb-2">
+                          {githubRepos.map((r) => (
+                            <span
+                              key={r.full_name}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-[var(--color-accent-soft)] border border-[var(--color-accent)] text-[12px] text-[var(--color-text)]"
+                            >
+                              {r.full_name}
+                              <button
+                                onClick={() => removeGithubRepo(r.full_name)}
+                                className="bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] cursor-pointer p-0 flex"
+                              >
+                                <XIcon />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {githubRepoPickerOpen ? (
+                        <div className="border border-[var(--color-border)] rounded-xl bg-[var(--color-surface)] max-h-[200px] overflow-y-auto">
+                          {loadingGithubRepos ? (
+                            <div className="p-3 text-[13px] text-[var(--color-text-tertiary)]">Loading repositories...</div>
+                          ) : availableGithubRepos.length === 0 ? (
+                            <div className="p-3 text-[13px] text-[var(--color-text-tertiary)]">No repositories found</div>
+                          ) : (
+                            availableGithubRepos
+                              .filter((r) => !githubRepos.some((gr) => gr.full_name === r.full_name))
+                              .map((r) => (
+                                <button
+                                  key={r.full_name}
+                                  onClick={() => addGithubRepo(r.full_name, r.name)}
+                                  className="w-full text-left px-3 py-2 bg-transparent border-none text-[13px] text-[var(--color-text)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
+                                >
+                                  {r.full_name} {r.private ? "🔒" : ""}
+                                </button>
+                              ))
+                          )}
+                          <button
+                            onClick={() => setGithubRepoPickerOpen(false)}
+                            className="w-full px-3 py-2 bg-transparent border-t border-[var(--color-border)] text-[12px] text-[var(--color-text-tertiary)] cursor-pointer hover:bg-[var(--color-hover)]"
+                          >
+                            Close
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setGithubRepoPickerOpen(true);
+                            loadAvailableGithubRepos();
+                          }}
+                          className="flex items-center gap-1.5 py-1.5 px-3 border border-dashed border-[var(--color-border)] rounded-xl bg-transparent cursor-pointer text-[var(--color-accent)] text-[12px] font-medium hover:bg-[var(--color-hover)] transition-colors"
+                        >
+                          <PlusIcon /> Add repository
                         </button>
                       )}
                     </div>

@@ -72,6 +72,7 @@ export function buildSystemPrompt(
     purpose: string;
     web_search_enabled?: boolean;
     asana_enabled?: boolean;
+    github_enabled?: boolean;
     working_style?: string[] | null;
     communication_style?: string[] | null;
     voice_profile?: string | null;
@@ -92,6 +93,7 @@ export function buildSystemPrompt(
     reportTemplates?: Array<{ id: string; name: string; description: string; structure?: Array<{ heading: string; description: string }> }>;
     recentReports?: Array<{ id: string; title: string; generated_title?: string; content: string; agent_name?: string; updated_at: string; is_mine?: boolean }>;
     asanaProjects?: Array<{ gid: string; name: string }>;
+    githubRepos?: Array<{ full_name: string; name: string }>;
   }
 ): string {
   let prompt: string;
@@ -172,6 +174,47 @@ Updates a task. Include only the fields you want to change.
 Adds a comment to a task.
 
 Write your visible reply naturally, then include the block at the end. The system will execute the operation and provide results in a follow-up. Only access projects listed above — if asked about other projects, say you don't have access.`;
+  }
+
+  if (options?.githubRepos && options.githubRepos.length > 0) {
+    const repoList = options.githubRepos.map((r) => `- ${r.full_name}`).join("\n");
+    prompt += `\n\nGITHUB INTEGRATION:
+You have access to GitHub for issue management. You are connected to these repositories:
+${repoList}
+
+To perform GitHub operations, include one of these blocks at the END of your response (only one per response):
+
+\`\`\`github_list_issues
+{"owner": "...", "repo": "...", "state": "open", "labels": "bug,feature"}
+\`\`\`
+Lists issues. state can be "open", "closed", or "all". labels is optional comma-separated filter.
+
+\`\`\`github_get_issue
+{"owner": "...", "repo": "...", "issue_number": 1}
+\`\`\`
+Gets full issue details including body and comments.
+
+\`\`\`github_create_issue
+{"owner": "...", "repo": "...", "title": "Issue title", "body": "Description", "labels": ["bug"]}
+\`\`\`
+Creates a new issue. Only owner, repo, and title are required.
+
+\`\`\`github_update_issue
+{"owner": "...", "repo": "...", "issue_number": 1, "state": "closed", "title": "New title", "body": "Updated body", "labels": ["bug"]}
+\`\`\`
+Updates an issue. Include only the fields you want to change.
+
+\`\`\`github_add_comment
+{"owner": "...", "repo": "...", "issue_number": 1, "body": "Comment text"}
+\`\`\`
+Adds a comment to an issue.
+
+\`\`\`github_list_labels
+{"owner": "...", "repo": "..."}
+\`\`\`
+Lists available labels for a repository.
+
+Write your visible reply naturally, then include the block at the end. The system will execute the operation and provide results in a follow-up. Only access repositories listed above — if asked about other repos, say you don't have access.`;
   }
 
   if (options?.enableScheduleDetection) {
@@ -397,6 +440,7 @@ export function cleanResponse(text: string, streaming = false): string {
   cleaned = cleaned.replace(/```read_report(?!_)\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```update_report(?!_)\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```asana_\w+\s*\n?[\s\S]*?\n?```/g, "");
+  cleaned = cleaned.replace(/```github_\w+\s*\n?[\s\S]*?\n?```/g, "");
 
   if (streaming) {
     // Remove incomplete opening tags whose closing tag hasn't arrived yet.
@@ -413,6 +457,7 @@ export function cleanResponse(text: string, streaming = false): string {
     cleaned = cleaned.replace(/```read_report(?!_)[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```update_report(?!_)[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```asana_\w+[\s\S]*$/g, "");
+    cleaned = cleaned.replace(/```github_\w+[\s\S]*$/g, "");
   }
 
   // Strip leading [AgentName] or [You] bracket prefix that agents sometimes generate
