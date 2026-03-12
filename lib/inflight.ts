@@ -62,6 +62,7 @@ type Listener = (state: InflightState) => void;
 interface InflightEntry {
   state: InflightState;
   listeners: Set<Listener>;
+  abortController: AbortController | null;
 }
 
 const inflights = new Map<string, InflightEntry>();
@@ -75,7 +76,7 @@ const EMPTY_STATE: () => InflightState = () => ({
 function getOrCreate(chatId: string): InflightEntry {
   let entry = inflights.get(chatId);
   if (!entry) {
-    entry = { state: EMPTY_STATE(), listeners: new Set() };
+    entry = { state: EMPTY_STATE(), listeners: new Set(), abortController: null };
     inflights.set(chatId, entry);
   }
   return entry;
@@ -147,6 +148,15 @@ export function clearGroupMessageRequest(chatId: string) {
   }
 }
 
+export function stopStream(chatId: string) {
+  const entry = inflights.get(chatId);
+  if (!entry) return;
+  if (entry.abortController) {
+    entry.abortController.abort();
+    entry.abortController = null;
+  }
+}
+
 // ─── Send DM (agent chat) ───
 
 export function sendDM(
@@ -157,6 +167,10 @@ export function sendDM(
   file?: File
 ) {
   const entry = getOrCreate(chatId);
+  // Abort any previous stream and create a fresh controller
+  if (entry.abortController) entry.abortController.abort();
+  const controller = new AbortController();
+  entry.abortController = controller;
   entry.state = { ...EMPTY_STATE(), streaming: true, streamText: "", conversationId };
 
   // Add user message to cache BEFORE notifying so subscribers see it
@@ -170,7 +184,7 @@ export function sendDM(
   notify(chatId);
 
   // Fire and forget — runs in background
-  _streamDM(chatId, agentId, message, conversationId, file).catch(() => {});
+  _streamDM(chatId, agentId, message, conversationId, controller.signal, file).catch(() => {});
 }
 
 async function _streamDM(
@@ -178,9 +192,11 @@ async function _streamDM(
   agentId: string,
   message: string,
   conversationId: string | null,
+  signal: AbortSignal,
   file?: File
 ) {
   const entry = getOrCreate(chatId);
+  let fullText = "";
 
   try {
     let res: Response;
@@ -193,6 +209,7 @@ async function _streamDM(
       res = await fetch("/api/chat", {
         method: "POST",
         body: formData,
+        signal,
       });
     } else {
       res = await fetch("/api/chat", {
@@ -203,6 +220,7 @@ async function _streamDM(
           message,
           conversation_id: conversationId,
         }),
+        signal,
       });
     }
 
@@ -215,7 +233,6 @@ async function _streamDM(
     if (!reader) throw new Error("No response stream");
 
     const decoder = new TextDecoder();
-    let fullText = "";
     let buffer = "";
 
     while (true) {
@@ -317,6 +334,20 @@ async function _streamDM(
       updateMessages(chatId, (prev) => [...prev, assistantMsg]);
     }
   } catch (err) {
+    // If aborted by user, save partial response instead of error
+    if (signal.aborted) {
+      const cleaned = cleanResponse(fullText);
+      if (cleaned) {
+        const partialMsg: ChatMessage = {
+          role: "assistant",
+          content: cleaned,
+          created_at: new Date().toISOString(),
+          stopped: true,
+        };
+        updateMessages(chatId, (prev) => [...prev, partialMsg]);
+      }
+      return;
+    }
     const errorMsg =
       err instanceof Error ? err.message : "Something went wrong";
     const errMsg: ChatMessage = {
@@ -328,6 +359,7 @@ async function _streamDM(
   } finally {
     entry.state.streaming = false;
     entry.state.streamText = "";
+    entry.abortController = null;
     notify(chatId);
   }
 }

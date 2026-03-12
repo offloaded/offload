@@ -6,6 +6,7 @@ export interface ChatMessage {
   sender_id?: string | null;
   sender_name?: string | null;
   file_name?: string | null;
+  stopped?: boolean;
 }
 
 interface CachedChat {

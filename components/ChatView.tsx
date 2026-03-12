@@ -13,6 +13,7 @@ import {
 } from "@/lib/chat-cache";
 import {
   sendDM,
+  stopStream,
   subscribe,
   resetInflight,
   clearScheduleRequest,
@@ -267,17 +268,27 @@ const MessageList = memo(function MessageList({
           );
         }
         return (
-          <MessageRow
-            key={m.id || i}
-            isUser={m.role === "user"}
-            agent={m.role === "assistant" ? agent : undefined}
-            text={m.content}
-            time={formatTime(m.created_at)}
-            messageId={m.id}
-            conversationId={conversationId}
-            fileName={m.file_name}
-            onSaveReport={m.role === "assistant" ? onSaveReport : undefined}
-          />
+          <div key={m.id || i}>
+            <MessageRow
+              isUser={m.role === "user"}
+              agent={m.role === "assistant" ? agent : undefined}
+              text={m.content}
+              time={formatTime(m.created_at)}
+              messageId={m.id}
+              conversationId={conversationId}
+              fileName={m.file_name}
+              onSaveReport={m.role === "assistant" ? onSaveReport : undefined}
+            />
+            {m.stopped && (
+              <div className="px-5 md:px-8 -mt-1 mb-1">
+                <div className="max-w-[760px] pl-[46px]">
+                  <span className="text-[11px] text-[var(--color-text-tertiary)] flex items-center gap-1">
+                    &#9632; Stopped
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
         );
       })}
 
@@ -305,11 +316,13 @@ function ChatInput({
   channels,
   streaming,
   onSend,
+  onStop,
 }: {
   agentName: string;
   channels: ChannelOption[];
   streaming: boolean;
   onSend: (text: string, file?: File) => void;
+  onStop: () => void;
 }) {
   const [input, setInput] = useState("");
   const [channelOpen, setChannelOpen] = useState(false);
@@ -476,20 +489,35 @@ function ChatInput({
             className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[14.5px] outline-none py-1.5 resize-none leading-relaxed placeholder:text-[var(--color-text-tertiary)]"
             style={{ maxHeight: 120 }}
           />
-          <button
-            onClick={send}
-            disabled={!canSend}
-            className="h-9 rounded-xl border-none shrink-0 flex items-center justify-center transition-all duration-150 mb-0.5 gap-1.5 font-semibold text-[13px]"
-            style={{
-              background: canSend ? "var(--color-accent)" : "transparent",
-              color: canSend ? "#fff" : "var(--color-text-tertiary)",
-              cursor: canSend ? "pointer" : "default",
-              padding: canSend ? "0 14px" : "0 8px",
-            }}
-          >
-            <SendIcon />
-            {canSend && <span>Send</span>}
-          </button>
+          {streaming ? (
+            <button
+              onClick={onStop}
+              className="h-9 rounded-xl border-none shrink-0 flex items-center justify-center transition-all duration-150 mb-0.5 gap-1.5 font-semibold text-[13px] cursor-pointer"
+              style={{
+                background: "var(--color-red, #ef4444)",
+                color: "#fff",
+                padding: "0 14px",
+              }}
+            >
+              <span className="inline-block w-3 h-3 rounded-sm" style={{ background: "#fff" }} />
+              <span>Stop</span>
+            </button>
+          ) : (
+            <button
+              onClick={send}
+              disabled={!canSend}
+              className="h-9 rounded-xl border-none shrink-0 flex items-center justify-center transition-all duration-150 mb-0.5 gap-1.5 font-semibold text-[13px]"
+              style={{
+                background: canSend ? "var(--color-accent)" : "transparent",
+                color: canSend ? "#fff" : "var(--color-text-tertiary)",
+                cursor: canSend ? "pointer" : "default",
+                padding: canSend ? "0 14px" : "0 8px",
+              }}
+            >
+              <SendIcon />
+              {canSend && <span>Send</span>}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -1080,6 +1108,7 @@ export function ChatView({
         channels={channels}
         streaming={streaming}
         onSend={handleSend}
+        onStop={() => stopStream(chatId)}
       />
     </div>
   );
