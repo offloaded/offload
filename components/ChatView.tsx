@@ -492,7 +492,7 @@ export function ChatView({
   openDrawer: () => void;
   initialConversationId?: string | null;
 }) {
-  const { refreshAgents, refreshActiveDms, markRead, setActiveChatKey, unreadCounts, teams, refreshReportCount, openReport, openReportId, reportEditCallback, setReportLiveUpdate } = useApp();
+  const { refreshAgents, refreshActiveDms, ensureActiveDm, markRead, setActiveChatKey, unreadCounts, teams, refreshReportCount, openReport, openReportId, reportEditCallback, setReportLiveUpdate } = useApp();
   const channels = buildChannelOptions(teams);
   const chatId = initialConversationId
     ? `conv:${initialConversationId}`
@@ -660,8 +660,9 @@ export function ChatView({
   }, [loadingMore, conversationId, messages, chatId]);
 
   const handleSend = useCallback((text: string, file?: File) => {
+    ensureActiveDm(agent.id);
     sendDM(chatId, agent.id, text, conversationIdRef.current, file);
-  }, [chatId, agent.id]);
+  }, [chatId, agent.id, ensureActiveDm]);
 
   const confirmSchedule = useCallback(async () => {
     if (!scheduleRequest || confirmingSchedule) return;

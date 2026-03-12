@@ -639,17 +639,10 @@ export function SidebarContent({
                         {unread > 0 && <UnreadBadge count={unread} color={a.color} />}
                       </NavItem>
                       <button
-                        onClick={async (e) => {
+                        onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          try {
-                            await fetch("/api/conversations/hide", {
-                              method: "PATCH",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ agent_id: a.id }),
-                            });
-                            onHideDm?.(a.id);
-                          } catch { /* ignore */ }
+                          onHideDm?.(a.id);
                         }}
                         className="absolute right-1 opacity-0 group-hover/dm:opacity-100 transition-opacity p-0.5 rounded hover:bg-[var(--color-hover)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
                         title="Hide from sidebar"

@@ -19,6 +19,7 @@ interface AppContextValue {
   refreshTeams: () => Promise<void>;
   activeDmAgentIds: string[] | null;
   refreshActiveDms: () => void;
+  ensureActiveDm: (agentId: string) => void;
   activeTaskCount: number;
   refreshTaskCount: () => void;
   mobile: boolean;
@@ -56,6 +57,7 @@ const AppContext = createContext<AppContextValue>({
   refreshTeams: async () => {},
   activeDmAgentIds: null,
   refreshActiveDms: () => {},
+  ensureActiveDm: () => {},
   activeTaskCount: 0,
   refreshTaskCount: () => {},
   mobile: false,
@@ -160,6 +162,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [reportPanelWidth, setReportPanelWidth] = useState(50); // percentage
   const [reportLiveUpdate, setReportLiveUpdate] = useState<{ report_id: string; title: string; content: string } | null>(null);
   const [activeDmAgentIds, setActiveDmAgentIds] = useState<string[] | null>(null);
+  const [sidebarError, setSidebarError] = useState<string | null>(null);
   const reportEditCallback = useRef<((reportId: string, reportTitle: string, original: string, edited: string) => void) | null>(null);
   const mobile = useIsMobile();
   const router = useRouter();
@@ -254,6 +257,33 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         setActiveDmAgentIds(data.map((d) => d.agent_id));
       })
       .catch(() => {});
+  }, []);
+
+  const hideDm = useCallback((agentId: string) => {
+    // Optimistic: remove immediately
+    setActiveDmAgentIds((prev) => (prev ? prev.filter((id) => id !== agentId) : prev));
+
+    // Fire API call in background
+    fetch("/api/conversations/hide", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent_id: agentId }),
+    }).then((r) => {
+      if (!r.ok) throw new Error();
+    }).catch(() => {
+      // Rollback: re-add agent
+      setActiveDmAgentIds((prev) => (prev && !prev.includes(agentId) ? [...prev, agentId] : prev));
+      setSidebarError("Failed to hide conversation");
+      setTimeout(() => setSidebarError(null), 3000);
+    });
+  }, []);
+
+  const ensureActiveDm = useCallback((agentId: string) => {
+    setActiveDmAgentIds((prev) => {
+      if (!prev) return [agentId];
+      if (prev.includes(agentId)) return prev;
+      return [agentId, ...prev];
+    });
   }, []);
 
   const refreshWorkspace = useCallback(async () => {
@@ -362,11 +392,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AppContext value={{ agents, refreshAgents, teams, refreshTeams, activeDmAgentIds, refreshActiveDms, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, switchWorkspace, refreshWorkspace, reportCount, refreshReportCount, openReportId, openReport, closeReport, reportEditCallback, reportLiveUpdate, setReportLiveUpdate }}>
+    <AppContext value={{ agents, refreshAgents, teams, refreshTeams, activeDmAgentIds, refreshActiveDms, ensureActiveDm, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, switchWorkspace, refreshWorkspace, reportCount, refreshReportCount, openReportId, openReport, closeReport, reportEditCallback, reportLiveUpdate, setReportLiveUpdate }}>
       <div className="flex h-screen w-full bg-[var(--color-page-bg)] overflow-hidden">
         {/* Desktop sidebar */}
         <div className="hidden md:flex w-[260px] min-w-[260px] bg-[var(--color-sidebar-bg)] border-r border-[var(--color-border)] flex-col">
-          <SidebarContent agents={agents} teams={teams} activeDmAgentIds={activeDmAgentIds} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} isAdmin={isAdmin} workspace={workspace} workspaces={workspaces} workspaceRole={workspaceRole} onSwitchWorkspace={switchWorkspace} reportCount={reportCount} onHideDm={refreshActiveDms} />
+          <SidebarContent agents={agents} teams={teams} activeDmAgentIds={activeDmAgentIds} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} isAdmin={isAdmin} workspace={workspace} workspaces={workspaces} workspaceRole={workspaceRole} onSwitchWorkspace={switchWorkspace} reportCount={reportCount} onHideDm={hideDm} />
         </div>
 
         {/* Mobile drawer — always mounted, visibility controlled by open state */}
@@ -385,7 +415,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           workspaceRole={workspaceRole}
           onSwitchWorkspace={switchWorkspace}
           reportCount={reportCount}
-          onHideDm={refreshActiveDms}
+          onHideDm={hideDm}
         />
 
         <div className="flex-1 flex flex-row overflow-hidden">
@@ -415,6 +445,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           )}
         </div>
       </div>
+      {sidebarError && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[999] bg-red-600 text-white text-sm px-4 py-2 rounded-lg shadow-lg animate-fade-in">
+          {sidebarError}
+        </div>
+      )}
     </AppContext>
   );
 }
