@@ -69,7 +69,7 @@ function buildCron(
   }
 }
 
-function formatRelativeTime(dateStr: string): string {
+function formatRelativeTime(dateStr: string, tz?: string): string {
   const d = new Date(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
@@ -86,10 +86,11 @@ function formatRelativeTime(dateStr: string): string {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    ...(tz ? { timeZone: tz } : {}),
   });
 }
 
-function formatFutureTime(dateStr: string): string {
+function formatFutureTime(dateStr: string, tz?: string): string {
   const d = new Date(dateStr);
   const now = new Date();
   const diffMs = d.getTime() - now.getTime();
@@ -106,7 +107,54 @@ function formatFutureTime(dateStr: string): string {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    ...(tz ? { timeZone: tz } : {}),
   });
+}
+
+/**
+ * Describe a task's schedule in the user's timezone by formatting
+ * the next_run_at time (stored as UTC) in the target timezone,
+ * combined with frequency info from the cron expression.
+ */
+function describeScheduleInTz(cron: string, nextRunAt: string | null, userTz: string): string {
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5) return cron;
+  const [, , dom, , dow] = parts;
+
+  // Get the time from next_run_at formatted in user's timezone
+  let timeStr = "";
+  if (nextRunAt) {
+    const d = new Date(nextRunAt);
+    timeStr = d.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: userTz,
+    });
+  } else {
+    // Fallback: use cron hour/minute directly
+    try {
+      return describeCron(cron);
+    } catch {
+      return cron;
+    }
+  }
+
+  // Build frequency part
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  let freq = "";
+  if (dow === "1-5") {
+    freq = " weekdays";
+  } else if (dow === "0,6") {
+    freq = " weekends";
+  } else if (dow !== "*") {
+    const days = dow.split(",").map(d => dayNames[parseInt(d, 10)] || d);
+    freq = ` on ${days.join(", ")}`;
+  }
+  if (dom !== "*") {
+    freq += ` on day ${dom}`;
+  }
+
+  return (timeStr + freq).trim();
 }
 
 // ─── Page component ───
@@ -116,6 +164,19 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [userTimezone, setUserTimezone] = useState<string>(
+    Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+  );
+
+  // Fetch user's profile timezone
+  useEffect(() => {
+    fetch("/api/profile")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.timezone) setUserTimezone(data.timezone);
+      })
+      .catch(() => {});
+  }, []);
 
   const loadTasks = useCallback(async () => {
     try {
@@ -161,6 +222,16 @@ export default function TasksPage() {
   const deleteTask = async (taskId: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
     await fetch(`/api/scheduled-tasks?id=${taskId}`, { method: "DELETE" });
+    loadTasks();
+    refreshTaskCount();
+  };
+
+  const updateTask = async (taskId: string, updates: Record<string, unknown>) => {
+    await fetch("/api/scheduled-tasks", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: taskId, ...updates }),
+    });
     loadTasks();
     refreshTaskCount();
   };
@@ -239,8 +310,10 @@ export default function TasksPage() {
                   key={task.id}
                   task={task}
                   agent={agent}
+                  userTimezone={userTimezone}
                   onToggle={(enabled) => toggleTask(task.id, enabled)}
                   onDelete={() => deleteTask(task.id)}
+                  onUpdate={(updates) => updateTask(task.id, updates)}
                 />
               );
             })}
@@ -253,23 +326,114 @@ export default function TasksPage() {
 
 // ─── Task card ───
 
+function parseCronToEditState(cron: string): { frequency: Frequency; hour: number; minute: number; dayOfWeek: number; dayOfMonth: number } {
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5) return { frequency: "daily", hour: 9, minute: 0, dayOfWeek: 1, dayOfMonth: 1 };
+  const [min, hr, dom, , dow] = parts;
+  const hour = parseInt(hr, 10) || 9;
+  const minute = parseInt(min, 10) || 0;
+
+  let frequency: Frequency = "daily";
+  let dayOfWeek = 1;
+  let dayOfMonth = 1;
+
+  if (dow === "1-5") {
+    frequency = "weekdays";
+  } else if (dow !== "*") {
+    frequency = "weekly";
+    dayOfWeek = parseInt(dow, 10) || 1;
+  } else if (dom !== "*") {
+    frequency = "monthly";
+    dayOfMonth = parseInt(dom, 10) || 1;
+  }
+
+  return { frequency, hour, minute, dayOfWeek, dayOfMonth };
+}
+
 function TaskCard({
   task,
   agent,
+  userTimezone,
   onToggle,
   onDelete,
+  onUpdate,
 }: {
   task: ScheduledTask;
   agent?: { name: string; color: string };
+  userTimezone: string;
   onToggle: (enabled: boolean) => void;
   onDelete: () => void;
+  onUpdate: (updates: Record<string, unknown>) => Promise<void>;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Parse cron into edit state — but we need to convert to user's timezone
+  // The cron is stored in task.timezone. We convert via next_run_at (UTC).
+  const initEditState = useCallback(() => {
+    if (task.next_run_at) {
+      // Get hour/minute in user's timezone from the UTC next_run_at
+      const d = new Date(task.next_run_at);
+      const fmt = new Intl.DateTimeFormat("en-US", {
+        timeZone: userTimezone,
+        hour: "numeric",
+        minute: "numeric",
+        weekday: "short",
+        hour12: false,
+      });
+      const p = Object.fromEntries(fmt.formatToParts(d).map(part => [part.type, part.value]));
+      const hour = parseInt(p.hour) === 24 ? 0 : parseInt(p.hour);
+      const minute = parseInt(p.minute);
+
+      const base = parseCronToEditState(task.cron);
+      return { ...base, hour, minute };
+    }
+    return parseCronToEditState(task.cron);
+  }, [task.cron, task.next_run_at, userTimezone]);
+
+  const [editFreq, setEditFreq] = useState<Frequency>("daily");
+  const [editHour, setEditHour] = useState(9);
+  const [editMinute, setEditMinute] = useState(0);
+  const [editDow, setEditDow] = useState(1);
+  const [editDom, setEditDom] = useState(1);
+
+  const startEditing = () => {
+    const state = initEditState();
+    setEditFreq(state.frequency);
+    setEditHour(state.hour);
+    setEditMinute(state.minute);
+    setEditDow(state.dayOfWeek);
+    setEditDom(state.dayOfMonth);
+    setEditing(true);
+  };
+
+  const saveEdit = async () => {
+    setSaving(true);
+    // Build cron in user's timezone
+    const newCron = buildCron(editFreq, editHour, editMinute, editDow, editDom);
+    await onUpdate({ cron: newCron, timezone: userTimezone });
+    setSaving(false);
+    setEditing(false);
+  };
+
+  // Display schedule in user's timezone
   let scheduleDesc: string;
-  try {
-    scheduleDesc = describeCron(task.cron);
-  } catch {
-    scheduleDesc = task.cron;
+  if (task.recurring === false) {
+    scheduleDesc = "One-off";
+  } else {
+    try {
+      scheduleDesc = describeScheduleInTz(task.cron, task.next_run_at, userTimezone);
+    } catch {
+      try {
+        scheduleDesc = describeCron(task.cron);
+      } catch {
+        scheduleDesc = task.cron;
+      }
+    }
   }
+
+  const editAmPm = editHour >= 12 ? "PM" : "AM";
+  const editHour12 = editHour === 0 ? 12 : editHour > 12 ? editHour - 12 : editHour;
 
   return (
     <div
@@ -326,28 +490,148 @@ function TaskCard({
       </div>
 
       {/* Schedule + times */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-[var(--color-text-tertiary)]">
-        <span className="flex items-center gap-1">
-          <CalendarIcon />
-          {task.recurring === false ? "One-off" : scheduleDesc}
-        </span>
-        <span>&middot;</span>
-        <span>{task.timezone}</span>
-        <span>&middot;</span>
-        <span>{task.destination === "group" ? "# All" : task.destination?.startsWith("team:") ? "Team channel" : "DM"}</span>
-        {task.last_run_at && (
-          <>
-            <span>&middot;</span>
-            <span>Ran {formatRelativeTime(task.last_run_at)}</span>
-          </>
-        )}
-        {task.next_run_at && task.enabled && (
-          <>
-            <span>&middot;</span>
-            <span>Next {formatFutureTime(task.next_run_at)}</span>
-          </>
-        )}
-      </div>
+      {!editing ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-[var(--color-text-tertiary)]">
+          <button
+            onClick={task.recurring !== false ? startEditing : undefined}
+            className="flex items-center gap-1 bg-transparent border-none p-0 text-[12px] text-[var(--color-text-tertiary)] cursor-pointer hover:text-[var(--color-accent)] transition-colors"
+            title={task.recurring !== false ? "Click to edit schedule" : undefined}
+            style={task.recurring === false ? { cursor: "default" } : {}}
+          >
+            <CalendarIcon />
+            {scheduleDesc}
+          </button>
+          <span>&middot;</span>
+          <span>{userTimezone.replace(/_/g, " ")}</span>
+          <span>&middot;</span>
+          <span>{task.destination === "group" ? "# All" : task.destination?.startsWith("team:") ? "Team channel" : "DM"}</span>
+          {task.last_run_at && (
+            <>
+              <span>&middot;</span>
+              <span>Ran {formatRelativeTime(task.last_run_at, userTimezone)}</span>
+            </>
+          )}
+          {task.next_run_at && task.enabled && (
+            <>
+              <span>&middot;</span>
+              <span>Next {formatFutureTime(task.next_run_at, userTimezone)}</span>
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="mt-1 border-t border-[var(--color-border)] pt-3">
+          {/* Frequency pills */}
+          <div className="flex gap-1.5 mb-3 flex-wrap">
+            {(
+              [
+                ["daily", "Daily"],
+                ["weekdays", "Weekdays"],
+                ["weekly", "Weekly"],
+                ["monthly", "Monthly"],
+              ] as [Frequency, string][]
+            ).map(([f, label]) => (
+              <button
+                key={f}
+                onClick={() => setEditFreq(f)}
+                className="py-1 px-2.5 rounded-lg border text-[12px] font-medium cursor-pointer transition-colors"
+                style={{
+                  borderColor: editFreq === f ? "var(--color-accent)" : "var(--color-border)",
+                  background: editFreq === f ? "var(--color-accent-soft)" : "transparent",
+                  color: editFreq === f ? "var(--color-accent)" : "var(--color-text-secondary)",
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Time picker row */}
+          <div className="flex items-center gap-2 flex-wrap mb-3">
+            <span className="text-[12px] text-[var(--color-text-secondary)]">at</span>
+            <select
+              value={editHour12}
+              onChange={(e) => {
+                const h12 = parseInt(e.target.value, 10);
+                setEditHour(editAmPm === "AM" ? (h12 === 12 ? 0 : h12) : (h12 === 12 ? 12 : h12 + 12));
+              }}
+              className="py-1.5 pl-2 pr-5 border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer"
+            >
+              {Array.from({ length: 12 }, (_, i) => i === 0 ? 12 : i).map((h) => (
+                <option key={h} value={h}>{h}</option>
+              ))}
+            </select>
+            <span className="text-[13px] text-[var(--color-text-secondary)]">:</span>
+            <select
+              value={editMinute}
+              onChange={(e) => setEditMinute(parseInt(e.target.value, 10))}
+              className="py-1.5 pl-2 pr-5 border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer"
+            >
+              {[0, 15, 30, 45].map((m) => (
+                <option key={m} value={m}>{m.toString().padStart(2, "0")}</option>
+              ))}
+            </select>
+            <select
+              value={editAmPm}
+              onChange={(e) => {
+                const newAmPm = e.target.value;
+                if (newAmPm === "AM" && editHour >= 12) setEditHour(editHour - 12);
+                if (newAmPm === "PM" && editHour < 12) setEditHour(editHour + 12);
+              }}
+              className="py-1.5 pl-2 pr-5 border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer"
+            >
+              <option value="AM">AM</option>
+              <option value="PM">PM</option>
+            </select>
+
+            {editFreq === "weekly" && (
+              <>
+                <span className="text-[12px] text-[var(--color-text-secondary)]">on</span>
+                <select
+                  value={editDow}
+                  onChange={(e) => setEditDow(parseInt(e.target.value, 10))}
+                  className="py-1.5 pl-2 pr-5 border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer"
+                >
+                  {DAYS_OF_WEEK.map((d) => (
+                    <option key={d.value} value={d.value}>{d.label}</option>
+                  ))}
+                </select>
+              </>
+            )}
+
+            {editFreq === "monthly" && (
+              <>
+                <span className="text-[12px] text-[var(--color-text-secondary)]">on day</span>
+                <select
+                  value={editDom}
+                  onChange={(e) => setEditDom(parseInt(e.target.value, 10))}
+                  className="py-1.5 pl-2 pr-5 border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer"
+                >
+                  {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </>
+            )}
+          </div>
+
+          {/* Save / Cancel */}
+          <div className="flex gap-2">
+            <button
+              onClick={saveEdit}
+              disabled={saving}
+              className="py-1.5 px-3 bg-[var(--color-accent)] text-white border-none rounded-lg text-[12px] font-semibold cursor-pointer disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "Save"}
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              className="py-1.5 px-3 bg-transparent border border-[var(--color-border)] rounded-lg text-[12px] text-[var(--color-text-secondary)] cursor-pointer"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
