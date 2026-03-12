@@ -627,6 +627,9 @@ export async function POST(request: Request) {
         const readReportMatch = fullResponse.match(
           /```read_report\s*\n?([\s\S]*?)\n?```/
         );
+        const readTemplateMatch = fullResponse.match(
+          /```read_report_template\s*\n?([\s\S]*?)\n?```/
+        );
         const updateReportMatch = fullResponse.match(
           /```update_report\s*\n?([\s\S]*?)\n?```/
         );
@@ -786,6 +789,131 @@ export async function POST(request: Request) {
             }
           } catch (e) {
             console.error("[Chat] Failed to handle read_report:", e);
+          }
+        }
+
+        // Handle read_report_template — fetch template structure and re-call Claude
+        if (readTemplateMatch) {
+          try {
+            const templateReq = JSON.parse(readTemplateMatch[1].trim());
+            let templateData = null;
+            if (templateReq.id) {
+              const { data } = await serviceDb
+                .from("report_templates")
+                .select("id, name, description, structure")
+                .eq("id", templateReq.id)
+                .eq("workspace_id", ctx.workspaceId)
+                .single();
+              templateData = data;
+            } else if (templateReq.name) {
+              const { data } = await serviceDb
+                .from("report_templates")
+                .select("id, name, description, structure")
+                .eq("workspace_id", ctx.workspaceId)
+                .ilike("name", `%${templateReq.name}%`)
+                .limit(1)
+                .single();
+              templateData = data;
+            }
+
+            if (templateData) {
+              const sections = (templateData.structure as Array<{ heading: string; description: string }>) || [];
+              let templateContext = `[System: Here is the requested report template]\nTemplate: ${templateData.name}\nID: ${templateData.id}`;
+              if (templateData.description) templateContext += `\nDescription: ${templateData.description}`;
+              templateContext += `\n\nSections:\n`;
+              for (const s of sections) {
+                templateContext += `\n## ${s.heading}`;
+                if (s.description) templateContext += `\n${s.description}`;
+                templateContext += `\n`;
+              }
+              templateContext += `\nUse these headings and descriptions to structure the report. Include each section heading and follow the descriptions for what content to write in each section.`;
+
+              const followUpMessages = [
+                ...messages,
+                { role: "assistant" as const, content: cleaned || "" },
+                { role: "user" as const, content: templateContext },
+              ];
+
+              const followUpStream = anthropic.messages.stream({
+                model: "claude-sonnet-4-5-20250929",
+                max_tokens: 4096,
+                system: systemPrompt,
+                messages: followUpMessages,
+              });
+
+              let followUpText = "";
+              for await (const event of followUpStream) {
+                if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+                  followUpText += event.delta.text;
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify({ type: "text", text: event.delta.text })}\n\n`)
+                  );
+                }
+              }
+
+              const followUpCleaned = cleanResponse(followUpText);
+              if (followUpCleaned) {
+                await supabase.from("messages").insert({
+                  conversation_id: convId,
+                  role: "assistant",
+                  content: followUpCleaned,
+                });
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ type: "replace", text: (cleaned ? cleaned + "\n\n" : "") + followUpCleaned })}\n\n`)
+                );
+              }
+
+              // Check if the follow-up contains a save_report block (agent wrote the report using the template)
+              const followUpSaveMatch = followUpText.match(/```save_report\s*\n?([\s\S]*?)\n?```/);
+              if (followUpSaveMatch) {
+                // Re-use the existing save_report handler logic
+                const raw = followUpSaveMatch[1].trim();
+                let reportTitle = "Untitled Report";
+                let reportContent = raw;
+                const yamlSep = raw.indexOf("\n---\n");
+                if (yamlSep !== -1) {
+                  const header = raw.slice(0, yamlSep);
+                  reportContent = raw.slice(yamlSep + 5).trim();
+                  const titleLine = header.match(/^title:\s*(.+)/m);
+                  if (titleLine) reportTitle = titleLine[1].trim();
+                }
+                const { data: savedReport } = await serviceDb
+                  .from("reports")
+                  .insert({
+                    title: reportTitle,
+                    content: reportContent,
+                    agent_id: agent.id,
+                    workspace_id: ctx.workspaceId,
+                    user_id: user.id,
+                  })
+                  .select("id")
+                  .single();
+                if (savedReport) {
+                  // Fetch templates for picker
+                  const { data: templates } = await serviceDb
+                    .from("report_templates")
+                    .select("id, name, description")
+                    .eq("workspace_id", ctx.workspaceId);
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({
+                        type: "report_saved",
+                        title: reportTitle,
+                        report_id: savedReport.id,
+                        content: reportContent,
+                        agent_name: agent.name,
+                        agent_id: agent.id,
+                        templates: templates || [],
+                      })}\n\n`
+                    )
+                  );
+                }
+              }
+            } else {
+              console.log("[Chat] read_report_template: template not found for query", templateReq);
+            }
+          } catch (e) {
+            console.error("[Chat] Failed to handle read_report_template:", e);
           }
         }
 

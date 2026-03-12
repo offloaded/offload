@@ -146,11 +146,11 @@ export async function POST(request: Request) {
   } catch { /* non-fatal */ }
 
   // Fetch available report templates
-  let reportTemplatesList: Array<{ name: string; description: string }> = [];
+  let reportTemplatesList: Array<{ id: string; name: string; description: string }> = [];
   try {
     const { data: templates } = await serviceDb
       .from("report_templates")
-      .select("name, description")
+      .select("id, name, description")
       .eq("workspace_id", ctx.workspaceId)
       .limit(20);
     if (templates) reportTemplatesList = templates;

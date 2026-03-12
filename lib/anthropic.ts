@@ -89,7 +89,7 @@ export function buildSystemPrompt(
     activitySummary?: string;
     teamMemberships?: Array<{ id: string; name: string }>;
     reportEdits?: Array<{ title: string; original: string; edited: string }>;
-    reportTemplates?: Array<{ name: string; description: string }>;
+    reportTemplates?: Array<{ id: string; name: string; description: string }>;
     recentReports?: Array<{ id: string; title: string; generated_title?: string; content: string; agent_name?: string; updated_at: string; is_mine?: boolean }>;
     asanaProjects?: Array<{ gid: string; name: string }>;
   }
@@ -292,10 +292,20 @@ The title field is optional — only include it if the title should change. The 
   }
 
   if (options?.reportTemplates && options.reportTemplates.length > 0) {
-    prompt += `\n\nAVAILABLE REPORT TEMPLATES:\nThe user has configured these report templates. When they ask for a report that matches a template, mention you can format it using that template. The system will handle template application after you save the report.\n`;
+    prompt += `\n\nAVAILABLE REPORT TEMPLATES:\nThe user has configured these report templates. When they ask for a report using a template, read the template first to get its structure, then follow that structure when writing the report.\n`;
     for (const t of options.reportTemplates) {
-      prompt += `- ${t.name}${t.description ? `: ${t.description}` : ""}\n`;
+      prompt += `- ${t.name} (ID: ${t.id})${t.description ? `: ${t.description}` : ""}\n`;
     }
+    prompt += `\nREADING TEMPLATES:
+To read a template's structure before generating a report, use this block:
+\`\`\`read_report_template
+{"id": "template-uuid-here"}
+\`\`\`
+OR by name:
+\`\`\`read_report_template
+{"name": "template name"}
+\`\`\`
+The system will return the template's headings and section descriptions. Use these to structure your report — include each heading as a section in the report and follow the section descriptions for what content to include.`;
   }
 
   if (options?.reportEdits && options.reportEdits.length > 0) {
@@ -381,6 +391,7 @@ export function cleanResponse(text: string, streaming = false): string {
   cleaned = cleaned.replace(/```expectations_update\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```save_report\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```read_report\s*\n?[\s\S]*?\n?```/g, "");
+  cleaned = cleaned.replace(/```read_report_template\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```update_report\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```asana_\w+\s*\n?[\s\S]*?\n?```/g, "");
 
@@ -396,6 +407,7 @@ export function cleanResponse(text: string, streaming = false): string {
     cleaned = cleaned.replace(/```expectations_update[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```save_report[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```read_report[\s\S]*$/g, "");
+    cleaned = cleaned.replace(/```read_report_template[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```update_report[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```asana_\w+[\s\S]*$/g, "");
   }

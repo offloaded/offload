@@ -329,7 +329,7 @@ function buildGroupAgentSystemPrompt(
   teamExpectationsContext?: string,
   channelContext?: { channelName: string; channelDescription?: string },
   reportEdits?: Array<{ title: string; original: string; edited: string }>,
-  reportTemplates?: Array<{ name: string; description: string }>
+  reportTemplates?: Array<{ id: string; name: string; description: string }>
 ): string {
   const otherMembers = teamMemberNames.filter((n) => n !== agent.name);
   const teamList = otherMembers.length > 0 ? otherMembers.join(", ") : "no other members";
@@ -443,9 +443,9 @@ CONTEXT: Only respond to the MOST RECENT message in the conversation. Ignore old
   if (reportTemplates && reportTemplates.length > 0) {
     prompt += `\n\nAVAILABLE REPORT TEMPLATES:\n`;
     for (const t of reportTemplates) {
-      prompt += `- ${t.name}${t.description ? `: ${t.description}` : ""}\n`;
+      prompt += `- ${t.name} (ID: ${t.id})${t.description ? `: ${t.description}` : ""}\n`;
     }
-    prompt += `When the user asks for a report that matches a template, mention you can format it using that template.`;
+    prompt += `\nWhen the user asks for a report using a template, read the template first to get its structure, then follow it.\nTo read a template:\n\`\`\`read_report_template\n{"id": "template-uuid"}\n\`\`\``;
   }
 
   return prompt;
@@ -555,7 +555,7 @@ export async function generateAgentResponse(
   teamExpectationsContext?: string,
   channelContext?: { channelName: string; channelDescription?: string },
   reportEdits?: Array<{ title: string; original: string; edited: string }>,
-  reportTemplates?: Array<{ name: string; description: string }>
+  reportTemplates?: Array<{ id: string; name: string; description: string }>
 ): Promise<string> {
   let context: ContextChunk[] = [];
   if (docsByAgent.has(agent.id)) {
@@ -599,13 +599,72 @@ export async function generateAgentResponse(
   });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let text = response.content
+  let rawText = response.content
     .filter((b: any) => b.type === "text")
     .map((b: any) => b.text as string)
     .join("")
     .trim();
 
-  text = cleanResponse(text);
+  // Handle read_report_template — fetch template structure and re-call Claude
+  const templateMatch = rawText.match(/```read_report_template\s*\n?([\s\S]*?)\n?```/);
+  if (templateMatch) {
+    try {
+      const templateReq = JSON.parse(templateMatch[1].trim());
+      let templateData = null;
+      if (templateReq.id) {
+        const { data } = await supabase
+          .from("report_templates")
+          .select("id, name, description, structure")
+          .eq("id", templateReq.id)
+          .single();
+        templateData = data;
+      } else if (templateReq.name) {
+        const { data } = await supabase
+          .from("report_templates")
+          .select("id, name, description, structure")
+          .ilike("name", `%${templateReq.name}%`)
+          .limit(1)
+          .single();
+        templateData = data;
+      }
+      if (templateData) {
+        const sections = (templateData.structure as Array<{ heading: string; description: string }>) || [];
+        let templateContext = `[System: Here is the requested report template]\nTemplate: ${templateData.name}\nID: ${templateData.id}`;
+        if (templateData.description) templateContext += `\nDescription: ${templateData.description}`;
+        templateContext += `\n\nSections:\n`;
+        for (const s of sections) {
+          templateContext += `\n## ${s.heading}`;
+          if (s.description) templateContext += `\n${s.description}`;
+          templateContext += `\n`;
+        }
+        templateContext += `\nUse these headings and descriptions to structure the report.`;
+
+        const cleanedFirst = cleanResponse(rawText);
+        const followUpMessages = [
+          ...messages,
+          { role: "assistant" as const, content: cleanedFirst || "" },
+          { role: "user" as const, content: templateContext },
+        ];
+        const followUpResponse = await anthropic.messages.create({
+          model: "claude-sonnet-4-5-20250929",
+          max_tokens: detectLongFormRequest("write report"),
+          system: systemPrompt,
+          messages: followUpMessages,
+        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const followUpText = followUpResponse.content
+          .filter((b: any) => b.type === "text")
+          .map((b: any) => b.text as string)
+          .join("")
+          .trim();
+        rawText = (cleanedFirst ? cleanedFirst + "\n\n" : "") + followUpText;
+      }
+    } catch (e) {
+      console.error(`[Generate] ${agent.name}: read_report_template failed:`, e);
+    }
+  }
+
+  let text = cleanResponse(rawText);
 
   // Strip self-mentions (bug: agents @mentioning themselves)
   text = stripSelfMentions(text, agent.name);
