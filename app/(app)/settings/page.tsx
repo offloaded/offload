@@ -321,33 +321,39 @@ function AgentsTab({
 
 // ─── Integrations Tab ───
 
-function IntegrationsTab() {
-  const [asanaStatus, setAsanaStatus] = useState<{
-    connected: boolean;
-    asana_user_name?: string;
-  } | null>(null);
-  const [loading, setLoading] = useState(true);
+function IntegrationCard({
+  icon,
+  name,
+  description,
+  connected,
+  connectedLabel,
+  connectUrl,
+  connectLabel,
+  disconnectUrl,
+  disconnectWarning,
+}: {
+  icon: string;
+  name: string;
+  description: string;
+  connected: boolean;
+  connectedLabel?: string;
+  connectUrl: string;
+  connectLabel: string;
+  disconnectUrl: string;
+  disconnectWarning: string;
+}) {
   const [disconnecting, setDisconnecting] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [isConnected, setIsConnected] = useState(connected);
 
-  const fetchStatus = useCallback(() => {
-    fetch("/api/integrations/asana/status")
-      .then((r) => (r.ok ? r.json() : { connected: false }))
-      .then(setAsanaStatus)
-      .catch(() => setAsanaStatus({ connected: false }))
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    fetchStatus();
-  }, [fetchStatus]);
+  useEffect(() => { setIsConnected(connected); }, [connected]);
 
   const handleDisconnect = async () => {
     setDisconnecting(true);
     try {
-      const res = await fetch("/api/integrations/asana/disconnect", { method: "DELETE" });
+      const res = await fetch(disconnectUrl, { method: "DELETE" });
       if (res.ok) {
-        setAsanaStatus({ connected: false });
+        setIsConnected(false);
         setConfirmDisconnect(false);
       }
     } catch {
@@ -356,6 +362,101 @@ function IntegrationsTab() {
       setDisconnecting(false);
     }
   };
+
+  return (
+    <div className="border border-[var(--color-border)] rounded-xl p-4">
+      <div className="flex items-center gap-3 mb-3">
+        <div className="w-10 h-10 rounded-xl bg-[var(--color-hover)] flex items-center justify-center text-lg">
+          {icon}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[14px] font-semibold text-[var(--color-text)]">{name}</div>
+          <div className="text-[13px] text-[var(--color-text-tertiary)]">{description}</div>
+        </div>
+        <span
+          className="text-[12px] font-medium px-2 py-0.5 rounded-full"
+          style={{
+            color: isConnected ? "var(--color-green, #16a34a)" : "var(--color-text-tertiary)",
+            background: isConnected ? "var(--color-green-bg, rgba(22,163,74,0.1))" : "var(--color-hover)",
+          }}
+        >
+          {isConnected ? "Connected" : "Not connected"}
+        </span>
+      </div>
+
+      {isConnected && connectedLabel && (
+        <div className="text-[13px] text-[var(--color-text-secondary)] mb-3 px-1">
+          Connected as <span className="font-medium">{connectedLabel}</span>
+        </div>
+      )}
+
+      {isConnected ? (
+        <>
+          {confirmDisconnect ? (
+            <div className="flex items-center gap-2">
+              <span className="text-[13px] text-[var(--color-text-secondary)] flex-1">
+                {disconnectWarning}
+              </span>
+              <button
+                onClick={() => setConfirmDisconnect(false)}
+                className="py-1.5 px-3 bg-transparent border border-[var(--color-border)] rounded-xl text-[13px] text-[var(--color-text-secondary)] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDisconnect}
+                disabled={disconnecting}
+                className="py-1.5 px-3 bg-red-600 border-none rounded-xl text-[13px] text-white font-medium cursor-pointer disabled:opacity-50"
+              >
+                {disconnecting ? "Disconnecting..." : "Disconnect"}
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmDisconnect(true)}
+              className="py-2 px-4 bg-transparent border border-[var(--color-border)] rounded-xl text-[13px] text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
+            >
+              Disconnect
+            </button>
+          )}
+        </>
+      ) : (
+        <a
+          href={connectUrl}
+          className="inline-flex items-center gap-2 py-2 px-4 bg-[var(--color-accent)] border-none rounded-xl text-[13px] text-white font-medium cursor-pointer no-underline hover:opacity-90 transition-opacity"
+        >
+          {connectLabel}
+        </a>
+      )}
+    </div>
+  );
+}
+
+function IntegrationsTab() {
+  const [asanaStatus, setAsanaStatus] = useState<{
+    connected: boolean;
+    asana_user_name?: string;
+  } | null>(null);
+  const [githubStatus, setGithubStatus] = useState<{
+    connected: boolean;
+    github_name?: string;
+    github_username?: string;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchStatus = useCallback(() => {
+    Promise.all([
+      fetch("/api/integrations/asana/status").then((r) => (r.ok ? r.json() : { connected: false })).catch(() => ({ connected: false })),
+      fetch("/api/integrations/github/status").then((r) => (r.ok ? r.json() : { connected: false })).catch(() => ({ connected: false })),
+    ]).then(([asana, github]) => {
+      setAsanaStatus(asana);
+      setGithubStatus(github);
+    }).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
 
   if (loading) {
     return (
@@ -372,71 +473,35 @@ function IntegrationsTab() {
       </p>
 
       {/* Asana card */}
-      <div className="border border-[var(--color-border)] rounded-xl p-4">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-10 h-10 rounded-xl bg-[var(--color-hover)] flex items-center justify-center text-lg">
-            📋
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[14px] font-semibold text-[var(--color-text)]">Asana</div>
-            <div className="text-[13px] text-[var(--color-text-tertiary)]">
-              Task management and project tracking
-            </div>
-          </div>
-          <span
-            className="text-[12px] font-medium px-2 py-0.5 rounded-full"
-            style={{
-              color: asanaStatus?.connected ? "var(--color-green, #16a34a)" : "var(--color-text-tertiary)",
-              background: asanaStatus?.connected ? "var(--color-green-bg, rgba(22,163,74,0.1))" : "var(--color-hover)",
-            }}
-          >
-            {asanaStatus?.connected ? "Connected" : "Not connected"}
-          </span>
-        </div>
+      <IntegrationCard
+        icon="📋"
+        name="Asana"
+        description="Task management and project tracking"
+        connected={asanaStatus?.connected || false}
+        connectedLabel={asanaStatus?.asana_user_name}
+        connectUrl="/api/integrations/asana/connect"
+        connectLabel="Connect Asana"
+        disconnectUrl="/api/integrations/asana/disconnect"
+        disconnectWarning="This will remove Asana access from all agents. Continue?"
+      />
 
-        {asanaStatus?.connected && asanaStatus.asana_user_name && (
-          <div className="text-[13px] text-[var(--color-text-secondary)] mb-3 px-1">
-            Connected as <span className="font-medium">{asanaStatus.asana_user_name}</span>
-          </div>
-        )}
-
-        {asanaStatus?.connected ? (
-          <>
-            {confirmDisconnect ? (
-              <div className="flex items-center gap-2">
-                <span className="text-[13px] text-[var(--color-text-secondary)] flex-1">
-                  This will remove Asana access from all agents. Continue?
-                </span>
-                <button
-                  onClick={() => setConfirmDisconnect(false)}
-                  className="py-1.5 px-3 bg-transparent border border-[var(--color-border)] rounded-xl text-[13px] text-[var(--color-text-secondary)] cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleDisconnect}
-                  disabled={disconnecting}
-                  className="py-1.5 px-3 bg-red-600 border-none rounded-xl text-[13px] text-white font-medium cursor-pointer disabled:opacity-50"
-                >
-                  {disconnecting ? "Disconnecting..." : "Disconnect"}
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setConfirmDisconnect(true)}
-                className="py-2 px-4 bg-transparent border border-[var(--color-border)] rounded-xl text-[13px] text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
-              >
-                Disconnect
-              </button>
-            )}
-          </>
-        ) : (
-          <a
-            href="/api/integrations/asana/connect"
-            className="inline-flex items-center gap-2 py-2 px-4 bg-[var(--color-accent)] border-none rounded-xl text-[13px] text-white font-medium cursor-pointer no-underline hover:opacity-90 transition-opacity"
-          >
-            Connect Asana
-          </a>
+      {/* GitHub card */}
+      <div className="mt-3">
+        <IntegrationCard
+          icon="🐙"
+          name="GitHub"
+          description="Issues, repositories, and code collaboration"
+          connected={githubStatus?.connected || false}
+          connectedLabel={githubStatus?.github_name || githubStatus?.github_username}
+          connectUrl="/api/integrations/github/connect"
+          connectLabel="Connect GitHub"
+          disconnectUrl="/api/integrations/github/disconnect"
+          disconnectWarning="This will remove GitHub access from all agents. Continue?"
+        />
+        {!githubStatus?.connected && (
+          <p className="text-[11px] text-[var(--color-text-tertiary)] mt-1.5 px-1">
+            Offloaded will have access to your public and private repositories.
+          </p>
         )}
       </div>
 

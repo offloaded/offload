@@ -9,6 +9,8 @@ export interface Agent {
   web_search_enabled: boolean;
   asana_enabled: boolean;
   asana_projects: Array<{ gid: string; name: string; workspace: string }> | null;
+  github_enabled: boolean;
+  github_repositories: Array<{ full_name: string; name: string }> | null;
   // Working style tags
   working_style: string[] | null;
   // Communication style tags
