@@ -472,21 +472,13 @@ export async function POST(request: Request) {
     }
   } catch { /* non-fatal */ }
 
-  // Load Asana projects if agent has Asana enabled
+  // Load Asana projects from agent record
   let asanaProjects: Array<{ gid: string; name: string }> = [];
-  if (agent.asana_enabled) {
-    try {
-      const { data: projects } = await serviceDb
-        .from("agent_asana_projects")
-        .select("asana_project_gid, asana_project_name")
-        .eq("agent_id", agent_id);
-      if (projects) {
-        asanaProjects = projects.map((p: { asana_project_gid: string; asana_project_name: string }) => ({
-          gid: p.asana_project_gid,
-          name: p.asana_project_name,
-        }));
-      }
-    } catch { /* non-fatal */ }
+  if (agent.asana_enabled && agent.asana_projects) {
+    asanaProjects = (agent.asana_projects as Array<{ gid: string; name: string }>).map((p) => ({
+      gid: p.gid,
+      name: p.name,
+    }));
   }
 
   // Check if Asana is available at workspace level but not enabled on this agent

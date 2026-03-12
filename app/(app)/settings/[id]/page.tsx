@@ -85,7 +85,7 @@ export default function AgentEditorPage() {
   // Asana
   const [asanaEnabled, setAsanaEnabled] = useState(false);
   const [asanaConnected, setAsanaConnected] = useState(false);
-  const [asanaProjects, setAsanaProjects] = useState<Array<{ id: string; asana_project_gid: string; asana_project_name: string; asana_workspace_name?: string }>>([]);
+  const [asanaProjects, setAsanaProjects] = useState<Array<{ gid: string; name: string; workspace: string }>>([]);
   const [availableAsanaProjects, setAvailableAsanaProjects] = useState<Array<{ gid: string; name: string; projects: Array<{ gid: string; name: string }> }>>([]);
   const [loadingAsanaProjects, setLoadingAsanaProjects] = useState(false);
   const [asanaProjectPickerOpen, setAsanaProjectPickerOpen] = useState(false);
@@ -100,6 +100,7 @@ export default function AgentEditorPage() {
       setColor(existing.color);
       setWebSearchEnabled(existing.web_search_enabled ?? false);
       setAsanaEnabled(existing.asana_enabled ?? false);
+      setAsanaProjects(existing.asana_projects ?? []);
       setWorkingStyle(existing.working_style ?? []);
       setCommunicationStyle(existing.communication_style ?? []);
       setVoiceSamples(existing.voice_samples ?? []);
@@ -151,15 +152,6 @@ export default function AgentEditorPage() {
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    if (!isNew && params.id) {
-      fetch(`/api/agents/asana-projects?agent_id=${params.id}`)
-        .then((r) => (r.ok ? r.json() : []))
-        .then(setAsanaProjects)
-        .catch(() => {});
-    }
-  }, [isNew, params.id]);
-
   const loadAvailableAsanaProjects = useCallback(() => {
     if (availableAsanaProjects.length > 0) return;
     setLoadingAsanaProjects(true);
@@ -170,36 +162,32 @@ export default function AgentEditorPage() {
       .finally(() => setLoadingAsanaProjects(false));
   }, [availableAsanaProjects.length]);
 
-  const addAsanaProject = async (projectGid: string, projectName: string, workspaceName: string) => {
-    const res = await fetch("/api/agents/asana-projects", {
-      method: "POST",
+  const persistAsanaProjects = useCallback((projects: Array<{ gid: string; name: string; workspace: string }>) => {
+    if (isNew) return;
+    fetch("/api/agents", {
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        agent_id: params.id,
-        asana_project_gid: projectGid,
-        asana_project_name: projectName,
-        asana_workspace_name: workspaceName,
-      }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setAsanaProjects((prev) => [...prev, data]);
-      // Persist asana_enabled to the agent record so the toggle survives page reload
-      if (!isNew) {
-        fetch("/api/agents", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: params.id, asana_enabled: true }),
-        }).catch(() => {});
-      }
-    }
+      body: JSON.stringify({ id: params.id, asana_enabled: true, asana_projects: projects }),
+    }).catch(() => {});
+  }, [isNew, params.id]);
+
+  const addAsanaProject = (projectGid: string, projectName: string, workspaceName: string) => {
+    const entry = { gid: projectGid, name: projectName, workspace: workspaceName };
+    const updated = [...asanaProjects, entry];
+    setAsanaProjects(updated);
+    persistAsanaProjects(updated);
     setAsanaProjectPickerOpen(false);
   };
 
-  const removeAsanaProject = async (id: string) => {
-    const res = await fetch(`/api/agents/asana-projects?id=${id}`, { method: "DELETE" });
-    if (res.ok) {
-      setAsanaProjects((prev) => prev.filter((p) => p.id !== id));
+  const removeAsanaProject = (gid: string) => {
+    const updated = asanaProjects.filter((p) => p.gid !== gid);
+    setAsanaProjects(updated);
+    if (!isNew) {
+      fetch("/api/agents", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: params.id, asana_projects: updated.length > 0 ? updated : null }),
+      }).catch(() => {});
     }
   };
 
@@ -219,6 +207,7 @@ export default function AgentEditorPage() {
           color,
           web_search_enabled: webSearchEnabled,
           asana_enabled: asanaEnabled,
+          asana_projects: asanaProjects.length > 0 ? asanaProjects : null,
           working_style: workingStyle.length > 0 ? workingStyle : null,
           communication_style: communicationStyle.length > 0 ? communicationStyle : null,
           ...(!isNew && (voiceSamples.some((s) => s.trim()) || voiceProfile) ? {
@@ -946,12 +935,13 @@ export default function AgentEditorPage() {
                       if (!asanaConnected) return;
                       const newVal = !asanaEnabled;
                       setAsanaEnabled(newVal);
+                      if (!newVal) setAsanaProjects([]);
                       // Persist toggle immediately so it's not lost on poll refresh
                       if (!isNew) {
                         fetch("/api/agents", {
                           method: "PUT",
                           headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ id: params.id, asana_enabled: newVal }),
+                          body: JSON.stringify({ id: params.id, asana_enabled: newVal, ...(!newVal ? { asana_projects: null } : {}) }),
                         }).catch(() => {});
                       }
                     }}
@@ -992,12 +982,12 @@ export default function AgentEditorPage() {
                         <div className="flex flex-wrap gap-1.5 mb-2">
                           {asanaProjects.map((p) => (
                             <span
-                              key={p.id}
+                              key={p.gid}
                               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-[var(--color-accent-soft)] border border-[var(--color-accent)] text-[12px] text-[var(--color-text)]"
                             >
-                              {p.asana_project_name}
+                              {p.name}
                               <button
-                                onClick={() => removeAsanaProject(p.id)}
+                                onClick={() => removeAsanaProject(p.gid)}
                                 className="bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] cursor-pointer p-0 flex"
                               >
                                 <XIcon />
@@ -1022,7 +1012,7 @@ export default function AgentEditorPage() {
                                   </div>
                                 )}
                                 {ws.projects
-                                  .filter((p) => !asanaProjects.some((ap) => ap.asana_project_gid === p.gid))
+                                  .filter((p) => !asanaProjects.some((ap) => ap.gid === p.gid))
                                   .map((p) => (
                                     <button
                                       key={p.gid}

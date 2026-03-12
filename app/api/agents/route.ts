@@ -72,7 +72,7 @@ export async function PUT(request: Request) {
   }
 
   const body = await request.json();
-  const { id, name, role, purpose, color, web_search_enabled, asana_enabled, working_style, communication_style, voice_samples, voice_profile, soft_skills, team_expectations } = body;
+  const { id, name, role, purpose, color, web_search_enabled, asana_enabled, asana_projects, working_style, communication_style, voice_samples, voice_profile, soft_skills, team_expectations } = body;
 
   if (!id) {
     return NextResponse.json({ error: "Agent ID required" }, { status: 400 });
@@ -87,6 +87,7 @@ export async function PUT(request: Request) {
   if (color !== undefined) updates.color = color;
   if (web_search_enabled !== undefined) updates.web_search_enabled = web_search_enabled;
   if (asana_enabled !== undefined) updates.asana_enabled = asana_enabled;
+  if (asana_projects !== undefined) updates.asana_projects = asana_projects;
   if (working_style !== undefined) updates.working_style = working_style;
   if (communication_style !== undefined) updates.communication_style = communication_style;
   if (voice_samples !== undefined) updates.voice_samples = voice_samples;

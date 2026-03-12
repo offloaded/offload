@@ -22,10 +22,10 @@ export async function DELETE() {
       .delete()
       .in("agent_id", agentIds);
 
-    // Disable Asana on all agents
+    // Disable Asana on all agents and clear project assignments
     await service
       .from("agents")
-      .update({ asana_enabled: false, updated_at: new Date().toISOString() })
+      .update({ asana_enabled: false, asana_projects: null, updated_at: new Date().toISOString() })
       .eq("workspace_id", ctx.workspaceId);
   }
 
