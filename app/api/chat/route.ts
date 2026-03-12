@@ -538,6 +538,7 @@ export async function POST(request: Request) {
 
   // Coalesce consecutive same-role messages (Claude API requires alternating roles)
   // This can happen from report edit diffs, system injections, or DB quirks
+  const preCoalesceCount = messages.length;
   const coalesced: typeof messages = [];
   for (const m of messages) {
     if (coalesced.length > 0 && coalesced[coalesced.length - 1].role === m.role) {
@@ -552,6 +553,9 @@ export async function POST(request: Request) {
   // Ensure conversation starts with a user message (required by Claude API)
   while (coalesced.length > 0 && coalesced[0].role !== "user") {
     coalesced.shift();
+  }
+  if (coalesced.length < preCoalesceCount) {
+    console.warn(`[Chat] Coalesced ${preCoalesceCount - coalesced.length} consecutive same-role messages (${preCoalesceCount} → ${coalesced.length})`);
   }
   messages = coalesced;
 
@@ -700,6 +704,10 @@ export async function POST(request: Request) {
         // Check if any tool blocks will produce follow-up content or handle the response
         const hasFollowUpTool = !!(readReportMatch || readTemplateMatch || saveReportMatch || updateReportMatch);
 
+        // Track the saved assistant message ID so follow-up handlers can update it instead of inserting duplicates
+        let savedAssistantMsgId: string | null = null;
+        let savedContent = cleaned || "";
+
         // Never save empty responses — show error instead
         // But skip if a follow-up tool will generate content
         if (!cleaned && !hasFollowUpTool) {
@@ -710,18 +718,22 @@ export async function POST(request: Request) {
               `data: ${JSON.stringify({ type: "replace", text: fallbackMsg })}\n\n`
             )
           );
-          await supabase.from("messages").insert({
+          const { data: fallbackRow } = await supabase.from("messages").insert({
             conversation_id: convId,
             role: "assistant",
             content: fallbackMsg,
-          });
+          }).select("id").single();
+          savedAssistantMsgId = fallbackRow?.id || null;
+          savedContent = fallbackMsg;
         } else if (cleaned) {
           // Save the cleaned response
-          await supabase.from("messages").insert({
+          const { data: savedRow } = await supabase.from("messages").insert({
             conversation_id: convId,
             role: "assistant",
             content: cleaned,
-          });
+          }).select("id").single();
+          savedAssistantMsgId = savedRow?.id || null;
+          savedContent = cleaned;
         }
 
         // Handle explicit save_report request from agent
@@ -979,13 +991,16 @@ export async function POST(request: Request) {
 
               const followUpCleaned = cleanResponse(followUpText);
               if (followUpCleaned) {
-                await supabase.from("messages").insert({
-                  conversation_id: convId,
-                  role: "assistant",
-                  content: followUpCleaned,
-                });
+                const combined = savedContent ? savedContent + "\n\n" + followUpCleaned : followUpCleaned;
+                if (savedAssistantMsgId) {
+                  await supabase.from("messages").update({ content: combined }).eq("id", savedAssistantMsgId);
+                } else {
+                  const { data: newRow } = await supabase.from("messages").insert({ conversation_id: convId, role: "assistant", content: combined }).select("id").single();
+                  savedAssistantMsgId = newRow?.id || null;
+                }
+                savedContent = combined;
                 controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ type: "replace", text: (cleaned ? cleaned + "\n\n" : "") + followUpCleaned })}\n\n`)
+                  encoder.encode(`data: ${JSON.stringify({ type: "replace", text: combined })}\n\n`)
                 );
               }
 
@@ -1104,13 +1119,16 @@ export async function POST(request: Request) {
 
               const followUpCleaned = cleanResponse(followUpText);
               if (followUpCleaned) {
-                await supabase.from("messages").insert({
-                  conversation_id: convId,
-                  role: "assistant",
-                  content: followUpCleaned,
-                });
+                const combined = savedContent ? savedContent + "\n\n" + followUpCleaned : followUpCleaned;
+                if (savedAssistantMsgId) {
+                  await supabase.from("messages").update({ content: combined }).eq("id", savedAssistantMsgId);
+                } else {
+                  const { data: newRow } = await supabase.from("messages").insert({ conversation_id: convId, role: "assistant", content: combined }).select("id").single();
+                  savedAssistantMsgId = newRow?.id || null;
+                }
+                savedContent = combined;
                 controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ type: "replace", text: (cleaned ? cleaned + "\n\n" : "") + followUpCleaned })}\n\n`)
+                  encoder.encode(`data: ${JSON.stringify({ type: "replace", text: combined })}\n\n`)
                 );
               }
 
@@ -1351,13 +1369,16 @@ export async function POST(request: Request) {
 
               const followUpCleaned = cleanResponse(followUpText);
               if (followUpCleaned) {
-                await supabase.from("messages").insert({
-                  conversation_id: convId,
-                  role: "assistant",
-                  content: followUpCleaned,
-                });
+                const combined = savedContent ? savedContent + "\n\n" + followUpCleaned : followUpCleaned;
+                if (savedAssistantMsgId) {
+                  await supabase.from("messages").update({ content: combined }).eq("id", savedAssistantMsgId);
+                } else {
+                  const { data: newRow } = await supabase.from("messages").insert({ conversation_id: convId, role: "assistant", content: combined }).select("id").single();
+                  savedAssistantMsgId = newRow?.id || null;
+                }
+                savedContent = combined;
                 controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ type: "replace", text: (cleaned ? cleaned + "\n\n" : "") + followUpCleaned })}\n\n`)
+                  encoder.encode(`data: ${JSON.stringify({ type: "replace", text: combined })}\n\n`)
                 );
               }
             }
