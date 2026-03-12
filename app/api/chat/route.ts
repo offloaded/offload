@@ -728,6 +728,95 @@ export async function POST(request: Request) {
           }
         }
 
+        // Detect "fake save" — agent claims to have saved but didn't call save_report
+        if (!saveReportMatch && cleaned) {
+          const fakeSavePattern = /(?:saved|created|generated).*(?:report|to the (?:reports?|dashboard))|report (?:has been |is )saved|saved (?:it |that |the report )/i;
+          const userAskedToSave = /\b(?:yes|yeah|yep|sure|go ahead|save it|save that|do it|please do|confirmed?)\b/i;
+          const lastUserMsg = messages.length > 0 ? messages[messages.length - 1] : null;
+          if (fakeSavePattern.test(cleaned) && lastUserMsg?.role === "user" && userAskedToSave.test(lastUserMsg.content)) {
+            console.warn(`[Chat] Fake save detected — agent claimed to save but no save_report block found. Doing follow-up call.`);
+
+            // Find the report content from the previous assistant message
+            const prevAssistantMsgs = messages.filter((m) => m.role === "assistant");
+            const lastAssistantContent = prevAssistantMsgs.length > 0 ? prevAssistantMsgs[prevAssistantMsgs.length - 1].content : "";
+
+            const followUpMessages = [
+              ...messages,
+              { role: "assistant" as const, content: cleaned },
+              { role: "user" as const, content: `[System: Your previous response did NOT include a save_report block, so nothing was actually saved. You MUST include the save_report block to save the report. Include it now with the report content from your earlier message. Do not explain — just output the save_report block.]` },
+            ];
+
+            try {
+              const retryStream = anthropic.messages.stream({
+                model: "claude-sonnet-4-5-20250929",
+                max_tokens: 4096,
+                system: systemPrompt,
+                messages: followUpMessages,
+              });
+
+              let retryText = "";
+              for await (const event of retryStream) {
+                if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+                  retryText += event.delta.text;
+                }
+              }
+
+              const retrySaveMatch = retryText.match(/```save_report(?!_)\s*\n?([\s\S]*?)\n?```/);
+              if (retrySaveMatch) {
+                console.log(`[Chat] Retry succeeded — save_report block found`);
+                const raw = retrySaveMatch[1].trim();
+                let reportTitle = "";
+                let reportContent = "";
+                const titleSepMatch = raw.match(/^title:\s*(.+)\n---\n([\s\S]+)$/i);
+                if (titleSepMatch) {
+                  reportTitle = titleSepMatch[1].trim();
+                  reportContent = titleSepMatch[2].trim();
+                } else {
+                  try {
+                    const fixedJson = raw.replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+                    const parsed = JSON.parse(fixedJson);
+                    reportTitle = parsed.title;
+                    reportContent = parsed.content?.replace(/\\n/g, "\n") || "";
+                  } catch {
+                    reportTitle = "Untitled Report";
+                    reportContent = raw;
+                  }
+                }
+                if (reportTitle && reportContent) {
+                  const { data: reportData, error: reportError } = await serviceDb.from("reports").insert({
+                    workspace_id: ctx.workspaceId,
+                    user_id: user.id,
+                    agent_id: agent.id,
+                    title: reportTitle,
+                    content: reportContent,
+                    source: "agent",
+                    conversation_id: convId,
+                  }).select("id").single();
+                  if (!reportError && reportData) {
+                    controller.enqueue(
+                      encoder.encode(
+                        `data: ${JSON.stringify({
+                          type: "report_saved",
+                          title: reportTitle,
+                          report_id: reportData.id,
+                          content: reportContent,
+                          agent_name: agent.name,
+                          agent_id: agent.id,
+                          templates: reportTemplates.length > 0 ? reportTemplates : undefined,
+                        })}\n\n`
+                      )
+                    );
+                  }
+                }
+              } else {
+                console.warn(`[Chat] Retry also failed — no save_report block in follow-up`);
+              }
+            } catch (e) {
+              console.error("[Chat] Fake save retry failed:", e);
+            }
+          }
+        }
+
         // Handle read_report — fetch the requested report and do a follow-up call
         if (readReportMatch) {
           try {

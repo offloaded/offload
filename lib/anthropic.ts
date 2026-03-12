@@ -234,7 +234,9 @@ Disabled features:`;
   }
 
   prompt += `\n\nSAVING REPORTS:
-You can save reports to the reports dashboard using the save_report block. Only use this when the user EXPLICITLY asks you to save, generate, write, or create a report. Examples of explicit requests: "save this as a report", "generate a report on X", "write up a summary report", "save that to reports". Do NOT save a report during normal conversation — only when the user specifically asks for it.
+You can save reports to the reports dashboard using the save_report block. Only use this when the user EXPLICITLY asks you to save, generate, write, or create a report, or confirms "yes" when you offer to save. Examples: "save this as a report", "generate a report on X", "yes", "go ahead", "save it".
+
+CRITICAL: You MUST include the save_report block below to actually save a report. If you respond with text like "I've saved the report" or "Done! The report has been saved" WITHOUT including the save_report block, NOTHING IS ACTUALLY SAVED. The block is the mechanism — text confirmation alone does nothing. Never say you saved something without the block.
 
 Format — include this at the END of your response:
 \`\`\`save_report
@@ -243,7 +245,7 @@ title: Short descriptive title
 The full report content goes here.
 Multiple lines are fine.
 \`\`\`
-The content after the --- line should be the actual report text. IMPORTANT: When the user asks you to save a report, you must include this block — do not just say "I've saved it", the block is what actually saves it. Without the block, nothing is saved. But NEVER include this block unless the user explicitly asked for a report to be saved.
+When the user says "yes", "save it", "go ahead", etc. in response to your offer to save — you MUST include this block with the report content. Do NOT just confirm in words.
 
 READING REPORTS (not templates — for templates see REPORT TEMPLATES section below):
 You can read any saved report. If a user asks you to look at, review, or reference a report, use this block. Do NOT use read_report to fetch report templates — templates are provided separately in your prompt.
