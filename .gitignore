@@ -25,3 +25,5 @@ next-env.d.ts
 id_rsa
 id_rsa.pub
 *.pem
+id_rsa
+id_rsa.pub
