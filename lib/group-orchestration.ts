@@ -615,8 +615,30 @@ export async function generateAgentResponse(
     .join("")
     .trim();
 
-  // Handle read_report_template — fetch template structure and re-call Claude
-  const templateMatch = rawText.match(/```read_report_template\s*\n?([\s\S]*?)\n?```/);
+  // Handle read_report_template OR read_report with a template ID — fetch template structure and re-call Claude
+  let templateMatch = rawText.match(/```read_report_template\s*\n?([\s\S]*?)\n?```/);
+  // Fallback: agent may use read_report with a template ID/name
+  if (!templateMatch) {
+    const readReportMatch = rawText.match(/```read_report(?!_)\s*\n?([\s\S]*?)\n?```/);
+    if (readReportMatch) {
+      try {
+        const req = JSON.parse(readReportMatch[1].trim());
+        // Check if this ID/title matches a template rather than a report
+        let isTemplate = false;
+        if (req.id) {
+          const { data } = await supabase.from("report_templates").select("id").eq("id", req.id).single();
+          if (data) isTemplate = true;
+        } else if (req.title) {
+          const { data } = await supabase.from("report_templates").select("id").ilike("name", `%${req.title}%`).limit(1).single();
+          if (data) isTemplate = true;
+        }
+        if (isTemplate) {
+          console.log(`[Generate] ${agent.name}: read_report matched template — treating as read_report_template`);
+          templateMatch = readReportMatch;
+        }
+      } catch { /* not valid JSON or not a template — let it fall through */ }
+    }
+  }
   if (templateMatch) {
     try {
       const templateReq = JSON.parse(templateMatch[1].trim());
@@ -628,11 +650,12 @@ export async function generateAgentResponse(
           .eq("id", templateReq.id)
           .single();
         templateData = data;
-      } else if (templateReq.name) {
+      } else if (templateReq.name || templateReq.title) {
+        const searchTerm = templateReq.name || templateReq.title;
         const { data } = await supabase
           .from("report_templates")
           .select("id, name, description, structure")
-          .ilike("name", `%${templateReq.name}%`)
+          .ilike("name", `%${searchTerm}%`)
           .limit(1)
           .single();
         templateData = data;

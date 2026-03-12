@@ -750,19 +750,71 @@ export async function POST(request: Request) {
               reportData = data;
             }
 
+            // If report not found, check if this is actually a template ID/name
+            if (!reportData) {
+              let templateData = null;
+              if (readReq.id) {
+                const { data } = await serviceDb
+                  .from("report_templates")
+                  .select("id, name, description, structure")
+                  .eq("id", readReq.id)
+                  .eq("workspace_id", ctx.workspaceId)
+                  .single();
+                templateData = data;
+              } else if (readReq.title) {
+                const { data } = await serviceDb
+                  .from("report_templates")
+                  .select("id, name, description, structure")
+                  .eq("workspace_id", ctx.workspaceId)
+                  .ilike("name", `%${readReq.title}%`)
+                  .limit(1)
+                  .single();
+                templateData = data;
+              }
+              if (templateData) {
+                console.log(`[Chat] read_report matched template "${templateData.name}" — treating as read_report_template`);
+                // Build template context the same way the read_report_template handler does
+                const sections = (templateData.structure as Array<{ heading: string; description: string }>) || [];
+                let templateContext = `[System: Here is the requested report template]\nTemplate: ${templateData.name}\nID: ${templateData.id}`;
+                if (templateData.description) templateContext += `\nDescription: ${templateData.description}`;
+                templateContext += `\n\nSections:\n`;
+                for (const s of sections) {
+                  templateContext += `\n## ${s.heading}`;
+                  if (s.description) templateContext += `\n${s.description}`;
+                  templateContext += `\n`;
+                }
+                templateContext += `\nUse these headings and descriptions to structure the report. Include each section heading and follow the descriptions for what content to write in each section.`;
+                reportData = {
+                  id: templateData.id,
+                  title: templateData.name,
+                  display_name: templateData.name,
+                  content: templateContext,
+                  agent_id: null,
+                  updated_at: "",
+                  _isTemplate: true,
+                };
+              }
+            }
+
             if (reportData) {
-              // Inject report content as a system message and re-call Claude for a follow-up
-              const displayName = reportData.display_name || reportData.title;
-              const reportContext = `[System: Here is the requested report]\nTitle: ${displayName}${reportData.display_name && reportData.display_name !== reportData.title ? `\nOriginal title: ${reportData.title}` : ""}\nID: ${reportData.id}\nLast updated: ${reportData.updated_at}\n\n${reportData.content}`;
+              let followUpContext: string;
+              if ((reportData as any)._isTemplate) {
+                // Template — content already has the formatted context
+                followUpContext = reportData.content;
+              } else {
+                // Regular report
+                const displayName = reportData.display_name || reportData.title;
+                followUpContext = `[System: Here is the requested report]\nTitle: ${displayName}${reportData.display_name && reportData.display_name !== reportData.title ? `\nOriginal title: ${reportData.title}` : ""}\nID: ${reportData.id}\nLast updated: ${reportData.updated_at}\n\n${reportData.content}`;
+              }
               const followUpMessages = cleaned
                 ? [
                     ...messages,
                     { role: "assistant" as const, content: cleaned },
-                    { role: "user" as const, content: reportContext },
+                    { role: "user" as const, content: followUpContext },
                   ]
                 : [
                     ...messages,
-                    { role: "user" as const, content: reportContext },
+                    { role: "user" as const, content: followUpContext },
                   ];
 
               // Stream the follow-up response
@@ -790,10 +842,50 @@ export async function POST(request: Request) {
                   role: "assistant",
                   content: followUpCleaned,
                 });
-                // Replace the streamed text with the full cleaned version
                 controller.enqueue(
                   encoder.encode(`data: ${JSON.stringify({ type: "replace", text: (cleaned ? cleaned + "\n\n" : "") + followUpCleaned })}\n\n`)
                 );
+              }
+
+              // If this was a template follow-up, check for save_report in the response
+              if ((reportData as any)._isTemplate && followUpText) {
+                const followUpSaveMatch = followUpText.match(/```save_report(?!_)\s*\n?([\s\S]*?)\n?```/);
+                if (followUpSaveMatch) {
+                  const raw = followUpSaveMatch[1].trim();
+                  let reportTitle = "Untitled Report";
+                  let reportContent = raw;
+                  const titleSepMatch = raw.match(/^title:\s*(.+)\n---\n([\s\S]+)$/i);
+                  if (titleSepMatch) {
+                    reportTitle = titleSepMatch[1].trim();
+                    reportContent = titleSepMatch[2].trim();
+                  }
+                  const { data: savedReport } = await serviceDb
+                    .from("reports")
+                    .insert({
+                      title: reportTitle,
+                      content: reportContent,
+                      agent_id: agent.id,
+                      workspace_id: ctx.workspaceId,
+                      user_id: user.id,
+                    })
+                    .select("id")
+                    .single();
+                  if (savedReport) {
+                    controller.enqueue(
+                      encoder.encode(
+                        `data: ${JSON.stringify({
+                          type: "report_saved",
+                          title: reportTitle,
+                          report_id: savedReport.id,
+                          content: reportContent,
+                          agent_name: agent.name,
+                          agent_id: agent.id,
+                          templates: reportTemplates.length > 0 ? reportTemplates : undefined,
+                        })}\n\n`
+                      )
+                    );
+                  }
+                }
               }
             } else {
               console.log("[Chat] read_report: report not found for query", readReq);
@@ -816,12 +908,13 @@ export async function POST(request: Request) {
                 .eq("workspace_id", ctx.workspaceId)
                 .single();
               templateData = data;
-            } else if (templateReq.name) {
+            } else if (templateReq.name || templateReq.title) {
+              const searchTerm = templateReq.name || templateReq.title;
               const { data } = await serviceDb
                 .from("report_templates")
                 .select("id, name, description, structure")
                 .eq("workspace_id", ctx.workspaceId)
-                .ilike("name", `%${templateReq.name}%`)
+                .ilike("name", `%${searchTerm}%`)
                 .limit(1)
                 .single();
               templateData = data;
