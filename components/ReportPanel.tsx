@@ -164,7 +164,7 @@ export function ReportPanel({ reportId, onClose, onDoneEditing, liveUpdate, init
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full bg-[var(--color-surface)]">
-        <span className="text-[15px] text-[var(--color-text-tertiary)]">Loading...</span>
+        <span className="text-[14px] text-[var(--color-text-tertiary)]">Loading...</span>
       </div>
     );
   }
@@ -172,7 +172,7 @@ export function ReportPanel({ reportId, onClose, onDoneEditing, liveUpdate, init
   if (!report) {
     return (
       <div className="flex items-center justify-center h-full bg-[var(--color-surface)]">
-        <span className="text-[15px] text-[var(--color-text-tertiary)]">Report not found</span>
+        <span className="text-[14px] text-[var(--color-text-tertiary)]">Report not found</span>
       </div>
     );
   }
@@ -180,7 +180,7 @@ export function ReportPanel({ reportId, onClose, onDoneEditing, liveUpdate, init
   return (
     <div className="flex flex-col h-full bg-[var(--color-surface)] overflow-hidden">
       {/* Panel header */}
-      <div className="shrink-0 border-b border-[var(--color-border)] px-4 py-3 flex items-center gap-3">
+      <div className="shrink-0 border-b border-[var(--color-border)] px-5 py-3.5 flex items-center gap-3">
         <div className="flex-1 min-w-0">
           {renamingTitle ? (
             <input
@@ -192,12 +192,12 @@ export function ReportPanel({ reportId, onClose, onDoneEditing, liveUpdate, init
                 if (e.key === "Escape") setRenamingTitle(false);
               }}
               onBlur={commitRename}
-              className="w-full text-[15px] font-semibold text-[var(--color-text)] bg-transparent border border-[var(--color-accent)] rounded px-1.5 py-0.5 outline-none"
+              className="w-full text-[14px] font-semibold text-[var(--color-text)] bg-transparent border border-[var(--color-accent)] rounded-lg px-1.5 py-0.5 outline-none"
               autoFocus
             />
           ) : (
             <div
-              className="text-[15px] font-semibold text-[var(--color-text)] truncate cursor-text"
+              className="text-[14px] font-semibold text-[var(--color-text)] truncate cursor-text"
               onDoubleClick={startRenaming}
               title="Double-click to rename"
             >
@@ -214,14 +214,14 @@ export function ReportPanel({ reportId, onClose, onDoneEditing, liveUpdate, init
             <>
               <button
                 onClick={cancelEditing}
-                className="px-2.5 py-1.5 rounded-md text-[12px] font-medium bg-transparent border border-[var(--color-border)] text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
+                className="px-2.5 py-1.5 rounded-lg text-[12px] font-medium bg-transparent border border-[var(--color-border)] text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDoneEditing}
                 disabled={saving}
-                className="px-2.5 py-1.5 rounded-md text-[12px] font-medium bg-[var(--color-accent)] border-none text-white cursor-pointer hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-1"
+                className="px-2.5 py-1.5 rounded-lg text-[12px] font-medium bg-[var(--color-accent)] border-none text-white cursor-pointer hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-1"
               >
                 <SaveIcon />
                 {saving ? "Saving..." : "Done editing"}
@@ -230,14 +230,14 @@ export function ReportPanel({ reportId, onClose, onDoneEditing, liveUpdate, init
           ) : (
             <button
               onClick={startEditing}
-              className="px-2.5 py-1.5 rounded-md text-[12px] font-medium bg-transparent border border-[var(--color-border)] text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
+              className="px-2.5 py-1.5 rounded-lg text-[12px] font-medium bg-transparent border border-[var(--color-border)] text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
             >
               Edit
             </button>
           )}
           <button
             onClick={onClose}
-            className="p-1 rounded-md bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-hover)] transition-colors flex"
+            className="p-1.5 rounded-lg bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-hover)] transition-colors flex"
           >
             <XIcon />
           </button>
@@ -245,17 +245,17 @@ export function ReportPanel({ reportId, onClose, onDoneEditing, liveUpdate, init
       </div>
 
       {/* Panel content */}
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <div className="flex-1 overflow-y-auto px-5 py-5">
         {editing ? (
           <textarea
             ref={contentRef}
             value={editContent}
             onChange={(e) => setEditContent(e.target.value)}
-            className="w-full text-[14px] leading-relaxed text-[var(--color-text)] bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-lg px-3 py-3 outline-none focus:border-[var(--color-accent)] transition-colors resize-none min-h-[300px]"
+            className="w-full text-[13.5px] leading-relaxed text-[var(--color-text)] bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-xl px-3 py-3 outline-none focus:border-[var(--color-accent)] transition-colors resize-none min-h-[300px]"
             style={{ fontFamily: "inherit" }}
           />
         ) : (
-          <div className="text-[14px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words">
+          <div className="text-[13.5px] leading-[1.75] text-[var(--color-text)] whitespace-pre-wrap break-words">
             {report.content}
           </div>
         )}

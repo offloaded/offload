@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, memo } from "react";
-import { Avatar } from "./Avatar";
+import { Avatar, UserAvatar } from "./Avatar";
 import { SendIcon, MenuIcon, HashIcon, NewChatIcon, CalendarIcon, SaveIcon, PaperclipIcon, XIcon } from "./Icons";
 import type { Agent, Message } from "@/lib/types";
 import {
@@ -93,25 +93,25 @@ const AgentMessage = memo(function AgentMessage({
   };
 
   return (
-    <div className="px-4 py-2 md:px-6 hover:bg-[var(--color-hover)] transition-colors group/msg">
-      <div className="flex max-w-[720px] gap-2.5 md:gap-3">
-        <Avatar name={agent.name} color={agent.color} size={36} />
+    <div className="px-5 py-3 md:px-8 hover:bg-[var(--color-hover)] transition-colors group/msg">
+      <div className="flex max-w-[760px] gap-3">
+        <Avatar name={agent.name} color={agent.color} size={34} />
         <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-2 mb-0.5">
+          <div className="flex items-baseline gap-2 mb-1">
             <span
-              className="text-[15px] font-semibold"
+              className="text-[13px] font-semibold"
               style={{ color: agent.color }}
             >
               {agent.name}
             </span>
-            <span className="text-xs text-[var(--color-text-tertiary)]">
+            <span className="text-[11px] text-[var(--color-text-tertiary)]">
               {time}
             </span>
             {onSaveReport && (
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="opacity-0 group-hover/msg:opacity-100 bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] cursor-pointer p-0 flex items-center gap-1 transition-opacity text-[11px]"
+                className="opacity-0 group-hover/msg:opacity-100 bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] cursor-pointer p-1 rounded-md hover:bg-[var(--color-hover)] flex items-center gap-1 transition-opacity text-[11px] ml-auto"
                 title="Save as report"
               >
                 <SaveIcon />
@@ -119,7 +119,7 @@ const AgentMessage = memo(function AgentMessage({
               </button>
             )}
           </div>
-          <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words">
+          <div className="text-[14px] leading-[1.75] text-[var(--color-text)] whitespace-pre-wrap break-words">
             {renderTextWithMentions(text, agents)}
           </div>
         </div>
@@ -143,21 +143,19 @@ const UserMessage = memo(function UserMessage({
   const initial = displayName.charAt(0).toUpperCase();
 
   return (
-    <div className="px-4 py-2 md:px-6">
-      <div className="flex max-w-[720px] gap-2.5 md:gap-3">
-        <div className="w-9 h-9 rounded-lg shrink-0 bg-[var(--color-active)] text-[var(--color-text-secondary)] flex items-center justify-center text-xs font-bold">
-          {initial}
-        </div>
+    <div className="px-5 py-3 md:px-8">
+      <div className="flex max-w-[760px] gap-3">
+        <UserAvatar name={displayName} size={34} />
         <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-2 mb-0.5">
-            <span className="text-[15px] font-semibold text-[var(--color-text)]">
+          <div className="flex items-baseline gap-2 mb-1">
+            <span className="text-[13px] font-semibold text-[var(--color-text)]">
               {displayName}
             </span>
-            <span className="text-xs text-[var(--color-text-tertiary)]">
+            <span className="text-[11px] text-[var(--color-text-tertiary)]">
               {time}
             </span>
           </div>
-          <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words">
+          <div className="text-[14px] leading-[1.75] text-[var(--color-text)] whitespace-pre-wrap break-words">
             {renderTextWithMentions(text, agents)}
           </div>
         </div>
@@ -316,9 +314,9 @@ const GroupMessageList = memo(function GroupMessageList({
     return (
       <div
         key={msg.id || idx}
-        className="px-4 py-2 md:px-6"
+        className="px-5 py-3 md:px-8"
       >
-        <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words max-w-[720px]">
+        <div className="text-[14px] leading-[1.75] text-[var(--color-text)] whitespace-pre-wrap break-words max-w-[760px]">
           {msg.content}
         </div>
       </div>
@@ -331,12 +329,12 @@ const GroupMessageList = memo(function GroupMessageList({
     if (name) {
       // Named per-agent typing indicator
       return (
-        <div className="px-4 py-2 md:px-6">
-          <div className="flex max-w-[720px] gap-2.5 md:gap-3">
-            <Avatar name={name} color={color} size={36} />
+        <div className="px-5 py-3 md:px-8">
+          <div className="flex max-w-[760px] gap-3">
+            <Avatar name={name} color={color} size={34} />
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline gap-2 mb-0.5">
-                <span className="text-[15px] font-semibold" style={{ color }}>{name}</span>
+                <span className="text-[13px] font-semibold" style={{ color }}>{name}</span>
               </div>
               <div className="flex items-center gap-1 pt-1">
                 {[0, 1, 2].map((d) => (
@@ -354,7 +352,7 @@ const GroupMessageList = memo(function GroupMessageList({
     }
     // Generic dots while waiting for first agent_typing event
     return (
-      <div className="px-4 py-2 md:px-6">
+      <div className="px-5 py-3 md:px-8">
         <div className="flex items-center gap-1 pt-2.5">
           {[0, 1, 2].map((d) => (
             <div
@@ -387,14 +385,16 @@ const GroupMessageList = memo(function GroupMessageList({
       )}
 
       {!loading && messages.length === 0 && (
-        <div className="flex items-center justify-center py-16">
-          <div className="text-center">
-            <div className="text-[15px] font-medium text-[var(--color-accent)] mb-1">
+        <div className="flex items-center justify-center py-24">
+          <div className="text-center flex flex-col items-center">
+            <div className="w-14 h-14 rounded-2xl bg-[var(--color-accent-soft)] flex items-center justify-center text-[var(--color-accent)] text-xl font-bold mb-4">#</div>
+            <div className="text-[17px] font-semibold text-[var(--color-accent)]">
               # All
             </div>
-            <div className="text-[14px] text-[var(--color-text-tertiary)]">
+            <div className="text-[13px] text-[var(--color-text-tertiary)] max-w-[360px] leading-relaxed mt-2">
               Message your team — the right agents will respond
             </div>
+            <div className="text-[13px] text-[var(--color-text-tertiary)] mt-4 opacity-60">Type a message to start the conversation</div>
           </div>
         </div>
       )}
@@ -620,7 +620,7 @@ function GroupChatInput({
 
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 bg-[var(--color-surface)] px-3 pt-2 pb-[max(16px,env(safe-area-inset-bottom))] md:px-5 md:pb-5"
+      className="fixed bottom-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 bg-[var(--color-surface)] px-3 pt-2 pb-[max(16px,env(safe-area-inset-bottom))] md:px-6 md:pb-5"
     >
       <div className="relative">
         {mentionOpen && filteredMentionAgents.length > 0 && (
@@ -667,11 +667,11 @@ function GroupChatInput({
           </div>
         )}
 
-        <div className="flex gap-2 items-end bg-[var(--color-input-bg)] rounded-xl pl-2 pr-1.5 py-1.5 border border-[var(--color-border)]">
+        <div className="flex gap-2 items-end bg-[var(--color-input-bg)] rounded-2xl pl-2.5 pr-2 py-2 border border-[var(--color-border)]">
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={streaming}
-            className="w-9 h-9 rounded-lg border-none shrink-0 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] transition-colors cursor-pointer bg-transparent mb-0.5 disabled:opacity-50"
+            className="w-8 h-8 rounded-full border-none shrink-0 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-active)] transition-colors cursor-pointer bg-transparent mb-0.5 disabled:opacity-40"
             title="Attach file"
           >
             <PaperclipIcon />
@@ -686,20 +686,22 @@ function GroupChatInput({
             }}
             placeholder="Message #All... (@ to mention, # for teams)"
             rows={1}
-            className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[15px] outline-none py-2 resize-none leading-relaxed"
+            className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[14.5px] outline-none py-1.5 resize-none leading-relaxed placeholder:text-[var(--color-text-tertiary)]"
             style={{ maxHeight: 120 }}
           />
           <button
             onClick={send}
             disabled={!canSend}
-            className="w-9 h-9 rounded-lg border-none shrink-0 flex items-center justify-center transition-all duration-150 mb-0.5"
+            className="h-9 rounded-xl border-none shrink-0 flex items-center justify-center gap-1.5 font-semibold text-[13px] transition-all duration-150 mb-0.5"
             style={{
               background: canSend ? "var(--color-accent)" : "transparent",
               color: canSend ? "#fff" : "var(--color-text-tertiary)",
               cursor: canSend ? "pointer" : "default",
+              padding: canSend ? "0 14px" : "0 8px",
             }}
           >
             <SendIcon />
+            {canSend && <span>Send</span>}
           </button>
         </div>
       </div>
@@ -1057,30 +1059,30 @@ export function GroupChatView({
     <div className="flex-1 flex flex-col bg-[var(--color-surface)] overflow-hidden">
       {/* Header — fixed on mobile, in-flow on desktop */}
       <div
-        className="fixed top-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-3 py-3 px-4 md:py-3.5 md:px-6 pt-safe"
+        className="fixed top-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-3 h-[56px] px-4 md:px-6 pt-safe"
       >
         <button
           onClick={openDrawer}
-          className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex md:hidden"
+          className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-1 rounded-lg hover:bg-[var(--color-hover)] flex md:hidden"
         >
           <MenuIcon />
         </button>
         <span className="text-[var(--color-text-tertiary)] text-base">
           <HashIcon />
         </span>
-        <span className="text-[16px] font-semibold text-[var(--color-text)]">
+        <span className="text-[14px] font-semibold text-[var(--color-text)]">
           All
         </span>
-        <span className="text-[13px] text-[var(--color-text-tertiary)] flex-1">
+        <span className="text-[12px] text-[var(--color-text-tertiary)] flex-1">
           {agents.length} agent{agents.length !== 1 ? "s" : ""}
         </span>
         <button
           onClick={handleNewChat}
-          className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-1 flex items-center gap-1.5 hover:text-[var(--color-text-secondary)] transition-colors"
+          className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-2 rounded-lg hover:bg-[var(--color-hover)] flex items-center gap-1.5 hover:text-[var(--color-text-secondary)] transition-colors"
           title="New chat"
         >
           <NewChatIcon />
-          <span className="text-[13px] font-medium hidden md:inline">New chat</span>
+          <span className="text-[12px] font-medium hidden md:inline">New chat</span>
         </button>
       </div>
 
@@ -1105,7 +1107,7 @@ export function GroupChatView({
 
         {/* Schedule request banner */}
         {scheduleRequest && (
-          <div className="mx-3 my-2 md:mx-5 p-3 rounded-lg border border-[var(--color-accent)] bg-[var(--color-accent-soft)] flex items-start gap-3">
+          <div className="mx-4 my-2 md:mx-6 p-3 rounded-xl border border-[var(--color-accent)] bg-[var(--color-accent-soft)] flex items-start gap-3">
             <span className="text-[var(--color-accent)] mt-0.5">
               <CalendarIcon />
             </span>

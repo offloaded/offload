@@ -99,17 +99,17 @@ export default function ActivityPage() {
   return (
     <div className="flex-1 flex flex-col bg-[var(--color-surface)] overflow-hidden">
       {/* Header */}
-      <div className="fixed top-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-3 py-3 px-4 md:py-3.5 md:px-6 pt-safe">
+      <div className="fixed top-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-3 h-[56px] px-4 md:px-6 pt-safe">
         <button
           onClick={openDrawer}
-          className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex md:hidden"
+          className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-1 flex md:hidden rounded-lg hover:bg-[var(--color-hover)]"
         >
           <MenuIcon />
         </button>
-        <span className="text-[16px] font-semibold text-[var(--color-text)]">
+        <span className="text-[14px] font-semibold text-[var(--color-text)]">
           Activity
         </span>
-        <span className="text-[13px] text-[var(--color-text-tertiary)]">
+        <span className="text-[12px] text-[var(--color-text-tertiary)]">
           Real-time agent activity
         </span>
       </div>
@@ -118,14 +118,14 @@ export default function ActivityPage() {
       <div className="flex-1 overflow-y-auto pt-[52px] md:pt-0 min-h-0">
         {loading && (
           <div className="flex items-center justify-center py-16">
-            <span className="text-[15px] text-[var(--color-text-tertiary)]">Loading...</span>
+            <span className="text-[14px] text-[var(--color-text-tertiary)]">Loading...</span>
           </div>
         )}
 
         {!loading && activities.length === 0 && (
-          <div className="flex items-center justify-center py-16">
+          <div className="flex items-center justify-center py-24">
             <div className="text-center">
-              <div className="text-[15px] font-medium text-[var(--color-text-secondary)] mb-1">
+              <div className="text-[14px] font-medium text-[var(--color-text-secondary)] mb-1">
                 No activity yet
               </div>
               <div className="text-[14px] text-[var(--color-text-tertiary)]">
@@ -138,7 +138,7 @@ export default function ActivityPage() {
         {activities.filter((a) => a.type !== "task_started").map((a) => (
           <div
             key={a.id}
-            className="flex items-start gap-3 px-4 py-3 md:px-6 border-b border-[var(--color-border-light)] hover:bg-[var(--color-hover)] transition-colors"
+            className="flex items-start gap-3 px-5 py-3 md:px-8 border-b border-[var(--color-border-light)] hover:bg-[var(--color-hover)] transition-colors"
           >
             {/* Status icon */}
             <div className="mt-0.5 shrink-0">

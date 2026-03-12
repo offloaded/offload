@@ -81,7 +81,7 @@ export default function TeamSettingsPage() {
 
   if (!canManage) {
     return (
-      <div className="flex-1 flex items-center justify-center text-[15px] text-[var(--color-text-secondary)]">
+      <div className="flex-1 flex items-center justify-center text-[14px] text-[var(--color-text-secondary)]">
         You don&apos;t have permission to edit teams
       </div>
     );
@@ -89,7 +89,7 @@ export default function TeamSettingsPage() {
 
   if (!team) {
     return (
-      <div className="flex-1 flex items-center justify-center text-[15px] text-[var(--color-text-secondary)]">
+      <div className="flex-1 flex items-center justify-center text-[14px] text-[var(--color-text-secondary)]">
         Team not found
       </div>
     );
@@ -102,17 +102,17 @@ export default function TeamSettingsPage() {
         <div className="sticky top-0 z-10 bg-[var(--color-surface)] shrink-0 flex items-center gap-3 px-4 py-3 border-b border-[var(--color-border)] md:px-10 md:pt-8 md:pb-0 md:border-b-0">
           <button
             onClick={() => router.push(`/team/${teamId}`)}
-            className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex"
+            className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-1 flex rounded-lg hover:bg-[var(--color-hover)]"
           >
             <BackIcon />
           </button>
-          <span className="text-[18px] font-semibold text-[var(--color-text)]">
+          <span className="text-[16px] font-semibold text-[var(--color-text)]">
             Channel Settings
           </span>
         </div>
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-[400px] px-4">
-            <div className="text-[15px] text-[var(--color-text-secondary)] mb-2">
+            <div className="text-[14px] text-[var(--color-text-secondary)] mb-2">
               #{team.name} is a system channel
             </div>
             <div className="text-[13px] text-[var(--color-text-tertiary)]">
@@ -221,7 +221,7 @@ export default function TeamSettingsPage() {
         >
           <BackIcon />
         </button>
-        <span className="text-[18px] font-semibold text-[var(--color-text)]">
+        <span className="text-[16px] font-semibold text-[var(--color-text)]">
           Channel Settings
         </span>
         {team.visibility === "private" && (
@@ -234,7 +234,7 @@ export default function TeamSettingsPage() {
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
         <div className="max-w-[600px] w-full p-4 md:px-10 md:pt-5 md:pb-8">
           {error && (
-            <div className="mb-5 text-[14px] text-[var(--color-red)] bg-[var(--color-red-soft)] px-3.5 py-2.5 rounded-lg">
+            <div className="mb-5 text-[14px] text-[var(--color-red)] bg-[var(--color-red-soft)] px-3.5 py-2.5 rounded-xl">
               {error}
             </div>
           )}
@@ -246,7 +246,7 @@ export default function TeamSettingsPage() {
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full py-3 px-4 border border-[var(--color-border)] rounded-lg text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
+              className="w-full py-3 px-4 border border-[var(--color-border)] rounded-xl text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
             />
           </div>
 
@@ -258,7 +258,7 @@ export default function TeamSettingsPage() {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="What is this channel for?"
-              className="w-full py-3 px-4 border border-[var(--color-border)] rounded-lg text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
+              className="w-full py-3 px-4 border border-[var(--color-border)] rounded-xl text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
             />
           </div>
 
@@ -277,7 +277,7 @@ export default function TeamSettingsPage() {
                   return (
                     <div
                       key={cm.user_id}
-                      className="flex items-center gap-3 py-2.5 px-4 rounded-lg border border-[var(--color-border)]"
+                      className="flex items-center gap-3 py-2.5 px-4 rounded-xl border border-[var(--color-border)]"
                     >
                       <div className="flex-1 min-w-0">
                         <div className="text-[14px] font-medium text-[var(--color-text)]">
@@ -306,7 +306,7 @@ export default function TeamSettingsPage() {
                 </button>
               )}
               {showAddMember && (
-                <div className="flex flex-col gap-1.5 mt-2 p-3 border border-[var(--color-border)] rounded-lg">
+                <div className="flex flex-col gap-1.5 mt-2 p-3 border border-[var(--color-border)] rounded-xl">
                   <div className="text-[12px] font-semibold text-[var(--color-text-tertiary)] mb-1">
                     Add a workspace member
                   </div>
@@ -314,7 +314,7 @@ export default function TeamSettingsPage() {
                     <button
                       key={m.user_id}
                       onClick={() => addChannelMember(m.user_id)}
-                      className="flex items-center gap-3 py-2 px-3 rounded-lg bg-transparent border border-[var(--color-border)] cursor-pointer text-left hover:bg-[var(--color-hover)] transition-colors"
+                      className="flex items-center gap-3 py-2 px-3 rounded-xl bg-transparent border border-[var(--color-border)] cursor-pointer text-left hover:bg-[var(--color-hover)] transition-colors"
                     >
                       <div className="text-[14px] text-[var(--color-text)]">
                         {m.display_name || m.email || "Member"}
@@ -346,7 +346,7 @@ export default function TeamSettingsPage() {
                   <button
                     key={agent.id}
                     onClick={() => toggleAgent(agent.id)}
-                    className="flex items-center gap-3 py-3 px-4 rounded-lg border cursor-pointer text-left transition-all"
+                    className="flex items-center gap-3 py-3 px-4 rounded-xl border cursor-pointer text-left transition-all"
                     style={{
                       background: selected ? "var(--color-accent-soft)" : "transparent",
                       borderColor: selected ? "var(--color-accent)" : "var(--color-border)",
@@ -391,7 +391,7 @@ export default function TeamSettingsPage() {
               </p>
               <div className="flex flex-col gap-3">
                 {teamExpectations.map(({ agent, expectations }) => (
-                  <div key={agent.id} className="border border-[var(--color-border)] rounded-lg p-3">
+                  <div key={agent.id} className="border border-[var(--color-border)] rounded-xl p-3">
                     <div className="flex items-center gap-2 mb-2">
                       <div className="w-2.5 h-2.5 rounded-full" style={{ background: agent.color }} />
                       <span className="text-[13px] font-semibold text-[var(--color-text)]">{agent.name}</span>
@@ -416,7 +416,7 @@ export default function TeamSettingsPage() {
                 Marketplace
               </label>
               {publishedId ? (
-                <div className="flex items-center gap-3 py-3 px-4 border border-[var(--color-border)] rounded-lg">
+                <div className="flex items-center gap-3 py-3 px-4 border border-[var(--color-border)] rounded-xl">
                   <span className="text-[14px] text-[var(--color-green)] font-medium flex-1">Published to Marketplace</span>
                   <button
                     onClick={async () => {
@@ -432,8 +432,8 @@ export default function TeamSettingsPage() {
                   </button>
                 </div>
               ) : publishOpen ? (
-                <div className="border border-[var(--color-border)] rounded-lg p-4">
-                  <div className="mb-3 p-3 bg-[var(--color-accent-soft)] rounded-lg text-[12px] text-[var(--color-text-secondary)] leading-relaxed">
+                <div className="border border-[var(--color-border)] rounded-xl p-4">
+                  <div className="mb-3 p-3 bg-[var(--color-accent-soft)] rounded-xl text-[12px] text-[var(--color-text-secondary)] leading-relaxed">
                     <div className="font-semibold text-[var(--color-text)] mb-1">Before publishing, please note:</div>
                     Publishing shares this team&apos;s full configuration, all agent configurations, AND knowledge base documents with all Offloaded users who adopt it.
                     Review each agent&apos;s knowledge base and remove any confidential, client-specific, or copyrighted material.
@@ -447,7 +447,7 @@ export default function TeamSettingsPage() {
                       maxLength={500}
                       rows={2}
                       placeholder="Describe what this team does and who it's for..."
-                      className="w-full py-2 px-3 border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-none focus:border-[var(--color-accent)]"
+                      className="w-full py-2 px-3 border border-[var(--color-border)] rounded-xl text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-none focus:border-[var(--color-accent)]"
                     />
                     <div className="text-[11px] text-[var(--color-text-tertiary)] text-right mt-0.5">{publishDesc.length}/500</div>
                   </div>
@@ -456,7 +456,7 @@ export default function TeamSettingsPage() {
                     <select
                       value={publishCategory}
                       onChange={(e) => setPublishCategory(e.target.value)}
-                      className="w-full py-2 px-3 border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none"
+                      className="w-full py-2 px-3 border border-[var(--color-border)] rounded-xl text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none"
                     >
                       {["Business Advisory","Coaching & Training","Operations","Research & Analysis","Health & Fitness","Legal & Compliance","Finance","Marketing","Custom"].map((c) => (
                         <option key={c} value={c}>{c}</option>
@@ -483,13 +483,13 @@ export default function TeamSettingsPage() {
                         finally { setPublishing(false); }
                       }}
                       disabled={!publishDesc.trim() || publishing}
-                      className="flex-1 py-2.5 border-none rounded-lg text-[13px] font-semibold cursor-pointer disabled:opacity-50 bg-[var(--color-accent)] text-white"
+                      className="flex-1 py-2.5 border-none rounded-xl text-[13px] font-semibold cursor-pointer disabled:opacity-50 bg-[var(--color-accent)] text-white"
                     >
                       {publishing ? "Publishing..." : "Publish to Marketplace"}
                     </button>
                     <button
                       onClick={() => setPublishOpen(false)}
-                      className="py-2.5 px-4 border border-[var(--color-border)] rounded-lg bg-transparent text-[13px] text-[var(--color-text-secondary)] cursor-pointer"
+                      className="py-2.5 px-4 border border-[var(--color-border)] rounded-xl bg-transparent text-[13px] text-[var(--color-text-secondary)] cursor-pointer"
                     >
                       Cancel
                     </button>
@@ -498,7 +498,7 @@ export default function TeamSettingsPage() {
               ) : (
                 <button
                   onClick={() => setPublishOpen(true)}
-                  className="w-full py-3 px-4 border border-dashed border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[14px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-hover)] transition-colors"
+                  className="w-full py-3 px-4 border border-dashed border-[var(--color-border)] rounded-xl bg-transparent cursor-pointer text-[14px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-hover)] transition-colors"
                 >
                   Publish to Marketplace
                 </button>
@@ -510,7 +510,7 @@ export default function TeamSettingsPage() {
             <button
               onClick={save}
               disabled={!name.trim() || saving}
-              className="flex-1 py-3 px-5 border-none rounded-lg text-[15px] font-semibold cursor-pointer disabled:cursor-default transition-colors"
+              className="flex-1 py-3 px-5 border-none rounded-xl text-[15px] font-semibold cursor-pointer disabled:cursor-default transition-colors"
               style={{
                 background: name.trim() ? "var(--color-accent)" : "var(--color-active)",
                 color: name.trim() ? "#fff" : "var(--color-text-tertiary)",
@@ -521,7 +521,7 @@ export default function TeamSettingsPage() {
             <button
               onClick={remove}
               disabled={saving}
-              className="py-3 px-4 bg-[var(--color-red-soft)] text-[var(--color-red)] border-none rounded-lg cursor-pointer flex items-center"
+              className="py-3 px-4 bg-[var(--color-red-soft)] text-[var(--color-red)] border-none rounded-xl cursor-pointer flex items-center"
             >
               <TrashIcon />
             </button>

@@ -105,11 +105,11 @@ export default function MembersPage() {
         <div className="flex items-center gap-3 mb-0 max-w-[520px]">
           <button
             onClick={openDrawer}
-            className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex md:hidden"
+            className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-1 flex md:hidden rounded-lg hover:bg-[var(--color-hover)]"
           >
             <MenuIcon />
           </button>
-          <span className="text-[18px] font-semibold text-[var(--color-text)] flex-1">
+          <span className="text-[16px] font-semibold text-[var(--color-text)] flex-1">
             Team Members
           </span>
         </div>
@@ -121,7 +121,7 @@ export default function MembersPage() {
           {/* Workspace info */}
           <div className="mb-6 p-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)]">
             <div className="flex items-center justify-between mb-1">
-              <div className="text-[15px] font-semibold text-[var(--color-text)]">
+              <div className="text-[14px] font-semibold text-[var(--color-text)]">
                 {workspace?.name || "Workspace"}
               </div>
               {canManage && (
@@ -155,12 +155,12 @@ export default function MembersPage() {
                   }}
                   onKeyDown={(e) => e.key === "Enter" && handleInvite()}
                   placeholder="email@example.com"
-                  className="flex-1 px-3 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-input-bg)] text-[var(--color-text)] text-[14px] outline-none focus:border-[var(--color-accent)]"
+                  className="flex-1 px-3 py-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-input-bg)] text-[var(--color-text)] text-[14px] outline-none focus:border-[var(--color-accent)]"
                 />
                 <button
                   onClick={handleInvite}
                   disabled={inviting || !inviteEmail.trim()}
-                  className="px-4 py-2 rounded-lg border-none text-[14px] font-semibold cursor-pointer bg-[var(--color-accent)] text-white disabled:opacity-50"
+                  className="px-4 py-2 rounded-xl border-none text-[14px] font-semibold cursor-pointer bg-[var(--color-accent)] text-white disabled:opacity-50"
                 >
                   {inviting ? "..." : "Invite"}
                 </button>
@@ -191,7 +191,7 @@ export default function MembersPage() {
                     key={m.user_id}
                     className="flex items-center gap-3 p-3 rounded-xl border border-[var(--color-border)]"
                   >
-                    <div className="w-8 h-8 rounded-lg bg-[var(--color-active)] flex items-center justify-center text-[11px] font-bold text-[var(--color-text-secondary)]">
+                    <div className="w-8 h-8 rounded-xl bg-[var(--color-active)] flex items-center justify-center text-[11px] font-bold text-[var(--color-text-secondary)]">
                       {(m.display_name || m.email || "?").charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -209,13 +209,13 @@ export default function MembersPage() {
                         <select
                           value={m.role}
                           onChange={(e) => handleChangeRole(m.user_id, e.target.value)}
-                          className="text-[12px] bg-[var(--color-bg)] border border-[var(--color-border)] rounded-md px-2 py-1 text-[var(--color-text-secondary)] outline-none"
+                          className="text-[12px] bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-2 py-1 text-[var(--color-text-secondary)] outline-none"
                         >
                           <option value="member">Member</option>
                           <option value="admin">Admin</option>
                         </select>
                       ) : (
-                        <span className="text-[12px] text-[var(--color-text-tertiary)] px-2 py-1 rounded-md bg-[var(--color-bg)] border border-[var(--color-border)]">
+                        <span className="text-[12px] text-[var(--color-text-tertiary)] px-2 py-1 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)]">
                           {m.role}
                         </span>
                       )}
@@ -248,7 +248,7 @@ export default function MembersPage() {
                       key={invite.id}
                       className="flex items-center gap-3 p-3 rounded-xl border border-dashed border-[var(--color-border)]"
                     >
-                      <div className="w-8 h-8 rounded-lg bg-[var(--color-hover)] flex items-center justify-center text-[11px] font-bold text-[var(--color-text-tertiary)]">
+                      <div className="w-8 h-8 rounded-xl bg-[var(--color-hover)] flex items-center justify-center text-[11px] font-bold text-[var(--color-text-tertiary)]">
                         ?
                       </div>
                       <div className="flex-1 min-w-0">

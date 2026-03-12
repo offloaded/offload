@@ -157,20 +157,20 @@ export default function ReportsPage() {
 
   return (
     <div className="flex-1 flex flex-col bg-[var(--color-surface)] overflow-hidden">
-      <div className="fixed top-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-3 py-3 px-4 md:py-3.5 md:px-6 pt-safe">
+      <div className="fixed top-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-3 h-[56px] px-4 md:px-6 pt-safe">
         <button
           onClick={openDrawer}
-          className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex md:hidden"
+          className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-1 rounded-lg hover:bg-[var(--color-hover)] flex md:hidden"
         >
           <MenuIcon />
         </button>
-        <span className="text-[16px] font-semibold text-[var(--color-text)]">
+        <span className="text-[14px] font-semibold text-[var(--color-text)]">
           Reports
         </span>
         <div className="ml-auto flex items-center gap-1">
           <button
             onClick={() => setTab("reports")}
-            className={`px-3 py-1.5 rounded-md text-[13px] font-medium border-none cursor-pointer transition-colors ${
+            className={`px-3 py-1.5 rounded-lg text-[13px] font-medium border-none cursor-pointer transition-colors ${
               tab === "reports"
                 ? "bg-[var(--color-accent)] text-white"
                 : "bg-transparent text-[var(--color-text-secondary)] hover:bg-[var(--color-hover)]"
@@ -180,7 +180,7 @@ export default function ReportsPage() {
           </button>
           <button
             onClick={() => setTab("templates")}
-            className={`px-3 py-1.5 rounded-md text-[13px] font-medium border-none cursor-pointer transition-colors ${
+            className={`px-3 py-1.5 rounded-lg text-[13px] font-medium border-none cursor-pointer transition-colors ${
               tab === "templates"
                 ? "bg-[var(--color-accent)] text-white"
                 : "bg-transparent text-[var(--color-text-secondary)] hover:bg-[var(--color-hover)]"
@@ -201,12 +201,12 @@ export default function ReportsPage() {
             )}
 
             {!loading && reports.length === 0 && (
-              <div className="flex items-center justify-center py-16">
-                <div className="text-center">
-                  <div className="text-[var(--color-text-tertiary)] mb-3 flex justify-center">
+              <div className="flex items-center justify-center py-24">
+                <div className="text-center flex flex-col items-center">
+                  <div className="w-14 h-14 rounded-2xl bg-[var(--color-accent-soft)] flex items-center justify-center text-[var(--color-accent)] mb-4">
                     <ReportIcon />
                   </div>
-                  <div className="text-[15px] text-[var(--color-text-tertiary)]">
+                  <div className="text-[15px] font-medium text-[var(--color-text-tertiary)]">
                     No reports yet
                   </div>
                   <div className="text-[13px] text-[var(--color-text-tertiary)] mt-1">
@@ -217,8 +217,8 @@ export default function ReportsPage() {
             )}
 
             {!loading && reports.length > 0 && (
-              <div className="max-w-[720px] mx-auto px-4 py-4 md:px-6 md:py-6">
-                <div className="flex flex-col gap-1">
+              <div className="max-w-[760px] mx-auto px-5 py-6 md:px-8 md:py-8">
+                <div className="flex flex-col gap-1.5">
                   {reports.map((report) => {
                     const agent = report.agent_id ? agentMap[report.agent_id] : null;
                     const displayTitle = report.display_name || report.title;
@@ -226,7 +226,7 @@ export default function ReportsPage() {
                     return (
                       <div
                         key={report.id}
-                        className="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-[var(--color-hover)] transition-colors group cursor-pointer"
+                        className="flex items-center gap-3 px-4 py-3 rounded-xl border border-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-hover)] transition-all group cursor-pointer"
                         onClick={() => {
                           if (isRenaming) return;
                           if (mobile) {
@@ -288,14 +288,14 @@ export default function ReportsPage() {
                         </div>
                         <button
                           onClick={(e) => startRename(report, e)}
-                          className="opacity-0 group-hover:opacity-100 bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] cursor-pointer p-1 transition-opacity text-[11px]"
+                          className="opacity-0 group-hover:opacity-100 bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] cursor-pointer p-1 rounded-md hover:bg-[var(--color-hover)] transition-opacity text-[11px]"
                           title="Rename"
                         >
                           Rename
                         </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); handleDelete(report.id); }}
-                          className="opacity-0 group-hover:opacity-100 bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-red-500 cursor-pointer p-1 transition-opacity"
+                          className="opacity-0 group-hover:opacity-100 bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-red-500 cursor-pointer p-1 rounded-md hover:bg-[var(--color-hover)] transition-opacity"
                         >
                           <TrashIcon />
                         </button>
@@ -309,7 +309,7 @@ export default function ReportsPage() {
         )}
 
         {tab === "templates" && (
-          <div className="max-w-[720px] mx-auto px-4 py-4 md:px-6 md:py-6">
+          <div className="max-w-[760px] mx-auto px-5 py-6 md:px-8 md:py-8">
             {/* Upload button */}
             <div className="flex items-center gap-2 mb-4">
               <input
@@ -322,7 +322,7 @@ export default function ReportsPage() {
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploading}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-[var(--color-border)] bg-transparent text-[13px] text-[var(--color-text-secondary)] hover:bg-[var(--color-hover)] hover:border-[var(--color-accent)] cursor-pointer transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-[var(--color-border)] bg-transparent text-[13px] text-[var(--color-text-secondary)] hover:bg-[var(--color-hover)] hover:border-[var(--color-accent)] cursor-pointer transition-colors disabled:opacity-50"
               >
                 <UploadIcon />
                 {uploading ? "Uploading..." : "Upload template (.docx, .txt, .md)"}
@@ -336,12 +336,12 @@ export default function ReportsPage() {
             )}
 
             {!templatesLoading && templates.length === 0 && (
-              <div className="flex items-center justify-center py-16">
-                <div className="text-center">
-                  <div className="text-[var(--color-text-tertiary)] mb-3 flex justify-center">
+              <div className="flex items-center justify-center py-24">
+                <div className="text-center flex flex-col items-center">
+                  <div className="w-14 h-14 rounded-2xl bg-[var(--color-accent-soft)] flex items-center justify-center text-[var(--color-accent)] mb-4">
                     <FileIcon />
                   </div>
-                  <div className="text-[15px] text-[var(--color-text-tertiary)]">
+                  <div className="text-[15px] font-medium text-[var(--color-text-tertiary)]">
                     No templates yet
                   </div>
                   <div className="text-[13px] text-[var(--color-text-tertiary)] mt-1">
@@ -356,7 +356,7 @@ export default function ReportsPage() {
                 {templates.map((template) => (
                   <div
                     key={template.id}
-                    className="px-4 py-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] hover:border-[var(--color-accent)] transition-colors group"
+                    className="px-4 py-3.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] hover:border-[var(--color-accent)] transition-all group"
                   >
                     {editingTemplate === template.id ? (
                       <div className="flex flex-col gap-2">
@@ -416,13 +416,13 @@ export default function ReportsPage() {
                               setEditName(template.name);
                               setEditDesc(template.description);
                             }}
-                            className="bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] cursor-pointer p-1 text-[12px]"
+                            className="bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] cursor-pointer p-1 rounded-md hover:bg-[var(--color-hover)] text-[12px]"
                           >
                             Edit
                           </button>
                           <button
                             onClick={() => handleDeleteTemplate(template.id)}
-                            className="bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-red-500 cursor-pointer p-1"
+                            className="bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-red-500 cursor-pointer p-1 rounded-md hover:bg-[var(--color-hover)]"
                           >
                             <TrashIcon />
                           </button>

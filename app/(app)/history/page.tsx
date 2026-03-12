@@ -160,17 +160,17 @@ export default function HistoryPage() {
         <div className="flex items-center gap-3 mb-3">
           <button
             onClick={openDrawer}
-            className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex md:hidden"
+            className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-1 flex md:hidden rounded-lg hover:bg-[var(--color-hover)]"
           >
             <MenuIcon />
           </button>
-          <span className="text-[18px] font-semibold text-[var(--color-text)]">
+          <span className="text-[16px] font-semibold text-[var(--color-text)]">
             History
           </span>
         </div>
 
         {/* Search bar */}
-        <div className="flex items-center gap-2 bg-[var(--color-input-bg)] rounded-lg px-3 py-2 border border-[var(--color-border)]">
+        <div className="flex items-center gap-2 bg-[var(--color-input-bg)] rounded-xl px-3 py-2 border border-[var(--color-border)]">
           <span className="text-[var(--color-text-tertiary)] shrink-0">
             <SearchIcon />
           </span>
@@ -193,7 +193,7 @@ export default function HistoryPage() {
       <div className="flex-1 overflow-y-auto overflow-x-hidden pt-[108px] md:pt-0">
         {loading && conversations.length === 0 && (
           <div className="flex items-center justify-center py-12">
-            <span className="text-[15px] text-[var(--color-text-tertiary)]">
+            <span className="text-[14px] text-[var(--color-text-tertiary)]">
               Loading...
             </span>
           </div>
@@ -202,7 +202,7 @@ export default function HistoryPage() {
         {!loading && conversations.length === 0 && (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
-              <div className="text-[15px] text-[var(--color-text-secondary)] mb-1">
+              <div className="text-[14px] text-[var(--color-text-secondary)] mb-1">
                 {searchQuery ? "No results found" : "No conversations yet"}
               </div>
               <div className="text-[14px] text-[var(--color-text-tertiary)]">
@@ -214,26 +214,26 @@ export default function HistoryPage() {
           </div>
         )}
 
-        <div className="max-w-[720px]">
+        <div className="max-w-[760px]">
           {conversations.map((entry) => (
             <button
               key={entry.id}
               onClick={() => openConversation(entry)}
-              className="w-full flex items-start gap-3 px-4 py-3 md:px-6 border-none bg-transparent cursor-pointer hover:bg-[var(--color-hover)] transition-colors text-left"
+              className="w-full flex items-start gap-3 px-5 py-3 md:px-8 border-none bg-transparent cursor-pointer hover:bg-[var(--color-hover)] transition-colors text-left"
             >
               {/* Avatar / icon */}
               {entry.is_group ? (
-                <div className="w-9 h-9 rounded-lg shrink-0 bg-[var(--color-active)] flex items-center justify-center text-[var(--color-text-secondary)]">
+                <div className="w-[34px] h-[34px] rounded-xl shrink-0 bg-[var(--color-active)] flex items-center justify-center text-[var(--color-text-secondary)]">
                   <HashIcon />
                 </div>
               ) : entry.agent_color ? (
                 <Avatar
                   name={entry.agent_name || "?"}
                   color={entry.agent_color}
-                  size={36}
+                  size={34}
                 />
               ) : (
-                <div className="w-9 h-9 rounded-lg shrink-0 bg-[var(--color-active)] flex items-center justify-center text-[var(--color-text-tertiary)] text-xs font-bold">
+                <div className="w-[34px] h-[34px] rounded-xl shrink-0 bg-[var(--color-active)] flex items-center justify-center text-[var(--color-text-tertiary)] text-xs font-bold">
                   ?
                 </div>
               )}

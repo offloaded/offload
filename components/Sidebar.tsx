@@ -12,6 +12,7 @@ interface TeamWithAgents extends Team {
   agent_ids: string[];
 }
 
+/* ── NavItem ── */
 function NavItem({
   href,
   isActive,
@@ -24,11 +25,13 @@ function NavItem({
   return (
     <Link
       href={href}
-      className="flex items-center gap-2.5 px-3 py-2 rounded-lg w-full text-[14px] no-underline transition-colors"
+      className={`flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg w-full text-[13px] no-underline transition-colors ${
+        isActive
+          ? "bg-[var(--color-surface)] shadow-[0_1px_2px_rgba(0,0,0,0.04)] font-medium"
+          : "hover:bg-[var(--color-hover)] font-normal"
+      }`}
       style={{
-        background: isActive ? "var(--color-accent-soft)" : "transparent",
-        color: isActive ? "var(--color-accent)" : "var(--color-text-secondary)",
-        fontWeight: isActive ? 600 : 500,
+        color: isActive ? "var(--color-text)" : "var(--color-text-secondary)",
       }}
     >
       {children}
@@ -36,6 +39,7 @@ function NavItem({
   );
 }
 
+/* ── Section Header ── */
 function SectionHeader({
   label,
   collapsed,
@@ -50,19 +54,20 @@ function SectionHeader({
   return (
     <button
       onClick={onToggle}
-      className="flex items-center gap-1 px-2 pt-3 pb-1.5 w-full bg-transparent border-none cursor-pointer text-left group"
+      className="flex items-center gap-1.5 px-2.5 pt-5 pb-1 w-full bg-transparent border-none cursor-pointer text-left group"
     >
-      <span
-        className="transition-transform duration-150 text-[var(--color-text-tertiary)]"
-        style={{ transform: collapsed ? "rotate(-90deg)" : "rotate(0deg)" }}
+      <svg
+        width="10" height="10" viewBox="0 0 10 10" fill="none"
+        className="text-[var(--color-text-tertiary)] transition-transform duration-150 shrink-0"
+        style={{ transform: collapsed ? "rotate(-90deg)" : "rotate(0)" }}
       >
-        <ChevronDownIcon />
-      </span>
-      <span className="text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider flex-1">
+        <path d="M2.5 3.5L5 6.5L7.5 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <span className="text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-[0.06em] flex-1">
         {label}
       </span>
       {collapsed && totalUnread ? (
-        <span className="text-[10px] font-semibold bg-[var(--color-accent)] text-white rounded-full px-1.5 py-0.5 min-w-[16px] text-center leading-none">
+        <span className="text-[10px] font-semibold bg-[var(--color-accent)] text-white rounded-full w-[18px] h-[18px] flex items-center justify-center leading-none">
           {totalUnread}
         </span>
       ) : null}
@@ -70,6 +75,7 @@ function SectionHeader({
   );
 }
 
+/* ── Theme Toggle ── */
 function ThemeToggle() {
   const [dark, setDark] = useState(false);
 
@@ -87,9 +93,9 @@ function ThemeToggle() {
   return (
     <button
       onClick={toggle}
-      className="flex items-center gap-2.5 px-3 py-2 rounded-lg w-full text-[14px] bg-transparent border-none cursor-pointer transition-colors font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)]"
+      className="flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg w-full text-[13px] bg-transparent border-none cursor-pointer transition-colors font-normal text-[var(--color-text-secondary)] hover:bg-[var(--color-hover)]"
     >
-      <span className="opacity-60">
+      <span className="opacity-50 w-4 flex items-center justify-center">
         {dark ? <SunIcon /> : <MoonIcon />}
       </span>
       <span>{dark ? "Light mode" : "Dark mode"}</span>
@@ -97,6 +103,7 @@ function ThemeToggle() {
   );
 }
 
+/* ── Workspace Switcher ── */
 function WorkspaceSwitcher({
   workspace,
   workspaces,
@@ -127,14 +134,14 @@ function WorkspaceSwitcher({
     <div ref={ref} className="relative">
       <button
         onClick={() => hasMultiple && setOpen(!open)}
-        className="w-full px-2.5 py-2.5 rounded-lg border border-[var(--color-border-light)] flex items-center gap-2.5 bg-transparent text-left transition-colors hover:bg-[var(--color-hover)]"
+        className="w-full px-3 py-2.5 rounded-xl flex items-center gap-3 bg-[var(--color-surface)] border border-[var(--color-border)] text-left transition-all hover:shadow-[0_1px_3px_rgba(0,0,0,0.06)]"
         style={{ cursor: hasMultiple ? "pointer" : "default" }}
       >
-        <div className="w-7 h-7 rounded-md bg-[var(--color-active)] flex items-center justify-center text-[11px] font-bold text-[var(--color-text-secondary)]">
+        <div className="w-8 h-8 rounded-lg bg-[var(--color-accent)] flex items-center justify-center text-[13px] font-bold text-white shrink-0">
           {initial}
         </div>
-        <div className="flex-1 min-w-0 text-[13px] font-medium text-[var(--color-text)] truncate">
-          {workspace.name}
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px] font-semibold text-[var(--color-text)] truncate">{workspace.name}</div>
         </div>
         {hasMultiple && (
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-[var(--color-text-tertiary)] shrink-0">
@@ -144,7 +151,7 @@ function WorkspaceSwitcher({
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 right-0 mb-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-lg overflow-hidden z-50">
+        <div className="absolute bottom-full left-0 right-0 mb-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-lg overflow-hidden z-50">
           {workspaces.map((ws) => (
             <button
               key={ws.id}
@@ -152,18 +159,18 @@ function WorkspaceSwitcher({
                 if (ws.id !== workspace.id) onSwitch(ws.id);
                 setOpen(false);
               }}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left border-none cursor-pointer transition-colors"
+              className="w-full flex items-center gap-3 px-3 py-2.5 text-left border-none cursor-pointer transition-colors"
               style={{
                 background: ws.id === workspace.id ? "var(--color-hover)" : "transparent",
               }}
             >
-              <div className="w-6 h-6 rounded-md bg-[var(--color-active)] flex items-center justify-center text-[10px] font-bold text-[var(--color-text-secondary)]">
+              <div className="w-7 h-7 rounded-md bg-[var(--color-accent)] flex items-center justify-center text-[11px] font-bold text-white">
                 {ws.name.charAt(0).toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] font-medium text-[var(--color-text)] truncate">{ws.name}</div>
                 {ws.role && (
-                  <div className="text-[11px] text-[var(--color-text-tertiary)]">{ws.role}</div>
+                  <div className="text-[11px] text-[var(--color-text-tertiary)] capitalize">{ws.role}</div>
                 )}
               </div>
               {ws.id === workspace.id && (
@@ -179,6 +186,19 @@ function WorkspaceSwitcher({
   );
 }
 
+/* ── Unread Badge ── */
+function UnreadBadge({ count, color }: { count: number; color?: string }) {
+  return (
+    <span
+      className="text-[10px] font-semibold text-white rounded-full w-[18px] h-[18px] flex items-center justify-center leading-none shrink-0"
+      style={{ background: color || "var(--color-accent)" }}
+    >
+      {count}
+    </span>
+  );
+}
+
+/* ── Compose Modal ── */
 interface ComposeModalProps {
   open: boolean;
   onClose: () => void;
@@ -208,7 +228,6 @@ function ComposeModal({ open, onClose, agents, workspaceId, canCreateTeam }: Com
   const inputRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
 
-  // Load workspace members
   useEffect(() => {
     if (!open || !workspaceId) return;
     fetch("/api/workspaces/members")
@@ -217,7 +236,6 @@ function ComposeModal({ open, onClose, agents, workspaceId, canCreateTeam }: Com
       .catch(() => {});
   }, [open, workspaceId]);
 
-  // Reset state when opened
   useEffect(() => {
     if (open) {
       setSearch("");
@@ -229,7 +247,6 @@ function ComposeModal({ open, onClose, agents, workspaceId, canCreateTeam }: Com
     }
   }, [open]);
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
@@ -244,30 +261,17 @@ function ComposeModal({ open, onClose, agents, workspaceId, canCreateTeam }: Com
   const filteredParticipants = useMemo(() => {
     const results: Participant[] = [];
     const selectedIds = new Set(selected.map((s) => `${s.type}:${s.id}`));
-
-    // Agents
     for (const a of agents) {
       if (selectedIds.has(`agent:${a.id}`)) continue;
-      if (
-        lowerSearch &&
-        !a.name.toLowerCase().includes(lowerSearch) &&
-        !(a.role && a.role.toLowerCase().includes(lowerSearch))
-      ) continue;
+      if (lowerSearch && !a.name.toLowerCase().includes(lowerSearch) && !(a.role && a.role.toLowerCase().includes(lowerSearch))) continue;
       results.push({ type: "agent", id: a.id, name: a.name, role: a.role, color: a.color });
     }
-
-    // Members (only show if searching or if there are multiple workspace members)
     for (const m of members) {
       if (selectedIds.has(`member:${m.user_id}`)) continue;
       const displayName = m.display_name || m.email || "Member";
-      if (
-        lowerSearch &&
-        !displayName.toLowerCase().includes(lowerSearch) &&
-        !(m.email && m.email.toLowerCase().includes(lowerSearch))
-      ) continue;
+      if (lowerSearch && !displayName.toLowerCase().includes(lowerSearch) && !(m.email && m.email.toLowerCase().includes(lowerSearch))) continue;
       results.push({ type: "member", id: m.user_id, name: displayName, email: m.email, role: m.role });
     }
-
     return results;
   }, [agents, members, selected, lowerSearch]);
 
@@ -283,20 +287,12 @@ function ComposeModal({ open, onClose, agents, workspaceId, canCreateTeam }: Com
 
   const handleGo = useCallback(async () => {
     if (selected.length === 0) return;
-
-    // Single agent selected → DM
     if (selected.length === 1 && selected[0].type === "agent") {
       onClose();
       router.push(`/agent/${selected[0].id}`);
       return;
     }
-
-    // Multiple participants → create team
-    if (!showTeamName) {
-      setShowTeamName(true);
-      return;
-    }
-
+    if (!showTeamName) { setShowTeamName(true); return; }
     if (!teamName.trim()) return;
     setCreating(true);
     try {
@@ -305,13 +301,7 @@ function ComposeModal({ open, onClose, agents, workspaceId, canCreateTeam }: Com
       const res = await fetch("/api/teams", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: teamName.trim(),
-          description: "",
-          agent_ids: agentIds,
-          visibility: memberIds.length > 0 ? "private" : "public",
-          member_ids: memberIds.length > 0 ? memberIds : undefined,
-        }),
+        body: JSON.stringify({ name: teamName.trim(), description: "", agent_ids: agentIds, visibility: memberIds.length > 0 ? "private" : "public", member_ids: memberIds.length > 0 ? memberIds : undefined }),
       });
       if (res.ok) {
         const team = await res.json();
@@ -319,152 +309,86 @@ function ComposeModal({ open, onClose, agents, workspaceId, canCreateTeam }: Com
         onClose();
         router.push(`/team/${team.id}`);
       }
-    } finally {
-      setCreating(false);
-    }
+    } finally { setCreating(false); }
   }, [selected, showTeamName, teamName, onClose, router, refreshTeams, refreshActiveDms]);
 
   if (!open) return null;
 
   const needsTeamName = selected.length > 1 || (selected.length === 1 && selected[0].type === "member");
-  const buttonLabel =
-    selected.length === 0
-      ? "Select participants"
-      : selected.length === 1 && selected[0].type === "agent"
-      ? "Open DM"
-      : showTeamName
-      ? creating ? "Creating..." : "Create Team"
-      : "Next";
+  const buttonLabel = selected.length === 0 ? "Select participants" : selected.length === 1 && selected[0].type === "agent" ? "Open DM" : showTeamName ? creating ? "Creating..." : "Create Team" : "Next";
 
   return (
     <div className="fixed inset-0 z-[400] flex items-start justify-center pt-[15vh]">
-      <div className="fixed inset-0 bg-black/20" />
+      <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px]" />
       <div
         ref={modalRef}
-        className="relative bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-xl w-[400px] max-w-[90vw] max-h-[60vh] flex flex-col overflow-hidden"
+        className="relative bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl shadow-2xl w-[440px] max-w-[90vw] max-h-[60vh] flex flex-col overflow-hidden"
+        style={{ animation: "fade-in 0.15s ease" }}
       >
-        {/* Header */}
-        <div className="px-4 py-3 border-b border-[var(--color-border)] flex items-center justify-between shrink-0">
+        <div className="px-5 py-4 border-b border-[var(--color-border)] flex items-center justify-between shrink-0">
           <span className="text-[15px] font-semibold text-[var(--color-text)]">New conversation</span>
-          <button
-            onClick={onClose}
-            className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0.5 flex hover:text-[var(--color-text-secondary)]"
-          >
+          <button onClick={onClose} className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-1 flex rounded-lg hover:bg-[var(--color-hover)]">
             <XIcon />
           </button>
         </div>
 
-        {/* Selected pills + search input */}
-        <div className="px-3 py-2 border-b border-[var(--color-border)] shrink-0">
+        <div className="px-4 py-3 border-b border-[var(--color-border)] shrink-0">
           <div className="flex flex-wrap items-center gap-1.5">
             {selected.map((p) => (
-              <span
-                key={`${p.type}:${p.id}`}
-                className="flex items-center gap-1 px-2 py-1 rounded-full text-[12px] font-medium bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
-              >
-                {p.type === "agent" && (
-                  <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
-                )}
+              <span key={`${p.type}:${p.id}`} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-medium bg-[var(--color-accent-soft)] text-[var(--color-accent)]">
+                {p.type === "agent" && <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />}
                 {p.name}
-                <button
-                  onClick={() => removeParticipant(p.id, p.type)}
-                  className="bg-transparent border-none text-[var(--color-accent)] cursor-pointer p-0 flex ml-0.5 hover:opacity-70"
-                >
-                  <XIcon />
-                </button>
+                <button onClick={() => removeParticipant(p.id, p.type)} className="bg-transparent border-none text-[var(--color-accent)] cursor-pointer p-0 flex ml-0.5 hover:opacity-70"><XIcon /></button>
               </span>
             ))}
             <input
-              ref={inputRef}
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              ref={inputRef} type="text" value={search} onChange={(e) => setSearch(e.target.value)}
               placeholder={selected.length === 0 ? "Search agents or members..." : "Add more..."}
               className="flex-1 min-w-[120px] bg-transparent border-none outline-none text-[13px] text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] py-1"
-              onKeyDown={(e) => {
-                if (e.key === "Backspace" && !search && selected.length > 0) {
-                  const last = selected[selected.length - 1];
-                  removeParticipant(last.id, last.type);
-                }
-              }}
+              onKeyDown={(e) => { if (e.key === "Backspace" && !search && selected.length > 0) { const last = selected[selected.length - 1]; removeParticipant(last.id, last.type); } }}
             />
           </div>
         </div>
 
-        {/* Team name input (shown when multiple participants) */}
         {showTeamName && needsTeamName && (
-          <div className="px-3 py-2.5 border-b border-[var(--color-border)] shrink-0">
-            <label className="text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider mb-1.5 block">
-              Team name
-            </label>
-            <input
-              type="text"
-              value={teamName}
-              onChange={(e) => setTeamName(e.target.value)}
-              placeholder="e.g. Marketing, Scrum..."
-              className="w-full bg-transparent border border-[var(--color-border)] rounded-lg px-3 py-2 text-[14px] text-[var(--color-text)] outline-none focus:border-[var(--color-accent)]"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && teamName.trim()) handleGo();
-              }}
-            />
+          <div className="px-4 py-3 border-b border-[var(--color-border)] shrink-0">
+            <label className="text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider mb-1.5 block">Team name</label>
+            <input type="text" value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder="e.g. Marketing, Scrum..." className="w-full bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-[13px] text-[var(--color-text)] outline-none focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent-soft)]" autoFocus onKeyDown={(e) => { if (e.key === "Enter" && teamName.trim()) handleGo(); }} />
           </div>
         )}
 
-        {/* Results list */}
         {!showTeamName && (
           <div className="flex-1 overflow-y-auto py-1">
             {filteredParticipants.length === 0 ? (
-              <div className="px-4 py-6 text-center text-[13px] text-[var(--color-text-tertiary)]">
+              <div className="px-5 py-8 text-center text-[13px] text-[var(--color-text-tertiary)]">
                 {search ? "No matches found" : "No participants available"}
               </div>
             ) : (
               filteredParticipants.map((p) => (
-                <button
-                  key={`${p.type}:${p.id}`}
-                  onClick={() => addParticipant(p)}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 bg-transparent border-none cursor-pointer text-left hover:bg-[var(--color-hover)] transition-colors"
-                >
+                <button key={`${p.type}:${p.id}`} onClick={() => addParticipant(p)} className="w-full flex items-center gap-3 px-5 py-2.5 bg-transparent border-none cursor-pointer text-left hover:bg-[var(--color-hover)] transition-colors">
                   {p.type === "agent" ? (
-                    <div className="w-3 h-3 rounded-full shrink-0" style={{ background: p.color }} />
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[12px] font-semibold shrink-0" style={{ background: `${p.color}16`, color: p.color }}>{p.name.charAt(0)}</div>
                   ) : (
-                    <div className="w-3 h-3 rounded-full shrink-0 bg-[var(--color-text-tertiary)] opacity-40" />
+                    <div className="w-8 h-8 rounded-full bg-[var(--color-active)] flex items-center justify-center text-[12px] font-semibold text-[var(--color-text-tertiary)] shrink-0">{p.name.charAt(0)}</div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <div className="text-[14px] text-[var(--color-text)] truncate">
-                      {p.name}
-                      {p.role && (
-                        <span className="text-[11px] text-[var(--color-text-tertiary)] font-normal ml-1.5">{p.role}</span>
-                      )}
-                    </div>
-                    {p.type === "member" && p.email && p.email !== p.name && (
-                      <div className="text-[11px] text-[var(--color-text-tertiary)] truncate">{p.email}</div>
-                    )}
+                    <div className="text-[13px] font-medium text-[var(--color-text)] truncate">{p.name}</div>
+                    {p.role && <div className="text-[11px] text-[var(--color-text-tertiary)]">{p.role}</div>}
+                    {p.type === "member" && p.email && p.email !== p.name && <div className="text-[11px] text-[var(--color-text-tertiary)] truncate">{p.email}</div>}
                   </div>
-                  <span className="text-[10px] font-medium text-[var(--color-text-tertiary)] uppercase">
-                    {p.type === "agent" ? "Agent" : "Member"}
-                  </span>
+                  <span className="text-[10px] font-medium text-[var(--color-text-tertiary)] uppercase bg-[var(--color-active)] px-1.5 py-0.5 rounded">{p.type === "agent" ? "Agent" : "Member"}</span>
                 </button>
               ))
             )}
           </div>
         )}
 
-        {/* Action button */}
-        <div className="px-3 py-3 border-t border-[var(--color-border)] shrink-0">
+        <div className="px-4 py-3 border-t border-[var(--color-border)] shrink-0">
           <button
             onClick={handleGo}
-            disabled={
-              selected.length === 0 ||
-              creating ||
-              (showTeamName && !teamName.trim()) ||
-              (!canCreateTeam && needsTeamName)
-            }
-            className="w-full py-2.5 rounded-lg text-[14px] font-semibold border-none cursor-pointer disabled:cursor-default transition-colors"
-            style={{
-              background: selected.length > 0 ? "var(--color-accent)" : "var(--color-active)",
-              color: selected.length > 0 ? "#fff" : "var(--color-text-tertiary)",
-            }}
+            disabled={selected.length === 0 || creating || (showTeamName && !teamName.trim()) || (!canCreateTeam && needsTeamName)}
+            className="w-full py-2.5 rounded-xl text-[13px] font-semibold border-none cursor-pointer disabled:cursor-default disabled:opacity-40 transition-colors"
+            style={{ background: selected.length > 0 ? "var(--color-accent)" : "var(--color-active)", color: selected.length > 0 ? "#fff" : "var(--color-text-tertiary)" }}
           >
             {buttonLabel}
           </button>
@@ -474,6 +398,7 @@ function ComposeModal({ open, onClose, agents, workspaceId, canCreateTeam }: Com
   );
 }
 
+/* ── Main Sidebar Content ── */
 export function SidebarContent({
   agents,
   teams = [],
@@ -508,7 +433,6 @@ export function SidebarContent({
   const pathname = usePathname();
   const canManage = workspaceRole === "owner" || workspaceRole === "admin";
 
-  // Collapsible state with localStorage persistence
   const [channelsCollapsed, setChannelsCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("sidebar_teams_collapsed") === "true";
@@ -517,80 +441,44 @@ export function SidebarContent({
     if (typeof window === "undefined") return false;
     return localStorage.getItem("sidebar_dms_collapsed") === "true";
   });
-
-  // Compose modal
   const [composeOpen, setComposeOpen] = useState(false);
-
-  // Search filter
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const toggleChannels = () => {
-    const next = !channelsCollapsed;
-    setChannelsCollapsed(next);
-    localStorage.setItem("sidebar_teams_collapsed", String(next));
-  };
+  const toggleChannels = () => { const next = !channelsCollapsed; setChannelsCollapsed(next); localStorage.setItem("sidebar_teams_collapsed", String(next)); };
+  const toggleDms = () => { const next = !dmsCollapsed; setDmsCollapsed(next); localStorage.setItem("sidebar_dms_collapsed", String(next)); };
 
-  const toggleDms = () => {
-    const next = !dmsCollapsed;
-    setDmsCollapsed(next);
-    localStorage.setItem("sidebar_dms_collapsed", String(next));
-  };
-
-  // Compute total unread counts for collapsed headers
   const channelUnread = useMemo(() => {
     let total = unreadCounts["group"] || 0;
-    for (const t of teams) {
-      total += unreadCounts[`team:${t.id}`] || 0;
-    }
+    for (const t of teams) { total += unreadCounts[`team:${t.id}`] || 0; }
     return total;
   }, [unreadCounts, teams]);
 
   const dmUnread = useMemo(() => {
     let total = 0;
-    for (const a of agents) {
-      total += unreadCounts[a.id] || 0;
-    }
+    for (const a of agents) { total += unreadCounts[a.id] || 0; }
     return total;
   }, [unreadCounts, agents]);
 
-  // Filter channels and DMs by search
   const lowerSearch = search.toLowerCase();
-  const filteredTeams = useMemo(() => {
-    if (!lowerSearch) return teams;
-    return teams.filter((t) => t.name.toLowerCase().includes(lowerSearch));
-  }, [teams, lowerSearch]);
+  const filteredTeams = useMemo(() => !lowerSearch ? teams : teams.filter((t) => t.name.toLowerCase().includes(lowerSearch)), [teams, lowerSearch]);
 
-  // When searching, show all agents. Otherwise, show only agents with active conversations.
   const activeAgents = useMemo(() => {
-    if (lowerSearch) {
-      // During search, show all agents that match
-      return agents.filter((a) =>
-        a.name.toLowerCase().includes(lowerSearch) ||
-        (a.role && a.role.toLowerCase().includes(lowerSearch))
-      );
-    }
-    // Not searching — show only agents with active DM conversations
-    if (!activeDmAgentIds) return []; // Still loading
+    if (lowerSearch) return agents.filter((a) => a.name.toLowerCase().includes(lowerSearch) || (a.role && a.role.toLowerCase().includes(lowerSearch)));
+    if (!activeDmAgentIds) return [];
     const activeSet = new Set(activeDmAgentIds);
     return agents.filter((a) => activeSet.has(a.id));
   }, [agents, lowerSearch, activeDmAgentIds]);
 
-  // When searching, expand both sections
   const showChannels = search ? true : !channelsCollapsed;
   const showDms = search ? true : !dmsCollapsed;
-
-  // Show "All" channel in search
   const showAllChannel = !lowerSearch || "all".includes(lowerSearch);
 
-  // When collapsed (no search), show items with unread as priority peek
   const unreadChannelPeek = useMemo(() => {
     if (!channelsCollapsed || search) return [];
     const items: { type: "group" | "team"; team?: TeamWithAgents }[] = [];
     if ((unreadCounts["group"] || 0) > 0) items.push({ type: "group" });
-    for (const t of teams) {
-      if ((unreadCounts[`team:${t.id}`] || 0) > 0) items.push({ type: "team", team: t });
-    }
+    for (const t of teams) { if ((unreadCounts[`team:${t.id}`] || 0) > 0) items.push({ type: "team", team: t }); }
     return items;
   }, [channelsCollapsed, search, unreadCounts, teams]);
 
@@ -601,182 +489,128 @@ export function SidebarContent({
 
   return (
     <>
-      <div className="flex items-center justify-between px-4 pt-4 pb-3">
-        <span className="text-[17px] font-bold text-[var(--color-text)] tracking-tight">
-          Offload
-        </span>
+      {/* Workspace header */}
+      <div className="flex items-center justify-between px-4 pt-4 pb-2">
+        <div className="flex items-center gap-2.5">
+          {workspace && (
+            <div className="w-7 h-7 rounded-lg bg-[var(--color-accent)] flex items-center justify-center text-[12px] font-bold text-white shrink-0">
+              {workspace.name.charAt(0).toUpperCase()}
+            </div>
+          )}
+          <span className="text-[14px] font-semibold text-[var(--color-text)] truncate">
+            {workspace?.name || "Offload"}
+          </span>
+        </div>
         {showClose && (
-          <button
-            onClick={onClose}
-            className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0.5 flex"
-          >
+          <button onClick={onClose} className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-1 flex rounded-lg hover:bg-[var(--color-hover)]">
             <XIcon />
           </button>
         )}
       </div>
 
       {/* Search */}
-      <div className="px-2 pb-2">
-        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-[var(--color-input-bg)] border border-[var(--color-border-light)]">
-          <span className="text-[var(--color-text-tertiary)] shrink-0">
+      <div className="px-3 pb-2 pt-1">
+        <div className="flex items-center gap-2 px-2.5 py-[7px] rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)]">
+          <span className="text-[var(--color-text-tertiary)] shrink-0 opacity-60">
             <SearchIcon />
           </span>
           <input
-            ref={searchRef}
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            ref={searchRef} type="text" value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder="Search..."
             className="flex-1 bg-transparent border-none outline-none text-[13px] text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)]"
           />
           {search && (
-            <button
-              onClick={() => setSearch("")}
-              className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0 flex"
-            >
+            <button onClick={() => setSearch("")} className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0 flex hover:text-[var(--color-text-secondary)]">
               <XIcon />
             </button>
           )}
         </div>
       </div>
 
-      <div className="flex-1 px-2 flex flex-col gap-0.5 overflow-auto">
+      {/* Main nav */}
+      <div className="flex-1 px-2.5 flex flex-col gap-px overflow-auto">
         <NavItem href="/activity" isActive={pathname === "/activity"}>
-          <span className="opacity-60">
-            <ActivityIcon />
-          </span>
+          <span className="w-4 flex items-center justify-center opacity-50"><ActivityIcon /></span>
           <span className="flex-1">Activity</span>
-          {hasNewActivity && pathname !== "/activity" && (
-            <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] shrink-0" />
-          )}
+          {hasNewActivity && pathname !== "/activity" && <span className="w-2 h-2 rounded-full bg-[var(--color-accent)] shrink-0" />}
         </NavItem>
         <NavItem href="/marketplace" isActive={pathname === "/marketplace" || pathname.startsWith("/marketplace/")}>
-          <span className="opacity-60">
-            <StorefrontIcon />
-          </span>
+          <span className="w-4 flex items-center justify-center opacity-50"><StorefrontIcon /></span>
           <span>Marketplace</span>
         </NavItem>
         <NavItem href="/reports" isActive={pathname === "/reports" || pathname.startsWith("/reports/")}>
-          <span className="opacity-60">
-            <ReportIcon />
-          </span>
+          <span className="w-4 flex items-center justify-center opacity-50"><ReportIcon /></span>
           <span className="flex-1">Reports</span>
           {reportCount > 0 && (
-            <span className="text-[11px] font-semibold bg-[var(--color-accent-soft)] text-[var(--color-accent)] rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">
+            <span className="text-[10px] font-medium text-[var(--color-accent)] bg-[var(--color-accent-soft)] rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">
               {reportCount}
             </span>
           )}
         </NavItem>
         <NavItem href="/history" isActive={pathname === "/history"}>
-          <span className="opacity-60">
-            <ClockIcon />
-          </span>
+          <span className="w-4 flex items-center justify-center opacity-50"><ClockIcon /></span>
           <span>History</span>
         </NavItem>
 
-        {/* New conversation button */}
+        {/* New conversation */}
         {!search && (
           <button
             onClick={() => setComposeOpen(true)}
-            className="flex items-center gap-2.5 px-3 py-2 rounded-lg w-full text-[13px] bg-transparent border border-dashed border-[var(--color-border)] cursor-pointer transition-colors font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] mt-2"
+            className="flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg w-full text-[13px] bg-transparent border border-dashed border-[var(--color-border)] cursor-pointer transition-all font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] mt-2"
           >
-            <span className="opacity-60">
-              <PlusIcon />
-            </span>
+            <span className="w-4 flex items-center justify-center opacity-50"><PlusIcon /></span>
             <span>New conversation</span>
           </button>
         )}
 
-        {/* Teams section — collapsible */}
-        <SectionHeader
-          label="Teams"
-          collapsed={channelsCollapsed && !search}
-          onToggle={toggleChannels}
-          totalUnread={channelUnread}
-        />
+        {/* Teams section */}
+        <SectionHeader label="Teams" collapsed={channelsCollapsed && !search} onToggle={toggleChannels} totalUnread={channelUnread} />
 
         {showChannels ? (
           <>
             {showAllChannel && (
               <NavItem href="/chat" isActive={pathname === "/chat" || pathname.startsWith("/chat?")}>
-                <span className="opacity-60">
-                  <HashIcon />
-                </span>
-                <span className="flex-1"># All</span>
-                {(unreadCounts["group"] || 0) > 0 && (
-                  <span className="text-[11px] font-semibold bg-[var(--color-accent)] text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">
-                    {unreadCounts["group"]}
-                  </span>
-                )}
+                <span className="w-4 flex items-center justify-center opacity-50"><HashIcon /></span>
+                <span className="flex-1">All</span>
+                {(unreadCounts["group"] || 0) > 0 && <UnreadBadge count={unreadCounts["group"]} />}
               </NavItem>
             )}
-            {/* System channels first */}
             {filteredTeams.filter((t) => t.is_system).map((team) => {
               const teamUnread = unreadCounts[`team:${team.id}`] || 0;
               return (
-                <NavItem
-                  key={team.id}
-                  href={`/team/${team.id}`}
-                  isActive={pathname === `/team/${team.id}`}
-                >
-                  <span className="opacity-60">
-                    <PeopleIcon />
-                  </span>
-                  <span className="flex-1 flex items-center gap-1">
-                    <span># {team.name}</span>
-                  </span>
-                  {teamUnread > 0 && (
-                    <span className="text-[11px] font-semibold bg-[var(--color-accent)] text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">
-                      {teamUnread}
-                    </span>
-                  )}
+                <NavItem key={team.id} href={`/team/${team.id}`} isActive={pathname === `/team/${team.id}`}>
+                  <span className="w-4 flex items-center justify-center opacity-50"><PeopleIcon /></span>
+                  <span className="flex-1">{team.name}</span>
+                  {teamUnread > 0 && <UnreadBadge count={teamUnread} />}
                 </NavItem>
               );
             })}
-            {/* Regular channels */}
             {filteredTeams.filter((t) => !t.is_system).map((team) => {
               const teamUnread = unreadCounts[`team:${team.id}`] || 0;
               return (
-                <NavItem
-                  key={team.id}
-                  href={`/team/${team.id}`}
-                  isActive={pathname === `/team/${team.id}`}
-                >
-                  <span className="opacity-60">
-                    {team.visibility === "private" ? <LockIcon /> : <HashIcon />}
-                  </span>
-                  <span className="flex-1"># {team.name}</span>
-                  {teamUnread > 0 && (
-                    <span className="text-[11px] font-semibold bg-[var(--color-accent)] text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">
-                      {teamUnread}
-                    </span>
-                  )}
+                <NavItem key={team.id} href={`/team/${team.id}`} isActive={pathname === `/team/${team.id}`}>
+                  <span className="w-4 flex items-center justify-center opacity-50">{team.visibility === "private" ? <LockIcon /> : <HashIcon />}</span>
+                  <span className="flex-1">{team.name}</span>
+                  {teamUnread > 0 && <UnreadBadge count={teamUnread} />}
                 </NavItem>
               );
             })}
           </>
         ) : (
-          /* Collapsed peek: show channels with unread */
           unreadChannelPeek.length > 0 && (
             <>
               {unreadChannelPeek.map((item) =>
                 item.type === "group" ? (
                   <NavItem key="group" href="/chat" isActive={pathname === "/chat"}>
-                    <span className="opacity-60"><HashIcon /></span>
-                    <span className="flex-1"># All</span>
-                    <span className="text-[11px] font-semibold bg-[var(--color-accent)] text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">
-                      {unreadCounts["group"]}
-                    </span>
+                    <span className="w-4 flex items-center justify-center opacity-50"><HashIcon /></span>
+                    <span className="flex-1">All</span>
+                    <UnreadBadge count={unreadCounts["group"]} />
                   </NavItem>
                 ) : item.team ? (
                   <NavItem key={item.team.id} href={`/team/${item.team.id}`} isActive={pathname === `/team/${item.team.id}`}>
-                    <span className="opacity-60">
-                      {item.team.is_system ? <PeopleIcon /> : item.team.visibility === "private" ? <LockIcon /> : <HashIcon />}
-                    </span>
-                    <span className="flex-1"># {item.team.name}</span>
-                    <span className="text-[11px] font-semibold bg-[var(--color-accent)] text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">
-                      {unreadCounts[`team:${item.team.id}`]}
-                    </span>
+                    <span className="w-4 flex items-center justify-center opacity-50">{item.team.is_system ? <PeopleIcon /> : item.team.visibility === "private" ? <LockIcon /> : <HashIcon />}</span>
+                    <span className="flex-1">{item.team.name}</span>
+                    <UnreadBadge count={unreadCounts[`team:${item.team.id}`]} />
                   </NavItem>
                 ) : null
               )}
@@ -784,72 +618,36 @@ export function SidebarContent({
           )
         )}
 
-        {/* Direct messages section — collapsible with internal scroll */}
+        {/* Direct Messages */}
         {(activeAgents.length > 0 || search) && (
           <>
-            <SectionHeader
-              label="Direct messages"
-              collapsed={dmsCollapsed && !search}
-              onToggle={toggleDms}
-              totalUnread={dmUnread}
-            />
-
+            <SectionHeader label="Direct Messages" collapsed={dmsCollapsed && !search} onToggle={toggleDms} totalUnread={dmUnread} />
             {showDms ? (
-              <div className="flex flex-col gap-0.5" style={{ maxHeight: "40vh", overflowY: "auto" }}>
+              <div className="flex flex-col gap-px" style={{ maxHeight: "40vh", overflowY: "auto" }}>
                 {activeAgents.map((a) => {
                   const unread = unreadCounts[a.id] || 0;
+                  const active = pathname === `/agent/${a.id}`;
                   return (
-                    <NavItem
-                      key={a.id}
-                      href={`/agent/${a.id}`}
-                      isActive={pathname === `/agent/${a.id}`}
-                    >
-                      <div
-                        className="w-2.5 h-2.5 rounded-full"
-                        style={{
-                          background: a.color,
-                          opacity: pathname === `/agent/${a.id}` ? 1 : 0.5,
-                        }}
-                      />
-                      <span className="flex-1 truncate">
-                        {a.name}
-                        {a.role && (
-                          <span className="text-[11px] text-[var(--color-text-tertiary)] font-normal ml-1.5">{a.role}</span>
-                        )}
-                      </span>
-                      {unread > 0 && (
-                        <span
-                          className="text-[11px] font-semibold text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none"
-                          style={{ background: a.color }}
-                        >
-                          {unread}
-                        </span>
-                      )}
+                    <NavItem key={a.id} href={`/agent/${a.id}`} isActive={active}>
+                      <div className="w-[18px] h-[18px] rounded-md flex items-center justify-center text-[9px] font-semibold shrink-0" style={{ background: `${a.color}18`, color: a.color }}>
+                        {a.name.charAt(0)}
+                      </div>
+                      <span className="flex-1 truncate">{a.name}</span>
+                      {unread > 0 && <UnreadBadge count={unread} color={a.color} />}
                     </NavItem>
                   );
                 })}
               </div>
             ) : (
-              /* Collapsed peek: show DMs with unread */
               unreadDmPeek.length > 0 && (
-                <div className="flex flex-col gap-0.5">
+                <div className="flex flex-col gap-px">
                   {unreadDmPeek.map((a) => (
-                    <NavItem
-                      key={a.id}
-                      href={`/agent/${a.id}`}
-                      isActive={pathname === `/agent/${a.id}`}
-                    >
-                      <div
-                        className="w-2.5 h-2.5 rounded-full"
-                        style={{ background: a.color }}
-                      />
+                    <NavItem key={a.id} href={`/agent/${a.id}`} isActive={pathname === `/agent/${a.id}`}>
+                      <div className="w-[18px] h-[18px] rounded-md flex items-center justify-center text-[9px] font-semibold shrink-0" style={{ background: `${a.color}18`, color: a.color }}>
+                        {a.name.charAt(0)}
+                      </div>
                       <span className="flex-1 truncate">{a.name}</span>
-                      <span
-                        className="text-[11px] font-semibold text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none"
-                        style={{ background: a.color }}
-                      >
-                        {unreadCounts[a.id]}
-                      </span>
+                      <UnreadBadge count={unreadCounts[a.id]} color={a.color} />
                     </NavItem>
                   ))}
                 </div>
@@ -860,53 +658,37 @@ export function SidebarContent({
 
         <div className="flex-1" />
 
-        <div className="py-1 border-t border-[var(--color-border-light)] mt-2 pt-3 flex flex-col gap-0.5">
+        {/* Bottom section */}
+        <div className="py-2 border-t border-[var(--color-border)] mt-3 pt-3 flex flex-col gap-px">
           {canManage && (
             <Link
               href="/settings/new"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-lg w-full text-[14px] no-underline transition-colors font-medium border border-dashed border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)]"
+              className="flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg w-full text-[13px] no-underline transition-all font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-hover)]"
             >
-              <span className="opacity-70">
-                <PlusIcon />
-              </span>
+              <span className="w-4 flex items-center justify-center opacity-50"><PlusIcon /></span>
               <span>Create agent</span>
             </Link>
           )}
-          <NavItem
-            href="/tasks"
-            isActive={pathname === "/tasks"}
-          >
-            <span className="opacity-60">
-              <RepeatClockIcon />
-            </span>
+          <NavItem href="/tasks" isActive={pathname === "/tasks"}>
+            <span className="w-4 flex items-center justify-center opacity-50"><RepeatClockIcon /></span>
             <span className="flex-1">Scheduled</span>
             {activeTaskCount > 0 && (
-              <span className="text-[11px] font-semibold bg-[var(--color-accent-soft)] text-[var(--color-accent)] rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">
-                {activeTaskCount}
-              </span>
+              <span className="text-[10px] font-medium text-[var(--color-accent)] bg-[var(--color-accent-soft)] rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">{activeTaskCount}</span>
             )}
           </NavItem>
-          <NavItem
-            href="/settings"
-            isActive={pathname === "/settings" || pathname.startsWith("/settings/") && !pathname.startsWith("/settings/members")}
-          >
-            <span className="opacity-60">
-              <GearIcon />
-            </span>
+          <NavItem href="/settings" isActive={pathname === "/settings" || pathname.startsWith("/settings/") && !pathname.startsWith("/settings/members")}>
+            <span className="w-4 flex items-center justify-center opacity-50"><GearIcon /></span>
             <span>Settings</span>
           </NavItem>
-          <NavItem
-            href="/settings/members"
-            isActive={pathname === "/settings/members"}
-          >
-            <span className="opacity-60">
+          <NavItem href="/settings/members" isActive={pathname === "/settings/members"}>
+            <span className="w-4 flex items-center justify-center opacity-50">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
             </span>
             <span>Members</span>
           </NavItem>
           {isAdmin && (
             <NavItem href="/admin" isActive={false}>
-              <span className="opacity-60">
+              <span className="w-4 flex items-center justify-center opacity-50">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
               </span>
               <span>Admin</span>
@@ -916,39 +698,28 @@ export function SidebarContent({
         </div>
       </div>
 
-      <div className="px-2 pt-2 pb-3">
-        <WorkspaceSwitcher
-          workspace={workspace}
-          workspaces={workspaces}
-          onSwitch={onSwitchWorkspace || (() => {})}
-        />
+      {/* Workspace switcher + logout */}
+      <div className="px-3 pt-2 pb-3">
+        <WorkspaceSwitcher workspace={workspace} workspaces={workspaces} onSwitch={onSwitchWorkspace || (() => {})} />
         <LogOutButton />
       </div>
 
-      <ComposeModal
-        open={composeOpen}
-        onClose={() => setComposeOpen(false)}
-        agents={agents}
-        workspaceId={workspace?.id || null}
-        canCreateTeam={canManage}
-      />
+      <ComposeModal open={composeOpen} onClose={() => setComposeOpen(false)} agents={agents} workspaceId={workspace?.id || null} canCreateTeam={canManage} />
     </>
   );
 }
 
 function LogOutButton() {
   const router = useRouter();
-
   const handleLogout = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/");
   };
-
   return (
     <button
       onClick={handleLogout}
-      className="w-full mt-2 px-2.5 py-2 bg-transparent border-none text-[13px] text-[var(--color-text-tertiary)] cursor-pointer text-left hover:text-[var(--color-text-secondary)] transition-colors"
+      className="w-full mt-1.5 px-3 py-1.5 bg-transparent border-none text-[12px] text-[var(--color-text-tertiary)] cursor-pointer text-left hover:text-[var(--color-text-secondary)] transition-colors rounded-lg hover:bg-[var(--color-hover)]"
     >
       Log out
     </button>
@@ -956,20 +727,7 @@ function LogOutButton() {
 }
 
 export function Drawer({
-  agents,
-  teams,
-  activeDmAgentIds,
-  open,
-  onClose,
-  activeTaskCount,
-  unreadCounts,
-  hasNewActivity,
-  isAdmin,
-  workspace,
-  workspaces,
-  workspaceRole,
-  onSwitchWorkspace,
-  reportCount,
+  agents, teams, activeDmAgentIds, open, onClose, activeTaskCount, unreadCounts, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, onSwitchWorkspace, reportCount,
 }: {
   agents: Agent[];
   teams?: TeamWithAgents[];
@@ -991,33 +749,16 @@ export function Drawer({
       <div
         onClick={onClose}
         className="fixed inset-0 z-[200] transition-opacity duration-200"
-        style={{
-          background: "rgba(0,0,0,0.15)",
-          opacity: open ? 1 : 0,
-          pointerEvents: open ? "auto" : "none",
-        }}
+        style={{ background: "rgba(0,0,0,0.2)", opacity: open ? 1 : 0, pointerEvents: open ? "auto" : "none" }}
       />
       <div
-        className="fixed top-0 left-0 bottom-0 w-[270px] bg-[var(--color-surface)] z-[300] flex flex-col border-r border-[var(--color-border)] transition-transform duration-300"
-        style={{
-          transform: open ? "translateX(0)" : "translateX(-100%)",
-        }}
+        className="fixed top-0 left-0 bottom-0 w-[280px] bg-[var(--color-sidebar-bg)] z-[300] flex flex-col border-r border-[var(--color-border)] transition-transform duration-300"
+        style={{ transform: open ? "translateX(0)" : "translateX(-100%)" }}
       >
         <SidebarContent
-          agents={agents}
-          teams={teams}
-          activeDmAgentIds={activeDmAgentIds}
-          showClose
-          onClose={onClose}
-          activeTaskCount={activeTaskCount}
-          unreadCounts={unreadCounts}
-          hasNewActivity={hasNewActivity}
-          isAdmin={isAdmin}
-          workspace={workspace}
-          workspaces={workspaces}
-          workspaceRole={workspaceRole}
-          onSwitchWorkspace={onSwitchWorkspace}
-          reportCount={reportCount}
+          agents={agents} teams={teams} activeDmAgentIds={activeDmAgentIds} showClose onClose={onClose}
+          activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} isAdmin={isAdmin}
+          workspace={workspace} workspaces={workspaces} workspaceRole={workspaceRole} onSwitchWorkspace={onSwitchWorkspace} reportCount={reportCount}
         />
       </div>
     </>

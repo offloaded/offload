@@ -134,15 +134,10 @@ function ResizeHandle({ onResize }: { onResize: (pct: number) => void }) {
     <div
       ref={containerRef}
       onMouseDown={onMouseDown}
-      className="hidden md:flex w-[5px] shrink-0 cursor-col-resize items-center justify-center group hover:bg-[var(--color-accent)] transition-colors relative"
+      className="hidden md:flex w-[3px] shrink-0 cursor-col-resize items-center justify-center group transition-colors relative hover:w-[4px]"
       style={{ background: "var(--color-border)" }}
     >
-      {/* Grip dots */}
-      <div className="flex flex-col gap-[3px] opacity-0 group-hover:opacity-100 transition-opacity">
-        {[0, 1, 2, 3, 4].map((i) => (
-          <div key={i} className="w-[3px] h-[3px] rounded-full bg-white/70" />
-        ))}
-      </div>
+      <div className="absolute inset-0 bg-[var(--color-accent)] opacity-0 group-hover:opacity-100 transition-opacity" />
     </div>
   );
 }
@@ -369,8 +364,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <AppContext value={{ agents, refreshAgents, teams, refreshTeams, activeDmAgentIds, refreshActiveDms, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, switchWorkspace, refreshWorkspace, reportCount, refreshReportCount, openReportId, openReport, closeReport, reportEditCallback, reportLiveUpdate, setReportLiveUpdate }}>
       <div className="flex h-screen w-full bg-[var(--color-page-bg)] overflow-hidden">
-        {/* Desktop sidebar — hidden below 768px via CSS */}
-        <div className="hidden md:flex w-[220px] min-w-[220px] bg-[var(--color-bg)] border-r border-[var(--color-border)] flex-col">
+        {/* Desktop sidebar */}
+        <div className="hidden md:flex w-[260px] min-w-[260px] bg-[var(--color-sidebar-bg)] border-r border-[var(--color-border)] flex-col">
           <SidebarContent agents={agents} teams={teams} activeDmAgentIds={activeDmAgentIds} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} isAdmin={isAdmin} workspace={workspace} workspaces={workspaces} workspaceRole={workspaceRole} onSwitchWorkspace={switchWorkspace} reportCount={reportCount} />
         </div>
 

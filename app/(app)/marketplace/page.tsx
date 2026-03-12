@@ -236,11 +236,11 @@ export default function MarketplacePage() {
         <div className="flex items-center gap-3 mb-4">
           <button
             onClick={openDrawer}
-            className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex md:hidden"
+            className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-1 rounded-lg hover:bg-[var(--color-hover)] flex md:hidden"
           >
             <BackIcon />
           </button>
-          <span className="text-[18px] font-semibold text-[var(--color-text)]">
+          <span className="text-[16px] font-semibold text-[var(--color-text)]">
             Marketplace
           </span>
         </div>
@@ -249,7 +249,7 @@ export default function MarketplacePage() {
         <div className="flex gap-1 mb-4">
           <button
             onClick={() => setTab("agent")}
-            className="py-2 px-4 rounded-lg text-[14px] font-medium border-none cursor-pointer transition-colors"
+            className="py-2 px-4 rounded-xl text-[14px] font-medium border-none cursor-pointer transition-colors"
             style={{
               background: tab === "agent" ? "var(--color-accent)" : "var(--color-active)",
               color: tab === "agent" ? "#fff" : "var(--color-text-secondary)",
@@ -259,7 +259,7 @@ export default function MarketplacePage() {
           </button>
           <button
             disabled
-            className="py-2 px-4 rounded-lg text-[14px] font-medium border-none transition-colors flex items-center gap-1.5"
+            className="py-2 px-4 rounded-xl text-[14px] font-medium border-none transition-colors flex items-center gap-1.5"
             style={{
               background: "var(--color-active)",
               color: "var(--color-text-tertiary)",
@@ -276,7 +276,7 @@ export default function MarketplacePage() {
 
         {/* Search */}
         <div className="flex gap-2 items-center mb-3">
-          <div className="flex-1 flex items-center gap-2 px-3 py-2.5 border border-[var(--color-border)] rounded-lg bg-[var(--color-input-bg)]">
+          <div className="flex-1 flex items-center gap-2 px-3 py-2.5 border border-[var(--color-border)] rounded-xl bg-[var(--color-input-bg)]">
             <span className="text-[var(--color-text-tertiary)]"><SearchIcon /></span>
             <input
               value={search}
@@ -293,7 +293,7 @@ export default function MarketplacePage() {
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value)}
-            className="py-2.5 px-3 border border-[var(--color-border)] rounded-lg bg-[var(--color-surface)] text-[13px] text-[var(--color-text)] outline-none"
+            className="py-2.5 px-3 border border-[var(--color-border)] rounded-xl bg-[var(--color-surface)] text-[13px] text-[var(--color-text)] outline-none"
           >
             {SORT_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -325,7 +325,7 @@ export default function MarketplacePage() {
         {/* Template agents */}
         {showTemplates && (
           <div className="mb-6">
-            <div className="text-[13px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide mb-3">
+            <div className="text-[12px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-[0.06em] mb-3">
               Ready-to-use agents
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -333,12 +333,13 @@ export default function MarketplacePage() {
                 <button
                   key={t.id}
                   onClick={() => openTemplate(t)}
-                  className="text-left border border-[var(--color-border)] rounded-xl p-4 bg-[var(--color-surface)] cursor-pointer transition-all hover:border-[var(--color-accent)] hover:shadow-sm"
+                  className="text-left border border-[var(--color-border)] rounded-xl p-4 bg-[var(--color-surface)] cursor-pointer transition-all hover:border-[var(--color-accent)] hover:shadow-md flex flex-col"
+                  style={{ minHeight: 120 }}
                 >
                   <div className="flex items-start gap-2.5 mb-2">
                     <span className="text-[20px] leading-none shrink-0 mt-0.5">{t.icon}</span>
                     <div className="flex-1 min-w-0">
-                      <div className="text-[15px] font-semibold text-[var(--color-text)] leading-tight">
+                      <div className="text-[14px] font-semibold text-[var(--color-text)] leading-tight">
                         {t.name}
                       </div>
                       <div className="text-[13px] text-[var(--color-text-secondary)] mt-0.5">
@@ -374,7 +375,7 @@ export default function MarketplacePage() {
         {listings.length > 0 && (
           <div>
             {showTemplates && (
-              <div className="text-[13px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide mb-3">
+              <div className="text-[12px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-[0.06em] mb-3">
                 Community
               </div>
             )}
@@ -383,10 +384,11 @@ export default function MarketplacePage() {
                 <button
                   key={l.id}
                   onClick={() => openDetail(l.id)}
-                  className="text-left border border-[var(--color-border)] rounded-xl p-4 bg-[var(--color-surface)] cursor-pointer transition-all hover:border-[var(--color-accent)] hover:shadow-sm"
+                  className="text-left border border-[var(--color-border)] rounded-xl p-4 bg-[var(--color-surface)] cursor-pointer transition-all hover:border-[var(--color-accent)] hover:shadow-md flex flex-col"
+                  style={{ minHeight: 120 }}
                 >
                   <div className="flex items-start justify-between mb-2">
-                    <div className="text-[15px] font-semibold text-[var(--color-text)] leading-tight">
+                    <div className="text-[14px] font-semibold text-[var(--color-text)] leading-tight">
                       {l.name}
                     </div>
                     <span className="text-[11px] font-medium text-[var(--color-accent)] bg-[var(--color-accent-soft)] rounded-full px-2 py-0.5 shrink-0 ml-2">
@@ -431,14 +433,14 @@ export default function MarketplacePage() {
 
         {loading && (
           <div className="flex items-center justify-center py-16">
-            <span className="text-[15px] text-[var(--color-text-tertiary)]">Loading...</span>
+            <span className="text-[14px] text-[var(--color-text-tertiary)]">Loading...</span>
           </div>
         )}
 
         {!loading && listings.length === 0 && filteredTemplates.length === 0 && (
-          <div className="flex items-center justify-center py-16">
+          <div className="flex items-center justify-center py-24">
             <div className="text-center">
-              <div className="text-[15px] text-[var(--color-text-secondary)] mb-1">No listings found</div>
+              <div className="text-[14px] text-[var(--color-text-secondary)] mb-1">No listings found</div>
               <div className="text-[13px] text-[var(--color-text-tertiary)]">
                 {search ? "Try a different search term" : "Be the first to publish!"}
               </div>
@@ -452,7 +454,7 @@ export default function MarketplacePage() {
         <>
           <div
             onClick={closeDetail}
-            className="fixed inset-0 z-[100] bg-black/20"
+            className="fixed inset-0 z-[100] bg-black/30 backdrop-blur-[2px]"
           />
           <div className="fixed inset-0 z-[101] flex items-center justify-center p-4 md:p-8 pointer-events-none">
             <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl shadow-xl w-full max-w-[640px] max-h-[85vh] flex flex-col pointer-events-auto overflow-hidden">
@@ -462,11 +464,11 @@ export default function MarketplacePage() {
                   {selectedTemplate && (
                     <span className="text-[22px]">{selectedTemplate.icon}</span>
                   )}
-                  <div className="text-[17px] font-semibold text-[var(--color-text)]">
+                  <div className="text-[16px] font-semibold text-[var(--color-text)]">
                     {selectedTemplate?.name || detail?.name || "Loading..."}
                   </div>
                 </div>
-                <button onClick={closeDetail} className="bg-transparent border-none cursor-pointer text-[var(--color-text-tertiary)] p-1 flex hover:text-[var(--color-text)]">
+                <button onClick={closeDetail} className="bg-transparent border-none cursor-pointer text-[var(--color-text-tertiary)] p-1 rounded-lg hover:bg-[var(--color-hover)] flex hover:text-[var(--color-text)]">
                   <XIcon />
                 </button>
               </div>
@@ -537,7 +539,7 @@ export default function MarketplacePage() {
                         </div>
                         <div className="flex flex-col gap-1.5">
                           {selectedTemplate.report_templates.map((rt, i) => (
-                            <div key={i} className="border border-[var(--color-border)] rounded-lg p-3">
+                            <div key={i} className="border border-[var(--color-border)] rounded-xl p-3">
                               <div className="text-[13px] font-medium text-[var(--color-text)]">
                                 {rt.name}
                               </div>
@@ -582,7 +584,7 @@ export default function MarketplacePage() {
                         </div>
                         <div className="flex flex-col gap-2">
                           {detail.agents.map((a, i) => (
-                            <div key={i} className="border border-[var(--color-border)] rounded-lg p-3">
+                            <div key={i} className="border border-[var(--color-border)] rounded-xl p-3">
                               <div className="text-[14px] font-medium text-[var(--color-text)] mb-0.5">
                                 {a.name}
                                 {a.role && <span className="text-[12px] text-[var(--color-text-tertiary)] font-normal ml-1.5">{a.role}</span>}
@@ -624,7 +626,7 @@ export default function MarketplacePage() {
                         </div>
                         <div className="grid grid-cols-2 gap-1.5">
                           {detail.documents.map((d, i) => (
-                            <div key={i} className="flex items-center gap-2 py-1.5 px-2.5 border border-[var(--color-border)] rounded-lg">
+                            <div key={i} className="flex items-center gap-2 py-1.5 px-2.5 border border-[var(--color-border)] rounded-xl">
                               <span className="text-[var(--color-text-tertiary)] shrink-0"><FileIcon /></span>
                               <span className="text-[12px] text-[var(--color-text)] truncate">{d.file_name}</span>
                               <span className="text-[11px] text-[var(--color-text-tertiary)] shrink-0">{formatSize(d.file_size)}</span>
@@ -654,7 +656,7 @@ export default function MarketplacePage() {
                         </div>
                         <button
                           onClick={goToAdopted}
-                          className="py-2.5 px-5 border-none rounded-lg text-[14px] font-semibold cursor-pointer bg-[var(--color-accent)] text-white"
+                          className="py-2.5 px-5 border-none rounded-xl text-[14px] font-semibold cursor-pointer bg-[var(--color-accent)] text-white"
                         >
                           {adoptResult.team_id ? "Go to channel" : "Open chat"}
                         </button>
@@ -670,7 +672,7 @@ export default function MarketplacePage() {
                   <button
                     onClick={install}
                     disabled={adopting}
-                    className="w-full py-3 border-none rounded-lg text-[15px] font-semibold cursor-pointer disabled:opacity-60 transition-colors bg-[var(--color-accent)] text-white"
+                    className="w-full py-3 border-none rounded-xl text-[15px] font-semibold cursor-pointer disabled:opacity-60 transition-colors bg-[var(--color-accent)] text-white"
                   >
                     {adopting
                       ? "Setting up..."

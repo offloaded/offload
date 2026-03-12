@@ -76,7 +76,7 @@ export default function NewTeamPage() {
 
   if (!canManage) {
     return (
-      <div className="flex-1 flex items-center justify-center text-[15px] text-[var(--color-text-secondary)]">
+      <div className="flex-1 flex items-center justify-center text-[14px] text-[var(--color-text-secondary)]">
         You don&apos;t have permission to create teams.
       </div>
     );
@@ -87,11 +87,11 @@ export default function NewTeamPage() {
       <div className="sticky top-0 z-10 bg-[var(--color-surface)] shrink-0 flex items-center gap-3 px-4 py-3 border-b border-[var(--color-border)] md:px-10 md:pt-8 md:pb-0 md:border-b-0">
         <button
           onClick={() => router.back()}
-          className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex"
+          className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-1 flex rounded-lg hover:bg-[var(--color-hover)]"
         >
           <BackIcon />
         </button>
-        <span className="text-[18px] font-semibold text-[var(--color-text)]">
+        <span className="text-[16px] font-semibold text-[var(--color-text)]">
           New Team
         </span>
       </div>
@@ -99,7 +99,7 @@ export default function NewTeamPage() {
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
         <div className="max-w-[600px] w-full p-4 md:px-10 md:pt-5 md:pb-8">
           {error && (
-            <div className="mb-5 text-[14px] text-[var(--color-red)] bg-[var(--color-red-soft)] px-3.5 py-2.5 rounded-lg">
+            <div className="mb-5 text-[14px] text-[var(--color-red)] bg-[var(--color-red-soft)] px-3.5 py-2.5 rounded-xl">
               {error}
             </div>
           )}
@@ -112,7 +112,7 @@ export default function NewTeamPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Scrum, Marketing, Engineering..."
-              className="w-full py-3 px-4 border border-[var(--color-border)] rounded-lg text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
+              className="w-full py-3 px-4 border border-[var(--color-border)] rounded-xl text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
             />
           </div>
 
@@ -124,7 +124,7 @@ export default function NewTeamPage() {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="What is this team for?"
-              className="w-full py-3 px-4 border border-[var(--color-border)] rounded-lg text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
+              className="w-full py-3 px-4 border border-[var(--color-border)] rounded-xl text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
             />
           </div>
 
@@ -132,7 +132,7 @@ export default function NewTeamPage() {
           <div className="mb-6">
             <button
               onClick={() => setIsPrivate(!isPrivate)}
-              className="flex items-center gap-3 w-full py-3 px-4 rounded-lg border cursor-pointer text-left transition-all"
+              className="flex items-center gap-3 w-full py-3 px-4 rounded-xl border cursor-pointer text-left transition-all"
               style={{
                 background: isPrivate ? "var(--color-accent-soft)" : "transparent",
                 borderColor: isPrivate ? "var(--color-accent)" : "var(--color-border)",
@@ -181,7 +181,7 @@ export default function NewTeamPage() {
                     <button
                       key={member.user_id}
                       onClick={() => toggleMember(member.user_id)}
-                      className="flex items-center gap-3 py-3 px-4 rounded-lg border cursor-pointer text-left transition-all"
+                      className="flex items-center gap-3 py-3 px-4 rounded-xl border cursor-pointer text-left transition-all"
                       style={{
                         background: selected ? "var(--color-accent-soft)" : "transparent",
                         borderColor: selected ? "var(--color-accent)" : "var(--color-border)",
@@ -225,7 +225,7 @@ export default function NewTeamPage() {
             </p>
 
             {agents.length === 0 ? (
-              <div className="py-3.5 px-4 text-[14px] text-[var(--color-text-tertiary)] border border-[var(--color-border)] rounded-lg">
+              <div className="py-3.5 px-4 text-[14px] text-[var(--color-text-tertiary)] border border-[var(--color-border)] rounded-xl">
                 No agents created yet. Create agents first.
               </div>
             ) : (
@@ -236,7 +236,7 @@ export default function NewTeamPage() {
                     <button
                       key={agent.id}
                       onClick={() => toggleAgent(agent.id)}
-                      className="flex items-center gap-3 py-3 px-4 rounded-lg border cursor-pointer text-left transition-all"
+                      className="flex items-center gap-3 py-3 px-4 rounded-xl border cursor-pointer text-left transition-all"
                       style={{
                         background: selected ? "var(--color-accent-soft)" : "transparent",
                         borderColor: selected ? "var(--color-accent)" : "var(--color-border)",
@@ -277,7 +277,7 @@ export default function NewTeamPage() {
           <button
             onClick={save}
             disabled={!name.trim() || saving}
-            className="w-full py-3 px-5 border-none rounded-lg text-[15px] font-semibold cursor-pointer disabled:cursor-default transition-colors"
+            className="w-full py-3 px-5 border-none rounded-xl text-[15px] font-semibold cursor-pointer disabled:cursor-default transition-colors"
             style={{
               background: name.trim() ? "var(--color-accent)" : "var(--color-active)",
               color: name.trim() ? "#fff" : "var(--color-text-tertiary)",

@@ -1,43 +1,59 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --color-bg: #F0F0F2;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+
+  /* Light theme — clean, warm white workspace */
+  --color-bg: #F8F8FA;
   --color-surface: #FFFFFF;
-  --color-hover: #F3F3F5;
-  --color-active: #E8E8EC;
-  --color-border: #DCDCE0;
-  --color-border-light: #EAEAEE;
-  --color-text: #111111;
-  --color-text-secondary: #555555;
-  --color-text-tertiary: #888888;
-  --color-accent: #2C5FF6;
-  --color-accent-soft: rgba(44, 95, 246, 0.10);
-  --color-input-bg: #F3F3F5;
-  --color-red: #DC2626;
-  --color-red-soft: rgba(220, 38, 38, 0.07);
-  --color-green: #16A34A;
-  --color-page-bg: #F7F7F8;
+  --color-surface-raised: #FFFFFF;
+  --color-hover: #F5F5F7;
+  --color-active: #EEEEF1;
+  --color-border: #E5E5EA;
+  --color-border-light: #F0F0F3;
+  --color-text: #1D1D1F;
+  --color-text-secondary: #6E6E73;
+  --color-text-tertiary: #AEAEB2;
+  --color-accent: #3B82F6;
+  --color-accent-hover: #2563EB;
+  --color-accent-soft: rgba(59, 130, 246, 0.08);
+  --color-input-bg: #F5F5F7;
+  --color-red: #EF4444;
+  --color-red-soft: rgba(239, 68, 68, 0.06);
+  --color-green: #22C55E;
+  --color-green-soft: rgba(34, 197, 94, 0.08);
+  --color-orange: #F59E0B;
+  --color-orange-soft: rgba(245, 158, 11, 0.08);
+  --color-page-bg: #FAFAFA;
+  --color-sidebar-bg: #F2F2F5;
+  --color-code-bg: #1E1E2E;
 }
 
 /* Dark theme overrides */
 [data-theme="dark"] {
-  --color-bg: #0F1012;
-  --color-surface: #1A1B1E;
-  --color-hover: #222326;
-  --color-active: #2A2B2F;
-  --color-border: #2A2B2F;
-  --color-border-light: #333438;
-  --color-text: #E8E9EC;
-  --color-text-secondary: #9D9EA5;
-  --color-text-tertiary: #6B6C73;
-  --color-accent: #4B7BF5;
-  --color-accent-soft: rgba(75, 123, 245, 0.15);
-  --color-input-bg: #1A1B1E;
-  --color-red: #EF4444;
-  --color-red-soft: rgba(239, 68, 68, 0.12);
-  --color-green: #22C55E;
-  --color-page-bg: #0F1012;
+  --color-bg: #111113;
+  --color-surface: #1C1C1E;
+  --color-surface-raised: #2C2C2E;
+  --color-hover: #232326;
+  --color-active: #2C2C30;
+  --color-border: #38383A;
+  --color-border-light: #2C2C2E;
+  --color-text: #F5F5F7;
+  --color-text-secondary: #98989D;
+  --color-text-tertiary: #636366;
+  --color-accent: #5B9BF6;
+  --color-accent-hover: #4A8AF5;
+  --color-accent-soft: rgba(91, 155, 246, 0.12);
+  --color-input-bg: #232326;
+  --color-red: #FF6B6B;
+  --color-red-soft: rgba(255, 107, 107, 0.1);
+  --color-green: #34D399;
+  --color-green-soft: rgba(52, 211, 153, 0.1);
+  --color-orange: #FBBF24;
+  --color-orange-soft: rgba(251, 191, 36, 0.1);
+  --color-page-bg: #111113;
+  --color-sidebar-bg: #18181B;
+  --color-code-bg: #0D0D14;
 }
 
 html, body {
@@ -48,8 +64,12 @@ html, body {
   width: 100%;
   max-width: 100vw;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   font-family: var(--font-sans);
   color: var(--color-text);
+  background: var(--color-page-bg);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  letter-spacing: -0.011em;
 }
 
 *,
@@ -62,37 +82,93 @@ html, body {
 *,
 *::before,
 *::after {
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 /* Opt out of transition for elements where it causes jank */
 input, textarea, select,
-[data-no-transition] {
+[data-no-transition],
+pre, code {
   transition: none;
 }
 
 ::selection {
-  background: rgba(44, 95, 246, 0.15);
+  background: rgba(59, 130, 246, 0.18);
 }
 
 [data-theme="dark"] ::selection {
-  background: rgba(75, 123, 245, 0.3);
+  background: rgba(91, 155, 246, 0.3);
 }
 
 @keyframes typing-dot {
   0%, 60%, 100% {
-    opacity: 0.25;
+    opacity: 0.2;
     transform: translateY(0);
   }
   30% {
-    opacity: 1;
+    opacity: 0.8;
     transform: translateY(-3px);
   }
 }
 
-/* PWA standalone mode: account for iOS status bar on notched iPhones.
-   Fixed-position headers need top offset, fixed-position inputs need bottom offset.
-   The pt-safe / pb-safe utilities handle this via env() safe area insets. */
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Custom scrollbar — thin and unobtrusive */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-tertiary);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+/* Code blocks */
+pre {
+  background: var(--color-code-bg) !important;
+  border-radius: 10px;
+  padding: 16px 18px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.6;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+}
+
+code {
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+  font-size: 0.9em;
+}
+
+:not(pre) > code {
+  background: var(--color-active);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+
+/* PWA standalone mode */
 @supports (padding-top: env(safe-area-inset-top)) {
   .pt-safe {
     padding-top: env(safe-area-inset-top, 0px);

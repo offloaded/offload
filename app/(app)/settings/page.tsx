@@ -66,17 +66,17 @@ export default function SettingsPage() {
         <div className="flex items-center gap-3 mb-0 max-w-[520px]">
           <button
             onClick={openDrawer}
-            className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex md:hidden"
+            className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-1 flex md:hidden rounded-lg hover:bg-[var(--color-hover)]"
           >
             <MenuIcon />
           </button>
-          <span className="text-[18px] font-semibold text-[var(--color-text)] flex-1">
+          <span className="text-[16px] font-semibold text-[var(--color-text)] flex-1">
             Settings
           </span>
           {tab === "agents" && canManage && (
             <Link
               href="/settings/new"
-              className="flex items-center gap-1.5 py-2 px-3.5 bg-[var(--color-accent)] text-white border-none rounded-lg text-[14px] font-semibold cursor-pointer no-underline"
+              className="flex items-center gap-1.5 py-2 px-3.5 bg-[var(--color-accent)] text-white border-none rounded-xl text-[14px] font-semibold cursor-pointer no-underline"
             >
               <PlusIcon /> New
             </Link>
@@ -206,7 +206,7 @@ function ProfileTab() {
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
           placeholder="Your name"
-          className="w-full py-2.5 px-3 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)] transition-colors"
+          className="w-full py-2.5 px-3 border border-[var(--color-border)] rounded-xl text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)] transition-colors"
         />
       </div>
 
@@ -218,7 +218,7 @@ function ProfileTab() {
         <input
           value={email}
           disabled
-          className="w-full py-2.5 px-3 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text-secondary)] bg-[var(--color-input-bg)] outline-none cursor-not-allowed"
+          className="w-full py-2.5 px-3 border border-[var(--color-border)] rounded-xl text-[14px] text-[var(--color-text-secondary)] bg-[var(--color-input-bg)] outline-none cursor-not-allowed"
         />
         <div className="text-[11px] text-[var(--color-text-tertiary)] mt-1">
           Email is managed through your login provider
@@ -234,7 +234,7 @@ function ProfileTab() {
           <select
             value={timezone}
             onChange={(e) => setTimezone(e.target.value)}
-            className="w-full py-2.5 pl-3 pr-8 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)] transition-colors"
+            className="w-full py-2.5 pl-3 pr-8 border border-[var(--color-border)] rounded-xl text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)] transition-colors"
           >
             {tzOptions.map((tz) => (
               <option key={tz} value={tz}>
@@ -255,7 +255,7 @@ function ProfileTab() {
       <button
         onClick={save}
         disabled={!dirty || saving}
-        className="py-2.5 px-5 border-none rounded-lg text-[14px] font-semibold cursor-pointer disabled:cursor-default transition-colors bg-[var(--color-accent)] text-white disabled:opacity-40"
+        className="py-2.5 px-5 border-none rounded-xl text-[14px] font-semibold cursor-pointer disabled:cursor-default transition-colors bg-[var(--color-accent)] text-white disabled:opacity-40"
       >
         {saving ? "Saving..." : saved ? "Saved" : "Save changes"}
       </button>
@@ -292,9 +292,9 @@ function AgentsTab({
             href={`/settings/${a.id}`}
             className="flex items-center gap-3.5 p-3.5 border border-[var(--color-border)] rounded-xl cursor-pointer bg-[var(--color-surface)] hover:bg-[var(--color-hover)] no-underline transition-colors"
           >
-            <Avatar name={a.name} color={a.color} size={36} />
+            <Avatar name={a.name} color={a.color} size={34} />
             <div className="flex-1 min-w-0">
-              <div className="text-[15px] font-semibold text-[var(--color-text)]">
+              <div className="text-[14px] font-semibold text-[var(--color-text)]">
                 {a.name}
               </div>
               <div className="text-[13px] text-[var(--color-text-secondary)] overflow-hidden text-ellipsis whitespace-nowrap">
@@ -366,11 +366,11 @@ function IntegrationsTab() {
       {/* Asana card */}
       <div className="border border-[var(--color-border)] rounded-xl p-4">
         <div className="flex items-center gap-3 mb-3">
-          <div className="w-10 h-10 rounded-lg bg-[var(--color-hover)] flex items-center justify-center text-lg">
+          <div className="w-10 h-10 rounded-xl bg-[var(--color-hover)] flex items-center justify-center text-lg">
             📋
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[15px] font-semibold text-[var(--color-text)]">Asana</div>
+            <div className="text-[14px] font-semibold text-[var(--color-text)]">Asana</div>
             <div className="text-[13px] text-[var(--color-text-tertiary)]">
               Task management and project tracking
             </div>
@@ -401,14 +401,14 @@ function IntegrationsTab() {
                 </span>
                 <button
                   onClick={() => setConfirmDisconnect(false)}
-                  className="py-1.5 px-3 bg-transparent border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text-secondary)] cursor-pointer"
+                  className="py-1.5 px-3 bg-transparent border border-[var(--color-border)] rounded-xl text-[13px] text-[var(--color-text-secondary)] cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleDisconnect}
                   disabled={disconnecting}
-                  className="py-1.5 px-3 bg-red-600 border-none rounded-lg text-[13px] text-white font-medium cursor-pointer disabled:opacity-50"
+                  className="py-1.5 px-3 bg-red-600 border-none rounded-xl text-[13px] text-white font-medium cursor-pointer disabled:opacity-50"
                 >
                   {disconnecting ? "Disconnecting..." : "Disconnect"}
                 </button>
@@ -416,7 +416,7 @@ function IntegrationsTab() {
             ) : (
               <button
                 onClick={() => setConfirmDisconnect(true)}
-                className="py-2 px-4 bg-transparent border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
+                className="py-2 px-4 bg-transparent border border-[var(--color-border)] rounded-xl text-[13px] text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
               >
                 Disconnect
               </button>
@@ -425,7 +425,7 @@ function IntegrationsTab() {
         ) : (
           <a
             href="/api/integrations/asana/connect"
-            className="inline-flex items-center gap-2 py-2 px-4 bg-[var(--color-accent)] border-none rounded-lg text-[13px] text-white font-medium cursor-pointer no-underline hover:opacity-90 transition-opacity"
+            className="inline-flex items-center gap-2 py-2 px-4 bg-[var(--color-accent)] border-none rounded-xl text-[13px] text-white font-medium cursor-pointer no-underline hover:opacity-90 transition-opacity"
           >
             Connect Asana
           </a>
@@ -435,11 +435,11 @@ function IntegrationsTab() {
       {/* Placeholder for future integrations */}
       <div className="border border-dashed border-[var(--color-border)] rounded-xl p-4 mt-3 opacity-50">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-[var(--color-hover)] flex items-center justify-center text-lg">
+          <div className="w-10 h-10 rounded-xl bg-[var(--color-hover)] flex items-center justify-center text-lg">
             📅
           </div>
           <div className="flex-1">
-            <div className="text-[15px] font-semibold text-[var(--color-text)]">Google Calendar</div>
+            <div className="text-[14px] font-semibold text-[var(--color-text)]">Google Calendar</div>
             <div className="text-[13px] text-[var(--color-text-tertiary)]">Coming soon</div>
           </div>
         </div>
@@ -447,11 +447,11 @@ function IntegrationsTab() {
 
       <div className="border border-dashed border-[var(--color-border)] rounded-xl p-4 mt-3 opacity-50">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-[var(--color-hover)] flex items-center justify-center text-lg">
+          <div className="w-10 h-10 rounded-xl bg-[var(--color-hover)] flex items-center justify-center text-lg">
             ✉️
           </div>
           <div className="flex-1">
-            <div className="text-[15px] font-semibold text-[var(--color-text)]">Email</div>
+            <div className="text-[14px] font-semibold text-[var(--color-text)]">Email</div>
             <div className="text-[13px] text-[var(--color-text-tertiary)]">Coming soon</div>
           </div>
         </div>

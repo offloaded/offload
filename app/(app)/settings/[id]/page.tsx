@@ -416,7 +416,7 @@ export default function AgentEditorPage() {
 
   if (!canManage) {
     return (
-      <div className="flex-1 flex items-center justify-center text-[15px] text-[var(--color-text-secondary)]">
+      <div className="flex-1 flex items-center justify-center text-[14px] text-[var(--color-text-secondary)]">
         You don&apos;t have permission to edit agents
       </div>
     );
@@ -424,7 +424,7 @@ export default function AgentEditorPage() {
 
   if (!isNew && !existing && agents.length > 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-[15px] text-[var(--color-text-secondary)]">
+      <div className="flex-1 flex items-center justify-center text-[14px] text-[var(--color-text-secondary)]">
         Agent not found
       </div>
     );
@@ -438,11 +438,11 @@ export default function AgentEditorPage() {
       >
         <button
           onClick={() => router.push("/settings")}
-          className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex"
+          className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-1.5 flex rounded-lg hover:bg-[var(--color-hover)]"
         >
           <BackIcon />
         </button>
-        <span className="text-[18px] font-semibold text-[var(--color-text)]">
+        <span className="text-[16px] font-semibold text-[var(--color-text)]">
           {isNew ? "New Agent" : "Edit Agent"}
         </span>
       </div>
@@ -451,7 +451,7 @@ export default function AgentEditorPage() {
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
         <div className="max-w-[600px] w-full p-4 md:px-10 md:pt-5 md:pb-8">
           {error && (
-            <div className="mb-5 text-[14px] text-[var(--color-red)] bg-[var(--color-red-soft)] px-3.5 py-2.5 rounded-lg">
+            <div className="mb-5 text-[14px] text-[var(--color-red)] bg-[var(--color-red-soft)] px-3.5 py-2.5 rounded-xl">
               {error}
             </div>
           )}
@@ -486,7 +486,7 @@ export default function AgentEditorPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Alex, Jordan, Sam..."
-              className="w-full py-3 px-4 border border-[var(--color-border)] rounded-lg text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
+              className="w-full py-3 px-4 border border-[var(--color-border)] rounded-xl text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
             />
           </div>
 
@@ -502,7 +502,7 @@ export default function AgentEditorPage() {
               value={role}
               onChange={(e) => setRole(e.target.value)}
               placeholder="e.g. EOS Coach, HR Business Partner, Research Analyst..."
-              className="w-full py-3 px-4 border border-[var(--color-border)] rounded-lg text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
+              className="w-full py-3 px-4 border border-[var(--color-border)] rounded-xl text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
             />
           </div>
 
@@ -516,7 +516,7 @@ export default function AgentEditorPage() {
               onChange={(e) => setPurpose(e.target.value)}
               rows={4}
               placeholder="Describe this agent's role and how it should behave..."
-              className="w-full py-3 px-4 border border-[var(--color-border)] rounded-lg text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-y leading-relaxed focus:border-[var(--color-accent)]"
+              className="w-full py-3 px-4 border border-[var(--color-border)] rounded-xl text-[15px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-y leading-relaxed focus:border-[var(--color-accent)]"
             />
           </div>
 
@@ -535,7 +535,7 @@ export default function AgentEditorPage() {
                   <button
                     key={style.id}
                     onClick={() => toggleWorkingStyle(style.id)}
-                    className="py-2 px-3.5 rounded-lg text-[13px] font-medium border cursor-pointer transition-all"
+                    className="py-2 px-3.5 rounded-xl text-[13px] font-medium border cursor-pointer transition-all"
                     style={{
                       background: selected ? "var(--color-accent-soft)" : "transparent",
                       borderColor: selected ? "var(--color-accent)" : "var(--color-border)",
@@ -592,12 +592,12 @@ export default function AgentEditorPage() {
                     onChange={(e) => setNewSkillName(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSoftSkill(); } }}
                     placeholder="Add a skill..."
-                    className="flex-1 py-2 px-3 border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
+                    className="flex-1 py-2 px-3 border border-[var(--color-border)] rounded-xl text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
                   />
                   <button
                     onClick={addSoftSkill}
                     disabled={!newSkillName.trim()}
-                    className="py-2 px-3 border border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[var(--color-accent)] text-[13px] font-medium disabled:opacity-30 hover:bg-[var(--color-hover)] transition-colors"
+                    className="py-2 px-3 border border-[var(--color-border)] rounded-xl bg-transparent cursor-pointer text-[var(--color-accent)] text-[13px] font-medium disabled:opacity-30 hover:bg-[var(--color-hover)] transition-colors"
                   >
                     Add
                   </button>
@@ -621,7 +621,7 @@ export default function AgentEditorPage() {
                   <button
                     key={style.id}
                     onClick={() => toggleCommunicationStyle(style.id)}
-                    className="py-2 px-3.5 rounded-lg text-[13px] font-medium border cursor-pointer transition-all"
+                    className="py-2 px-3.5 rounded-xl text-[13px] font-medium border cursor-pointer transition-all"
                     style={{
                       background: selected ? "var(--color-accent-soft)" : "transparent",
                       borderColor: selected ? "var(--color-accent)" : "var(--color-border)",
@@ -652,7 +652,7 @@ export default function AgentEditorPage() {
                       onChange={(e) => updateVoiceSample(i, e.target.value)}
                       rows={3}
                       placeholder={`Sample ${i + 1} — paste an email, message, or note...`}
-                      className="w-full py-3 px-4 pr-9 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-y leading-relaxed focus:border-[var(--color-accent)]"
+                      className="w-full py-3 px-4 pr-9 border border-[var(--color-border)] rounded-xl text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-y leading-relaxed focus:border-[var(--color-accent)]"
                     />
                     <button
                       onClick={() => removeVoiceSample(i)}
@@ -667,7 +667,7 @@ export default function AgentEditorPage() {
                   {voiceSamples.length < 5 && (
                     <button
                       onClick={addVoiceSample}
-                      className="py-2 px-4 flex items-center gap-1.5 border border-dashed border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[var(--color-accent)] text-[13px] font-medium hover:bg-[var(--color-hover)] transition-colors"
+                      className="py-2 px-4 flex items-center gap-1.5 border border-dashed border-[var(--color-border)] rounded-xl bg-transparent cursor-pointer text-[var(--color-accent)] text-[13px] font-medium hover:bg-[var(--color-hover)] transition-colors"
                     >
                       <PlusIcon /> Add sample
                     </button>
@@ -676,7 +676,7 @@ export default function AgentEditorPage() {
                     <button
                       onClick={extractVoice}
                       disabled={extractingVoice}
-                      className="py-2 px-4 border border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[13px] font-medium disabled:opacity-50 hover:bg-[var(--color-hover)] transition-colors"
+                      className="py-2 px-4 border border-[var(--color-border)] rounded-xl bg-transparent cursor-pointer text-[13px] font-medium disabled:opacity-50 hover:bg-[var(--color-hover)] transition-colors"
                       style={{ color: "var(--color-accent)" }}
                     >
                       {extractingVoice ? "Analysing..." : voiceProfile ? "Re-analyse" : "Analyse style"}
@@ -693,7 +693,7 @@ export default function AgentEditorPage() {
                       value={voiceProfile}
                       onChange={(e) => { setVoiceProfile(e.target.value); setVoiceProfileEdited(true); }}
                       rows={3}
-                      className="w-full py-3 px-4 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-y leading-relaxed focus:border-[var(--color-accent)]"
+                      className="w-full py-3 px-4 border border-[var(--color-border)] rounded-xl text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-y leading-relaxed focus:border-[var(--color-accent)]"
                     />
                   </div>
                 )}
@@ -716,7 +716,7 @@ export default function AgentEditorPage() {
                   {teamExpectations.map((exp, i) => (
                     <div
                       key={i}
-                      className="flex items-start gap-2 py-2 px-3 rounded-lg border border-[var(--color-border)] group"
+                      className="flex items-start gap-2 py-2 px-3 rounded-xl border border-[var(--color-border)] group"
                     >
                       <span className="text-[13px] text-[var(--color-text)] flex-1">{exp.expectation}</span>
                       <button
@@ -745,7 +745,7 @@ export default function AgentEditorPage() {
                     }
                   }}
                   placeholder="e.g. Always provide data to back up claims"
-                  className="flex-1 py-2 px-3 border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
+                  className="flex-1 py-2 px-3 border border-[var(--color-border)] rounded-xl text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none focus:border-[var(--color-accent)]"
                 />
                 <button
                   onClick={() => {
@@ -756,7 +756,7 @@ export default function AgentEditorPage() {
                     }
                   }}
                   disabled={!newExpectation.trim()}
-                  className="py-2 px-3 border border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[var(--color-accent)] text-[13px] font-medium disabled:opacity-30 hover:bg-[var(--color-hover)] transition-colors"
+                  className="py-2 px-3 border border-[var(--color-border)] rounded-xl bg-transparent cursor-pointer text-[var(--color-accent)] text-[13px] font-medium disabled:opacity-30 hover:bg-[var(--color-hover)] transition-colors"
                 >
                   Add
                 </button>
@@ -787,7 +787,7 @@ export default function AgentEditorPage() {
                 {uploads.map((u) => (
                   <div
                     key={u.id}
-                    className="relative border border-[var(--color-border)] rounded-lg p-3 flex flex-col gap-1.5"
+                    className="relative border border-[var(--color-border)] rounded-xl p-3 flex flex-col gap-1.5"
                   >
                     {(u.status === "ready" || u.status === "error") && (
                       <button
@@ -827,7 +827,7 @@ export default function AgentEditorPage() {
                 {docs.map((d) => (
                   <div
                     key={d.id}
-                    className="relative border border-[var(--color-border)] rounded-lg p-3 flex flex-col gap-1.5"
+                    className="relative border border-[var(--color-border)] rounded-xl p-3 flex flex-col gap-1.5"
                   >
                     <button
                       onClick={() => deleteDoc(d.id)}
@@ -864,7 +864,7 @@ export default function AgentEditorPage() {
             )}
 
             {docs.length === 0 && uploads.length === 0 && !isNew && (
-              <div className="py-3.5 px-4 text-[14px] text-[var(--color-text-tertiary)] border border-[var(--color-border)] rounded-lg mb-2">
+              <div className="py-3.5 px-4 text-[14px] text-[var(--color-text-tertiary)] border border-[var(--color-border)] rounded-xl mb-2">
                 No documents uploaded yet
               </div>
             )}
@@ -882,7 +882,7 @@ export default function AgentEditorPage() {
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={hasActiveUploads}
-                  className="w-full py-2.5 px-4 flex items-center justify-center gap-2 border border-dashed border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[var(--color-accent)] text-[14px] font-medium disabled:opacity-50 hover:bg-[var(--color-hover)] transition-colors"
+                  className="w-full py-2.5 px-4 flex items-center justify-center gap-2 border border-dashed border-[var(--color-border)] rounded-xl bg-transparent cursor-pointer text-[var(--color-accent)] text-[14px] font-medium disabled:opacity-50 hover:bg-[var(--color-hover)] transition-colors"
                 >
                   <PlusIcon />{" "}
                   {hasActiveUploads
@@ -892,7 +892,7 @@ export default function AgentEditorPage() {
               </>
             )}
             {isNew && (
-              <div className="py-3.5 px-4 text-[14px] text-[var(--color-text-tertiary)] border border-[var(--color-border)] rounded-lg">
+              <div className="py-3.5 px-4 text-[14px] text-[var(--color-text-tertiary)] border border-[var(--color-border)] rounded-xl">
                 Save the agent first, then upload documents
               </div>
             )}
@@ -908,7 +908,7 @@ export default function AgentEditorPage() {
                 {/* Web Browsing */}
                 <button
                   onClick={() => setWebSearchEnabled(!webSearchEnabled)}
-                  className="w-full flex items-center gap-3 py-3 px-4 border border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-left"
+                  className="w-full flex items-center gap-3 py-3 px-4 border border-[var(--color-border)] rounded-xl bg-transparent cursor-pointer text-left"
                 >
                   <span className="text-[var(--color-text-tertiary)]">
                     <GlobeIcon />
@@ -929,7 +929,7 @@ export default function AgentEditorPage() {
                 </button>
 
                 {/* Asana */}
-                <div className="border border-[var(--color-border)] rounded-lg">
+                <div className="border border-[var(--color-border)] rounded-xl">
                   <button
                     onClick={() => {
                       if (!asanaConnected) return;
@@ -988,7 +988,7 @@ export default function AgentEditorPage() {
                       )}
 
                       {asanaProjectPickerOpen ? (
-                        <div className="border border-[var(--color-border)] rounded-lg bg-[var(--color-surface)] max-h-[200px] overflow-y-auto">
+                        <div className="border border-[var(--color-border)] rounded-xl bg-[var(--color-surface)] max-h-[200px] overflow-y-auto">
                           {loadingAsanaProjects ? (
                             <div className="p-3 text-[13px] text-[var(--color-text-tertiary)]">Loading projects...</div>
                           ) : availableAsanaProjects.length === 0 ? (
@@ -1028,7 +1028,7 @@ export default function AgentEditorPage() {
                             setAsanaProjectPickerOpen(true);
                             loadAvailableAsanaProjects();
                           }}
-                          className="flex items-center gap-1.5 py-1.5 px-3 border border-dashed border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[var(--color-accent)] text-[12px] font-medium hover:bg-[var(--color-hover)] transition-colors"
+                          className="flex items-center gap-1.5 py-1.5 px-3 border border-dashed border-[var(--color-border)] rounded-xl bg-transparent cursor-pointer text-[var(--color-accent)] text-[12px] font-medium hover:bg-[var(--color-hover)] transition-colors"
                         >
                           <PlusIcon /> Add project
                         </button>
@@ -1047,7 +1047,7 @@ export default function AgentEditorPage() {
                 Marketplace
               </label>
               {publishedId ? (
-                <div className="flex items-center gap-3 py-3 px-4 border border-[var(--color-border)] rounded-lg">
+                <div className="flex items-center gap-3 py-3 px-4 border border-[var(--color-border)] rounded-xl">
                   <span className="text-[14px] text-[var(--color-green)] font-medium flex-1">Published to Marketplace</span>
                   <button
                     onClick={async () => {
@@ -1063,8 +1063,8 @@ export default function AgentEditorPage() {
                   </button>
                 </div>
               ) : publishOpen ? (
-                <div className="border border-[var(--color-border)] rounded-lg p-4">
-                  <div className="mb-3 p-3 bg-[var(--color-accent-soft)] rounded-lg text-[12px] text-[var(--color-text-secondary)] leading-relaxed">
+                <div className="border border-[var(--color-border)] rounded-xl p-4">
+                  <div className="mb-3 p-3 bg-[var(--color-accent-soft)] rounded-xl text-[12px] text-[var(--color-text-secondary)] leading-relaxed">
                     <div className="font-semibold text-[var(--color-text)] mb-1">Before publishing, please note:</div>
                     Publishing shares this agent&apos;s full configuration AND knowledge base documents with all Offloaded users who adopt it.
                     Review your knowledge base and remove any confidential, client-specific, or copyrighted material.
@@ -1078,7 +1078,7 @@ export default function AgentEditorPage() {
                       maxLength={500}
                       rows={2}
                       placeholder="Describe what this agent does and who it's for..."
-                      className="w-full py-2 px-3 border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-none focus:border-[var(--color-accent)]"
+                      className="w-full py-2 px-3 border border-[var(--color-border)] rounded-xl text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-none focus:border-[var(--color-accent)]"
                     />
                     <div className="text-[11px] text-[var(--color-text-tertiary)] text-right mt-0.5">{publishDesc.length}/500</div>
                   </div>
@@ -1087,7 +1087,7 @@ export default function AgentEditorPage() {
                     <select
                       value={publishCategory}
                       onChange={(e) => setPublishCategory(e.target.value)}
-                      className="w-full py-2 px-3 border border-[var(--color-border)] rounded-lg text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none"
+                      className="w-full py-2 px-3 border border-[var(--color-border)] rounded-xl text-[13px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none"
                     >
                       {["Business Advisory","Coaching & Training","Operations","Research & Analysis","Health & Fitness","Legal & Compliance","Finance","Marketing","Custom"].map((c) => (
                         <option key={c} value={c}>{c}</option>
@@ -1114,13 +1114,13 @@ export default function AgentEditorPage() {
                         finally { setPublishing(false); }
                       }}
                       disabled={!publishDesc.trim() || publishing}
-                      className="flex-1 py-2.5 border-none rounded-lg text-[13px] font-semibold cursor-pointer disabled:opacity-50 bg-[var(--color-accent)] text-white"
+                      className="flex-1 py-2.5 border-none rounded-xl text-[13px] font-semibold cursor-pointer disabled:opacity-50 bg-[var(--color-accent)] text-white"
                     >
                       {publishing ? "Publishing..." : "Publish to Marketplace"}
                     </button>
                     <button
                       onClick={() => setPublishOpen(false)}
-                      className="py-2.5 px-4 border border-[var(--color-border)] rounded-lg bg-transparent text-[13px] text-[var(--color-text-secondary)] cursor-pointer"
+                      className="py-2.5 px-4 border border-[var(--color-border)] rounded-xl bg-transparent text-[13px] text-[var(--color-text-secondary)] cursor-pointer"
                     >
                       Cancel
                     </button>
@@ -1129,7 +1129,7 @@ export default function AgentEditorPage() {
               ) : (
                 <button
                   onClick={() => setPublishOpen(true)}
-                  className="w-full py-3 px-4 border border-dashed border-[var(--color-border)] rounded-lg bg-transparent cursor-pointer text-[14px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-hover)] transition-colors"
+                  className="w-full py-3 px-4 border border-dashed border-[var(--color-border)] rounded-xl bg-transparent cursor-pointer text-[14px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-hover)] transition-colors"
                 >
                   Publish to Marketplace
                 </button>
@@ -1142,7 +1142,7 @@ export default function AgentEditorPage() {
             <button
               onClick={save}
               disabled={!name.trim() || saving}
-              className="flex-1 py-3 px-5 border-none rounded-lg text-[15px] font-semibold cursor-pointer disabled:cursor-default transition-colors"
+              className="flex-1 py-3 px-5 border-none rounded-xl text-[15px] font-semibold cursor-pointer disabled:cursor-default transition-colors"
               style={{
                 background: name.trim()
                   ? "var(--color-accent)"
@@ -1156,7 +1156,7 @@ export default function AgentEditorPage() {
               <button
                 onClick={remove}
                 disabled={saving}
-                className="py-3 px-4 bg-[var(--color-red-soft)] text-[var(--color-red)] border-none rounded-lg cursor-pointer flex items-center"
+                className="py-3 px-4 bg-[var(--color-red-soft)] text-[var(--color-red)] border-none rounded-xl cursor-pointer flex items-center"
               >
                 <TrashIcon />
               </button>

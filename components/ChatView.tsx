@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, memo } from "react";
-import { Avatar } from "./Avatar";
+import { Avatar, UserAvatar } from "./Avatar";
 import { SendIcon, MenuIcon, NewChatIcon, CalendarIcon, GlobeIcon, SaveIcon, PaperclipIcon, XIcon } from "./Icons";
 import type { Agent, Message } from "@/lib/types";
 import {
@@ -71,28 +71,22 @@ const MessageRow = memo(function MessageRow({
 
   if (isUser) {
     return (
-      <div className="px-4 py-2 md:px-6">
-        <div className="flex max-w-[720px] gap-2.5 md:gap-3">
-          <div className="w-9 h-9 rounded-lg shrink-0 bg-[var(--color-active)] text-[var(--color-text-secondary)] flex items-center justify-center text-xs font-bold">
-            Y
-          </div>
+      <div className="px-5 py-3 md:px-8">
+        <div className="flex max-w-[760px] gap-3">
+          <UserAvatar size={34} />
           <div className="flex-1 min-w-0">
             <div className="flex items-baseline gap-2 mb-0.5">
-              <span className="text-[15px] font-semibold text-[var(--color-text)]">
-                You
-              </span>
-              <span className="text-xs text-[var(--color-text-tertiary)]">
-                {time}
-              </span>
+              <span className="text-[13px] font-semibold text-[var(--color-text)]">You</span>
+              <span className="text-[11px] text-[var(--color-text-tertiary)] font-normal">{time}</span>
             </div>
             {fileName && (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--color-accent-soft)] border border-[var(--color-accent)] text-[12px] text-[var(--color-text)] mb-1 w-fit">
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[var(--color-accent-soft)] text-[12px] text-[var(--color-accent)] mb-1.5 w-fit font-medium">
                 <PaperclipIcon />
                 <span className="max-w-[300px] truncate">{fileName}</span>
               </div>
             )}
             {displayText && (
-              <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words">
+              <div className="text-[14px] leading-[1.75] text-[var(--color-text)] whitespace-pre-wrap break-words">
                 {displayText}
               </div>
             )}
@@ -113,22 +107,27 @@ const MessageRow = memo(function MessageRow({
   };
 
   return (
-    <div className="px-4 py-2 md:px-6 hover:bg-[var(--color-hover)] transition-colors group/msg">
-      <div className="flex max-w-[720px] gap-2.5 md:gap-3">
-        <Avatar name={agent.name} color={agent.color} size={36} />
+    <div className="px-5 py-3 md:px-8 hover:bg-[var(--color-hover)] transition-colors group/msg">
+      <div className="flex max-w-[760px] gap-3">
+        <Avatar name={agent.name} color={agent.color} size={34} />
         <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-2 mb-0.5">
-            <span className="text-[15px] font-semibold" style={{ color: agent.color }}>
+          <div className="flex items-center gap-2 mb-0.5">
+            <span className="text-[13px] font-semibold" style={{ color: agent.color }}>
               {agent.name}
             </span>
-            <span className="text-xs text-[var(--color-text-tertiary)]">
+            {agent.role && (
+              <span className="text-[10px] font-medium uppercase tracking-wide px-1.5 py-px rounded text-[var(--color-text-tertiary)] bg-[var(--color-active)]">
+                {agent.role}
+              </span>
+            )}
+            <span className="text-[11px] text-[var(--color-text-tertiary)] font-normal">
               {time}
             </span>
             {onSaveReport && (
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="opacity-0 group-hover/msg:opacity-100 bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] cursor-pointer p-0 flex items-center gap-1 transition-opacity text-[11px]"
+                className="opacity-0 group-hover/msg:opacity-100 ml-auto bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] cursor-pointer p-1 flex items-center gap-1 transition-opacity text-[11px] rounded-md hover:bg-[var(--color-hover)]"
                 title="Save as report"
               >
                 <SaveIcon />
@@ -136,7 +135,7 @@ const MessageRow = memo(function MessageRow({
               </button>
             )}
           </div>
-          <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words">
+          <div className="text-[14px] leading-[1.75] text-[var(--color-text)] whitespace-pre-wrap break-words">
             {text}
           </div>
         </div>
@@ -154,23 +153,20 @@ function TypingRow({
   streamText?: string;
 }) {
   return (
-    <div className="px-4 py-2 md:px-6">
-      <div className="flex max-w-[720px] gap-2.5 md:gap-3">
-        <Avatar name={agent.name} color={agent.color} size={36} />
+    <div className="px-5 py-3 md:px-8">
+      <div className="flex max-w-[760px] gap-3">
+        <Avatar name={agent.name} color={agent.color} size={34} />
         <div className="flex-1 min-w-0">
           {streamText ? (
             <>
-              <div className="flex items-baseline gap-2 mb-0.5">
-                <span
-                  className="text-[15px] font-semibold"
-                  style={{ color: agent.color }}
-                >
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-[13px] font-semibold" style={{ color: agent.color }}>
                   {agent.name}
                 </span>
               </div>
-              <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words">
+              <div className="text-[14px] leading-[1.75] text-[var(--color-text)] whitespace-pre-wrap break-words">
                 {streamText}
-                <span className="inline-block w-0.5 h-4 bg-[var(--color-text-tertiary)] ml-0.5 align-middle animate-[typing-dot_1s_steps(2)_infinite]" />
+                <span className="inline-block w-0.5 h-[18px] bg-[var(--color-accent)] ml-0.5 align-middle rounded-full" style={{ animation: "pulse-soft 1s ease-in-out infinite" }} />
               </div>
             </>
           ) : (
@@ -234,16 +230,22 @@ const MessageList = memo(function MessageList({
       )}
 
       {!loading && messages.length === 0 && (
-        <div className="flex items-center justify-center py-16">
-          <div className="text-center">
-            <div
-              className="text-[15px] font-medium mb-1"
-              style={{ color: agent.color }}
-            >
+        <div className="flex items-center justify-center py-24">
+          <div className="text-center flex flex-col items-center">
+            <Avatar name={agent.name} color={agent.color} size={56} />
+            <div className="text-[17px] font-semibold mt-4 mb-1" style={{ color: agent.color }}>
               {agent.name}
             </div>
-            <div className="text-[14px] text-[var(--color-text-tertiary)]">
-              Start a conversation
+            {agent.role && (
+              <div className="text-[13px] text-[var(--color-text-tertiary)] mb-1">{agent.role}</div>
+            )}
+            {agent.purpose && (
+              <div className="text-[13px] text-[var(--color-text-tertiary)] max-w-[360px] leading-relaxed mt-1">
+                {agent.purpose.slice(0, 120)}{agent.purpose.length > 120 ? "..." : ""}
+              </div>
+            )}
+            <div className="text-[13px] text-[var(--color-text-tertiary)] mt-4 opacity-60">
+              Type a message to start the conversation
             </div>
           </div>
         </div>
@@ -400,7 +402,7 @@ function ChatInput({
 
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 bg-[var(--color-surface)] px-3 pt-2 pb-[max(16px,env(safe-area-inset-bottom))] md:px-5 md:pb-5"
+      className="fixed bottom-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 bg-[var(--color-surface)] px-3 pt-2 pb-[max(16px,env(safe-area-inset-bottom))] md:px-6 md:pb-5"
     >
       <div className="relative">
         {channelOpen && filteredChannels.length > 0 && (
@@ -438,11 +440,11 @@ function ChatInput({
           </div>
         )}
 
-        <div className="flex gap-2 items-end bg-[var(--color-input-bg)] rounded-xl pl-2 pr-1.5 py-1.5 border border-[var(--color-border)]">
+        <div className="flex gap-2 items-end bg-[var(--color-input-bg)] rounded-2xl pl-2.5 pr-2 py-2 border border-[var(--color-border)]">
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={streaming}
-            className="w-9 h-9 rounded-lg border-none shrink-0 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] transition-colors cursor-pointer bg-transparent mb-0.5 disabled:opacity-50"
+            className="w-8 h-8 rounded-full border-none shrink-0 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-active)] transition-colors cursor-pointer bg-transparent mb-0.5 disabled:opacity-40"
             title="Attach file"
           >
             <PaperclipIcon />
@@ -453,22 +455,24 @@ function ChatInput({
             onChange={handleInput}
             onKeyDown={handleKeyDown}
             onBlur={() => { setTimeout(() => setChannelOpen(false), 150); }}
-            placeholder={`Message ${agentName}... (# for teams)`}
+            placeholder={`Message ${agentName}...`}
             rows={1}
-            className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[15px] outline-none py-2 resize-none leading-relaxed"
+            className="flex-1 border-none bg-transparent text-[var(--color-text)] text-[14.5px] outline-none py-1.5 resize-none leading-relaxed placeholder:text-[var(--color-text-tertiary)]"
             style={{ maxHeight: 120 }}
           />
           <button
             onClick={send}
             disabled={!canSend}
-            className="w-9 h-9 rounded-lg border-none shrink-0 flex items-center justify-center transition-all duration-150 mb-0.5"
+            className="h-9 rounded-xl border-none shrink-0 flex items-center justify-center transition-all duration-150 mb-0.5 gap-1.5 font-semibold text-[13px]"
             style={{
               background: canSend ? "var(--color-accent)" : "transparent",
               color: canSend ? "#fff" : "var(--color-text-tertiary)",
               cursor: canSend ? "pointer" : "default",
+              padding: canSend ? "0 14px" : "0 8px",
             }}
           >
             <SendIcon />
+            {canSend && <span>Send</span>}
           </button>
         </div>
       </div>
@@ -913,25 +917,37 @@ export function ChatView({
     <div className="flex-1 flex flex-col bg-[var(--color-surface)] overflow-hidden">
       {/* Header — fixed on mobile, in-flow on desktop */}
       <div
-        className="fixed top-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-3 py-3 px-4 md:py-3.5 md:px-6 pt-safe"
+        className="fixed top-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-3 h-[56px] px-4 md:px-6 pt-safe"
       >
         <button
           onClick={openDrawer}
-          className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex md:hidden"
+          className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-1 flex md:hidden rounded-lg hover:bg-[var(--color-hover)]"
         >
           <MenuIcon />
         </button>
-        <Avatar name={agent.name} color={agent.color} size={28} />
-        <span className="text-[16px] font-semibold text-[var(--color-text)] flex-1">
-          {agent.name}
-        </span>
+        <Avatar name={agent.name} color={agent.color} size={32} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[14px] font-semibold text-[var(--color-text)]">{agent.name}</span>
+            {agent.role && (
+              <span className="hidden md:inline text-[11px] font-medium text-[var(--color-text-tertiary)] bg-[var(--color-active)] px-1.5 py-0.5 rounded">
+                {agent.role}
+              </span>
+            )}
+          </div>
+          {agent.purpose && (
+            <div className="text-[11px] text-[var(--color-text-tertiary)] truncate max-w-[400px] hidden md:block mt-px">
+              {agent.purpose.slice(0, 80)}{agent.purpose.length > 80 ? "..." : ""}
+            </div>
+          )}
+        </div>
         <button
           onClick={handleNewChat}
-          className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-1 flex items-center gap-1.5 hover:text-[var(--color-text-secondary)] transition-colors"
+          className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-2 flex items-center gap-1.5 hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] rounded-lg transition-colors"
           title="New chat"
         >
           <NewChatIcon />
-          <span className="text-[13px] font-medium hidden md:inline">New chat</span>
+          <span className="text-[12px] font-medium hidden md:inline">New chat</span>
         </button>
       </div>
 

@@ -178,16 +178,16 @@ export default function TasksPage() {
         <div className="flex items-center gap-3">
           <button
             onClick={openDrawer}
-            className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex md:hidden"
+            className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-1 flex md:hidden rounded-lg hover:bg-[var(--color-hover)]"
           >
             <MenuIcon />
           </button>
-          <span className="text-[18px] font-semibold text-[var(--color-text)] flex-1">
+          <span className="text-[16px] font-semibold text-[var(--color-text)] flex-1">
             Scheduled Tasks
           </span>
           <button
             onClick={() => setShowAddForm(true)}
-            className="flex items-center gap-1.5 py-2 px-3.5 bg-[var(--color-accent)] text-white border-none rounded-lg text-[14px] font-semibold cursor-pointer"
+            className="flex items-center gap-1.5 py-2 px-3.5 bg-[var(--color-accent)] text-white border-none rounded-xl text-[14px] font-semibold cursor-pointer"
           >
             <PlusIcon /> Add task
           </button>
@@ -210,7 +210,7 @@ export default function TasksPage() {
           {/* Loading */}
           {loading && tasks.length === 0 && (
             <div className="flex items-center justify-center py-12">
-              <span className="text-[15px] text-[var(--color-text-tertiary)]">
+              <span className="text-[14px] text-[var(--color-text-tertiary)]">
                 Loading...
               </span>
             </div>
@@ -220,7 +220,7 @@ export default function TasksPage() {
           {!loading && tasks.length === 0 && !showAddForm && (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <div className="text-[15px] text-[var(--color-text-secondary)] mb-1">
+                <div className="text-[14px] text-[var(--color-text-secondary)] mb-1">
                   No scheduled tasks
                 </div>
                 <div className="text-[14px] text-[var(--color-text-tertiary)]">
@@ -436,7 +436,7 @@ function AddTaskForm({
       </div>
 
       {error && (
-        <div className="mb-3 text-[13px] text-[var(--color-red)] bg-[var(--color-red-soft)] px-3 py-2 rounded-lg">
+        <div className="mb-3 text-[13px] text-[var(--color-red)] bg-[var(--color-red-soft)] px-3 py-2 rounded-xl">
           {error}
         </div>
       )}
@@ -450,7 +450,7 @@ function AddTaskForm({
           <select
             value={agentId}
             onChange={(e) => setAgentId(e.target.value)}
-            className="w-full py-2.5 pl-3 pr-8 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)]"
+            className="w-full py-2.5 pl-3 pr-8 border border-[var(--color-border)] rounded-xl text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)]"
           >
             {agents.map((a) => (
               <option key={a.id} value={a.id}>
@@ -482,7 +482,7 @@ function AddTaskForm({
           onChange={(e) => setInstruction(e.target.value)}
           placeholder="What should the agent do? e.g. 'Summarize the latest news about our industry'"
           rows={2}
-          className="w-full py-2.5 px-3 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-y leading-relaxed focus:border-[var(--color-accent)]"
+          className="w-full py-2.5 px-3 border border-[var(--color-border)] rounded-xl text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none resize-y leading-relaxed focus:border-[var(--color-accent)]"
         />
       </div>
 
@@ -505,7 +505,7 @@ function AddTaskForm({
             <button
               key={f}
               onClick={() => setFrequency(f)}
-              className="py-1.5 px-3 rounded-lg border text-[13px] font-medium cursor-pointer transition-colors"
+              className="py-1.5 px-3 rounded-xl border text-[13px] font-medium cursor-pointer transition-colors"
               style={{
                 borderColor:
                   frequency === f
@@ -538,7 +538,7 @@ function AddTaskForm({
                 const h12 = parseInt(e.target.value, 10);
                 setHour(amPm === "AM" ? (h12 === 12 ? 0 : h12) : (h12 === 12 ? 12 : h12 + 12));
               }}
-              className="py-2 pl-3 pr-7 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)]"
+              className="py-2 pl-3 pr-7 border border-[var(--color-border)] rounded-xl text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)]"
             >
               {Array.from({ length: 12 }, (_, i) => i === 0 ? 12 : i).map((h) => (
                 <option key={h} value={h}>
@@ -555,7 +555,7 @@ function AddTaskForm({
             <select
               value={minute}
               onChange={(e) => setMinute(parseInt(e.target.value, 10))}
-              className="py-2 pl-3 pr-7 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)]"
+              className="py-2 pl-3 pr-7 border border-[var(--color-border)] rounded-xl text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)]"
             >
               {[0, 15, 30, 45].map((m) => (
                 <option key={m} value={m}>
@@ -575,7 +575,7 @@ function AddTaskForm({
                 if (newAmPm === "AM" && hour >= 12) setHour(hour - 12);
                 if (newAmPm === "PM" && hour < 12) setHour(hour + 12);
               }}
-              className="py-2 pl-3 pr-7 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)]"
+              className="py-2 pl-3 pr-7 border border-[var(--color-border)] rounded-xl text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)]"
             >
               <option value="AM">AM</option>
               <option value="PM">PM</option>
@@ -597,7 +597,7 @@ function AddTaskForm({
                   onChange={(e) =>
                     setDayOfWeek(parseInt(e.target.value, 10))
                   }
-                  className="py-2 pl-3 pr-7 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)]"
+                  className="py-2 pl-3 pr-7 border border-[var(--color-border)] rounded-xl text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)]"
                 >
                   {DAYS_OF_WEEK.map((d) => (
                     <option key={d.value} value={d.value}>
@@ -624,7 +624,7 @@ function AddTaskForm({
                   onChange={(e) =>
                     setDayOfMonth(parseInt(e.target.value, 10))
                   }
-                  className="py-2 pl-3 pr-7 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)]"
+                  className="py-2 pl-3 pr-7 border border-[var(--color-border)] rounded-xl text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)]"
                 >
                   {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
                     <option key={d} value={d}>
@@ -650,7 +650,7 @@ function AddTaskForm({
           <select
             value={timezone}
             onChange={(e) => setTimezone(e.target.value)}
-            className="w-full py-2.5 pl-3 pr-8 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)]"
+            className="w-full py-2.5 pl-3 pr-8 border border-[var(--color-border)] rounded-xl text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)]"
           >
             {TIMEZONES.map((tz) => (
               <option key={tz} value={tz}>
@@ -673,7 +673,7 @@ function AddTaskForm({
           <select
             value={destination}
             onChange={(e) => setDestination(e.target.value)}
-            className="w-full py-2.5 pl-3 pr-8 border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)]"
+            className="w-full py-2.5 pl-3 pr-8 border border-[var(--color-border)] rounded-xl text-[14px] text-[var(--color-text)] bg-[var(--color-surface)] outline-none appearance-none cursor-pointer focus:border-[var(--color-accent)]"
           >
             <option value="dm">Direct message</option>
             <option value="group"># All (group chat)</option>
@@ -690,7 +690,7 @@ function AddTaskForm({
       </div>
 
       {/* Preview */}
-      <div className="mb-4 px-3 py-2.5 bg-[var(--color-input-bg)] rounded-lg">
+      <div className="mb-4 px-3 py-2.5 bg-[var(--color-input-bg)] rounded-xl">
         <div className="text-[12px] text-[var(--color-text-tertiary)] mb-0.5">
           Next run
         </div>
@@ -704,13 +704,13 @@ function AddTaskForm({
         <button
           onClick={save}
           disabled={!agentId || !instruction.trim() || saving}
-          className="flex-1 py-2.5 px-4 border-none rounded-lg text-[14px] font-semibold cursor-pointer disabled:cursor-default transition-colors bg-[var(--color-accent)] text-white disabled:opacity-50"
+          className="flex-1 py-2.5 px-4 border-none rounded-xl text-[14px] font-semibold cursor-pointer disabled:cursor-default transition-colors bg-[var(--color-accent)] text-white disabled:opacity-50"
         >
           {saving ? "Creating..." : "Create task"}
         </button>
         <button
           onClick={onCancel}
-          className="py-2.5 px-4 bg-transparent border border-[var(--color-border)] rounded-lg text-[14px] text-[var(--color-text-secondary)] cursor-pointer"
+          className="py-2.5 px-4 bg-transparent border border-[var(--color-border)] rounded-xl text-[14px] text-[var(--color-text-secondary)] cursor-pointer"
         >
           Cancel
         </button>

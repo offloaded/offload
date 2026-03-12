@@ -152,7 +152,7 @@ export default function ReportDetailPage() {
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center bg-[var(--color-surface)]">
-        <span className="text-[15px] text-[var(--color-text-tertiary)]">Loading...</span>
+        <span className="text-[14px] text-[var(--color-text-tertiary)]">Loading...</span>
       </div>
     );
   }
@@ -160,7 +160,7 @@ export default function ReportDetailPage() {
   if (!report) {
     return (
       <div className="flex-1 flex items-center justify-center bg-[var(--color-surface)]">
-        <span className="text-[15px] text-[var(--color-text-tertiary)]">Report not found</span>
+        <span className="text-[14px] text-[var(--color-text-tertiary)]">Report not found</span>
       </div>
     );
   }
@@ -168,20 +168,20 @@ export default function ReportDetailPage() {
   return (
     <div className="flex-1 flex flex-col bg-[var(--color-surface)] overflow-hidden">
       {/* Header */}
-      <div className="fixed top-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-3 py-3 px-4 md:py-3.5 md:px-6 pt-safe">
+      <div className="fixed top-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-3 h-[56px] px-4 md:px-6 pt-safe">
         <button
           onClick={openDrawer}
-          className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-0.5 flex md:hidden"
+          className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-1 flex md:hidden rounded-lg hover:bg-[var(--color-hover)]"
         >
           <MenuIcon />
         </button>
         <button
           onClick={() => router.push("/reports")}
-          className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0.5 flex hover:text-[var(--color-text-secondary)]"
+          className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-1 flex hover:text-[var(--color-text-secondary)] rounded-lg hover:bg-[var(--color-hover)]"
         >
           <BackIcon />
         </button>
-        <span className="text-[16px] font-semibold text-[var(--color-text)] flex-1 truncate">
+        <span className="text-[14px] font-semibold text-[var(--color-text)] flex-1 truncate">
           {report.display_name || report.title}
         </span>
         <div className="flex items-center gap-1">
@@ -189,14 +189,14 @@ export default function ReportDetailPage() {
             <>
               <button
                 onClick={cancelEditing}
-                className="px-3 py-1.5 rounded-md text-[12px] font-medium bg-transparent border border-[var(--color-border)] text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
+                className="px-3 py-1.5 rounded-lg text-[12px] font-medium bg-transparent border border-[var(--color-border)] text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="px-3 py-1.5 rounded-md text-[12px] font-medium bg-[var(--color-accent)] border-none text-white cursor-pointer hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-1.5"
+                className="px-3 py-1.5 rounded-lg text-[12px] font-medium bg-[var(--color-accent)] border-none text-white cursor-pointer hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-1.5"
               >
                 <SaveIcon />
                 {saving ? "Saving..." : "Save"}
@@ -206,7 +206,7 @@ export default function ReportDetailPage() {
             <>
               <button
                 onClick={startEditing}
-                className="px-3 py-1.5 rounded-md text-[12px] font-medium bg-transparent border border-[var(--color-border)] text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
+                className="px-3 py-1.5 rounded-lg text-[12px] font-medium bg-transparent border border-[var(--color-border)] text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
               >
                 Edit
               </button>
@@ -239,14 +239,14 @@ export default function ReportDetailPage() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto pt-[52px] md:pt-0">
-        <div className="max-w-[720px] mx-auto px-4 py-6 md:px-6 md:py-8">
+        <div className="max-w-[760px] mx-auto px-4 py-6 md:px-6 md:py-8">
           <div className="mb-6">
             {editing ? (
               <input
                 type="text"
                 value={editTitle}
                 onChange={(e) => setEditTitle(e.target.value)}
-                className="w-full text-[22px] font-bold text-[var(--color-text)] bg-transparent border border-[var(--color-border)] rounded-lg px-3 py-2 mb-2 outline-none focus:border-[var(--color-accent)] transition-colors"
+                className="w-full text-[22px] font-bold text-[var(--color-text)] bg-transparent border border-[var(--color-border)] rounded-xl px-3 py-2 mb-2 outline-none focus:border-[var(--color-accent)] transition-colors"
               />
             ) : (
               <h1 className="text-[22px] font-bold text-[var(--color-text)] mb-2">
@@ -281,7 +281,7 @@ export default function ReportDetailPage() {
               ref={contentRef}
               value={editContent}
               onChange={(e) => setEditContent(e.target.value)}
-              className="w-full text-[15px] leading-relaxed text-[var(--color-text)] bg-transparent border border-[var(--color-border)] rounded-lg px-4 py-3 outline-none focus:border-[var(--color-accent)] transition-colors resize-none min-h-[300px]"
+              className="w-full text-[15px] leading-relaxed text-[var(--color-text)] bg-transparent border border-[var(--color-border)] rounded-xl px-4 py-3 outline-none focus:border-[var(--color-accent)] transition-colors resize-none min-h-[300px]"
               style={{ fontFamily: "inherit" }}
             />
           ) : (
@@ -299,21 +299,21 @@ export default function ReportDetailPage() {
               <div className="flex gap-2 flex-wrap">
                 <button
                   onClick={handleCopy}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--color-border)] bg-transparent text-[13px] font-medium text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[var(--color-border)] bg-transparent text-[13px] font-medium text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
                 >
                   <CopyIcon />
                   {copied ? "Copied!" : "Copy Markdown"}
                 </button>
                 <button
                   onClick={handleDownloadPdf}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--color-border)] bg-transparent text-[13px] font-medium text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[var(--color-border)] bg-transparent text-[13px] font-medium text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
                 >
                   <DownloadIcon />
                   Download PDF
                 </button>
                 <button
                   disabled
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--color-border)] bg-transparent text-[13px] font-medium text-[var(--color-text-tertiary)] cursor-not-allowed opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[var(--color-border)] bg-transparent text-[13px] font-medium text-[var(--color-text-tertiary)] cursor-not-allowed opacity-50"
                   title="Coming soon"
                 >
                   Google Drive (coming soon)
