@@ -5,23 +5,21 @@ import { Avatar, UserAvatar } from "./Avatar";
 import { SendIcon, MenuIcon, HashIcon, NewChatIcon, CalendarIcon, GearIcon, PeopleIcon, SaveIcon, PaperclipIcon, XIcon } from "./Icons";
 import type { Agent, Message } from "@/lib/types";
 import {
-  getCached,
   setCache,
   prependMessages,
   clearCache,
   updateMessages,
-  pollNewMessages,
   type ChatMessage,
 } from "@/lib/chat-cache";
 import {
   sendTeam,
   subscribe,
-  getInflightState,
   resetInflight,
   clearScheduleRequest,
   type ScheduleRequest,
 } from "@/lib/inflight";
 import { useApp } from "@/app/(app)/layout";
+import { useConversationMessages } from "@/hooks/useConversationMessages";
 import { useRouter } from "next/navigation";
 import { describeCron } from "@/lib/cron";
 import {
@@ -258,26 +256,24 @@ export function TeamChatView({
   const router = useRouter();
   const channels = buildChannelOptions(teams);
   const CHAT_ID = `team:${teamId}`;
-  const inflight = getInflightState(CHAT_ID);
+  const fetchUrl = `/api/conversations?team_id=${teamId}`;
 
-  if (unreadCounts[CHAT_ID] && !inflight.streaming) {
-    clearCache(CHAT_ID);
-  }
-  const cached = getCached(CHAT_ID);
+  // Core message lifecycle
+  const {
+    messages, setMessages, loading, conversationId,
+    conversationIdRef, hasMore, setHasMore, streaming,
+    typingAgentName, typingAgentColor, streamMessages,
+    initialScrollDone,
+  } = useConversationMessages({
+    chatId: CHAT_ID,
+    fetchUrl,
+    activeChatKey: CHAT_ID,
+    unreadCount: unreadCounts[CHAT_ID] || 0,
+    markRead,
+    setActiveChatKey,
+  });
 
-  const [messages, setMessages] = useState<ChatMessage[]>(
-    inflight.streaming && inflight.streamMessages.length > 0
-      ? [...(cached?.messages || []), ...inflight.streamMessages]
-      : (cached?.messages || [])
-  );
-  const [streaming, setStreaming] = useState(inflight.streaming);
-  const [typingAgentName, setTypingAgentName] = useState<string | null>(inflight.typingAgentName);
-  const [typingAgentColor, setTypingAgentColor] = useState<string | null>(inflight.typingAgentColor);
-  const [conversationId, setConversationId] = useState<string | null>(
-    inflight.conversationId || (cached?.conversationId ?? null)
-  );
-  const [loading, setLoading] = useState(!cached);
-  const [hasMore, setHasMore] = useState(cached?.hasMore ?? false);
+  // Team-specific state
   const [loadingMore, setLoadingMore] = useState(false);
   const [scheduleRequest, setScheduleRequest] = useState<ScheduleRequest | null>(null);
   const [confirmingSchedule, setConfirmingSchedule] = useState(false);
@@ -299,9 +295,6 @@ export function TeamChatView({
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const initialScrollDone = useRef(false);
-  const conversationIdRef = useRef(conversationId);
-  conversationIdRef.current = conversationId;
 
   const filteredMentionAgents = mentionOpen
     ? teamAgents.filter((a) =>
@@ -315,75 +308,17 @@ export function TeamChatView({
       )
     : [];
 
-  // Track as active
-  useEffect(() => {
-    setActiveChatKey(CHAT_ID);
-    return () => setActiveChatKey(null);
-  }, [setActiveChatKey, CHAT_ID]);
-
-  // Subscribe to inflight
+  // Subscribe to team-specific events (schedule requests)
   useEffect(() => {
     return subscribe(CHAT_ID, (state) => {
-      setStreaming(state.streaming);
-      setTypingAgentName(state.typingAgentName ?? null);
-      setTypingAgentColor(state.typingAgentColor ?? null);
-      if (state.conversationId) setConversationId(state.conversationId);
       if (state.scheduleRequest) setScheduleRequest(state.scheduleRequest);
-      const c = getCached(CHAT_ID);
-      const cachedMsgs = c?.messages ?? [];
-      if (state.streaming && state.streamMessages.length > 0) {
-        setMessages([...cachedMsgs, ...state.streamMessages]);
-      } else {
-        setMessages(cachedMsgs);
-      }
-      if (!state.streaming && conversationIdRef.current) {
-        markRead(conversationIdRef.current);
-      }
     });
-  }, [CHAT_ID, markRead]);
+  }, [CHAT_ID]);
 
-  // Fetch initial messages — read cache inside effect to avoid stale closures
-  useEffect(() => {
-    initialScrollDone.current = false;
-
-    const currentInflight = getInflightState(CHAT_ID);
-    const currentCached = getCached(CHAT_ID);
-
-    if (currentCached) {
-      setMessages(currentCached.messages);
-      setConversationId(currentInflight.conversationId || currentCached.conversationId);
-      setHasMore(currentCached.hasMore);
-      setLoading(false);
-      if (currentInflight.conversationId || currentCached.conversationId) {
-        markRead(currentInflight.conversationId || currentCached.conversationId!);
-      }
-      return;
-    }
-
-    setLoading(true);
-    setMessages([]);
-    setConversationId(null);
-
-    fetch(`/api/conversations?team_id=${teamId}`)
-      .then((r) => (r.ok ? r.json() : { messages: [] }))
-      .then((data) => {
-        const convId = data.conversation_id || null;
-        const msgs: ChatMessage[] = (data.messages || []).map((m: Message) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          created_at: m.created_at,
-        }));
-        const more = data.has_more ?? false;
-        setConversationId(convId);
-        setMessages(msgs);
-        setHasMore(more);
-        setCache(CHAT_ID, { conversationId: convId, messages: msgs, hasMore: more });
-        if (convId) markRead(convId);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [CHAT_ID, teamId]);
+  // Merge stream messages during streaming
+  const displayMessages = streaming && streamMessages.length > 0
+    ? [...messages, ...streamMessages]
+    : messages;
 
   // Scroll
   useEffect(() => {
@@ -394,20 +329,7 @@ export function TeamChatView({
     } else {
       endRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, streaming]);
-
-  // Poll
-  useEffect(() => {
-    if (loading || !conversationId) return;
-    const interval = setInterval(async () => {
-      if (getInflightState(CHAT_ID).streaming) return;
-      const newMsgs = await pollNewMessages(CHAT_ID);
-      if (newMsgs.length === 0) return;
-      setMessages((prev) => [...prev, ...newMsgs]);
-      markRead(conversationIdRef.current!);
-    }, 12_000);
-    return () => clearInterval(interval);
-  }, [CHAT_ID, loading, conversationId]);
+  }, [displayMessages, streaming, initialScrollDone]);
 
   // Lazy load older
   useEffect(() => {
@@ -754,7 +676,7 @@ export function TeamChatView({
             </div>
           )}
 
-          {!loading && messages.length === 0 && (
+          {!loading && displayMessages.length === 0 && (
             <div className="flex items-center justify-center py-24">
               <div className="flex flex-col items-center text-center">
                 <div className="w-14 h-14 rounded-2xl bg-[var(--color-accent-soft)] flex items-center justify-center text-[var(--color-accent)] text-xl font-bold mb-4">#</div>
@@ -771,7 +693,7 @@ export function TeamChatView({
             </div>
           )}
 
-          {messages.map((m, i) => renderMessage(m, i))}
+          {displayMessages.map((m, i) => renderMessage(m, i))}
 
           {streaming && renderTypingIndicator()}
 

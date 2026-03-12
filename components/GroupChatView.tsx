@@ -5,23 +5,21 @@ import { Avatar, UserAvatar } from "./Avatar";
 import { SendIcon, MenuIcon, HashIcon, NewChatIcon, CalendarIcon, SaveIcon, PaperclipIcon, XIcon } from "./Icons";
 import type { Agent, Message } from "@/lib/types";
 import {
-  getCached,
   setCache,
   prependMessages,
   clearCache,
   updateMessages,
-  pollNewMessages,
   type ChatMessage,
 } from "@/lib/chat-cache";
 import {
   sendGroup,
   subscribe,
-  getInflightState,
   resetInflight,
   clearScheduleRequest,
   type ScheduleRequest,
 } from "@/lib/inflight";
 import { useApp } from "@/app/(app)/layout";
+import { useConversationMessages } from "@/hooks/useConversationMessages";
 import { describeCron } from "@/lib/cron";
 import {
   ChannelDropdown,
@@ -723,114 +721,47 @@ export function GroupChatView({
   const CHAT_ID = initialConversationId
     ? `conv:${initialConversationId}`
     : "group";
-  const inflight = getInflightState(CHAT_ID);
-  // If there are unread messages and we're not mid-stream, clear stale cache so we fetch fresh from DB
-  if (unreadCounts["group"] && !inflight.streaming) {
-    clearCache(CHAT_ID);
-  }
-  const cached = getCached(CHAT_ID);
+  const fetchUrl = initialConversationId
+    ? `/api/conversations?conversation_id=${initialConversationId}`
+    : "/api/conversations?agent_id=group";
 
-  const [messages, setMessages] = useState<ChatMessage[]>(
-    inflight.streaming && inflight.streamMessages.length > 0
-      ? [...(cached?.messages || []), ...inflight.streamMessages]
-      : (cached?.messages || [])
-  );
-  const [streaming, setStreaming] = useState(inflight.streaming);
-  const [typingAgentName, setTypingAgentName] = useState<string | null>(inflight.typingAgentName);
-  const [typingAgentColor, setTypingAgentColor] = useState<string | null>(inflight.typingAgentColor);
-  const [conversationId, setConversationId] = useState<string | null>(
-    inflight.conversationId || (cached?.conversationId ?? initialConversationId ?? null)
-  );
-  const [loading, setLoading] = useState(!cached);
-  const [hasMore, setHasMore] = useState(cached?.hasMore ?? false);
+  // Core message lifecycle — custom poll for staggered multi-agent responses
+  const {
+    messages, setMessages, loading, conversationId,
+    conversationIdRef, hasMore, setHasMore, streaming,
+    typingAgentName, typingAgentColor, streamMessages,
+    initialScrollDone,
+  } = useConversationMessages({
+    chatId: CHAT_ID,
+    fetchUrl,
+    activeChatKey: "group",
+    unreadCount: unreadCounts["group"] || 0,
+    disablePoll: true, // GroupChatView has custom staggered poll below
+    markRead,
+    setActiveChatKey,
+  });
+
+  // Group-specific state
   const [loadingMore, setLoadingMore] = useState(false);
   const [scheduleRequest, setScheduleRequest] = useState<ScheduleRequest | null>(null);
   const [confirmingSchedule, setConfirmingSchedule] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const initialScrollDone = useRef(false);
-  const conversationIdRef = useRef(conversationId);
-  conversationIdRef.current = conversationId;
 
-  // Track this chat as active so unread badges are suppressed
-  useEffect(() => {
-    setActiveChatKey("group");
-    return () => setActiveChatKey(null);
-  }, [setActiveChatKey]);
-
-  // Subscribe to inflight state changes (background streaming)
+  // Subscribe to group-specific events (schedule requests)
   useEffect(() => {
     return subscribe(CHAT_ID, (state) => {
-      setStreaming(state.streaming);
-      setTypingAgentName(state.typingAgentName ?? null);
-      setTypingAgentColor(state.typingAgentColor ?? null);
-      if (state.conversationId) {
-        setConversationId(state.conversationId);
-      }
       if (state.scheduleRequest) {
         setScheduleRequest(state.scheduleRequest);
       }
-      const c = getCached(CHAT_ID);
-      const cached = c?.messages ?? [];
-      // During streaming, merge committed cache messages with in-progress stream messages
-      if (state.streaming && state.streamMessages.length > 0) {
-        setMessages([...cached, ...state.streamMessages]);
-      } else {
-        setMessages(cached);
-      }
-      // Mark read when streaming finishes so new messages don't count as unread
-      if (!state.streaming && conversationIdRef.current) {
-        markRead(conversationIdRef.current);
-      }
     });
-  }, [CHAT_ID, markRead]);
+  }, [CHAT_ID]);
 
-  // Fetch initial messages — read cache inside effect to avoid stale closures
-  useEffect(() => {
-    initialScrollDone.current = false;
-
-    const currentInflight = getInflightState(CHAT_ID);
-    const currentCached = getCached(CHAT_ID);
-
-    if (currentCached) {
-      setMessages(currentCached.messages);
-      setConversationId(currentInflight.conversationId || currentCached.conversationId);
-      setHasMore(currentCached.hasMore);
-      setLoading(false);
-      if (currentInflight.conversationId || currentCached.conversationId) {
-        markRead(currentInflight.conversationId || currentCached.conversationId!);
-      }
-      return;
-    }
-
-    setLoading(true);
-    setMessages([]);
-    setConversationId(initialConversationId ?? null);
-
-    const url = initialConversationId
-      ? `/api/conversations?conversation_id=${initialConversationId}`
-      : "/api/conversations?agent_id=group";
-    fetch(url)
-      .then((r) => (r.ok ? r.json() : { messages: [] }))
-      .then((data) => {
-        const convId = data.conversation_id || null;
-        const msgs: ChatMessage[] = (data.messages || []).map((m: Message) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          created_at: m.created_at,
-        }));
-        const more = data.has_more ?? false;
-        setConversationId(convId);
-        setMessages(msgs);
-        setHasMore(more);
-        setCache(CHAT_ID, { conversationId: convId, messages: msgs, hasMore: more });
-        if (convId) markRead(convId);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [CHAT_ID, initialConversationId]);
+  // Merge stream messages with cached messages during streaming
+  const displayMessages = streaming && streamMessages.length > 0
+    ? [...messages, ...streamMessages]
+    : messages;
 
   // Scroll to bottom — instant on first render, smooth on subsequent updates
   useEffect(() => {
@@ -841,18 +772,15 @@ export function GroupChatView({
     } else {
       endRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, streaming]);
+  }, [displayMessages, streaming, initialScrollDone]);
 
-  // Poll for new messages every 12 seconds (catches scheduled task responses)
-  // When multi-agent responses arrive, stagger them with delays so each agent
-  // appears individually rather than all at once.
+  // Custom poll: stagger multi-agent responses
   const pollQueueRef = useRef<ChatMessage[]>([]);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (loading || !conversationId) return;
 
-    // Drip-feed queued messages one at a time with random 3-8s gaps
     const drainNext = () => {
       const next = pollQueueRef.current.shift();
       if (!next) return;
@@ -862,11 +790,10 @@ export function GroupChatView({
         pollTimerRef.current = setTimeout(drainNext, gap);
       } else {
         pollTimerRef.current = null;
-        markRead(conversationIdRef.current!);
+        if (conversationIdRef.current) markRead(conversationIdRef.current);
       }
     };
 
-    // Split a multi-agent assistant message into individual messages
     const splitAgentMessages = (msg: ChatMessage): ChatMessage[] => {
       if (msg.role !== "assistant") return [msg];
       const lines = msg.content.split("\n");
@@ -887,23 +814,21 @@ export function GroupChatView({
     };
 
     const interval = setInterval(async () => {
-      if (getInflightState(CHAT_ID).streaming) return;
-      if (pollQueueRef.current.length > 0) return; // still draining
+      if (streaming) return;
+      if (pollQueueRef.current.length > 0) return;
+      const { pollNewMessages } = await import("@/lib/chat-cache");
       const newMsgs = await pollNewMessages(CHAT_ID);
       if (newMsgs.length === 0) return;
 
-      // Split multi-agent messages and queue for staggered display
       const expanded: ChatMessage[] = [];
       for (const msg of newMsgs) {
         expanded.push(...splitAgentMessages(msg));
       }
 
       if (expanded.length === 1) {
-        // Single message — show immediately
         setMessages((prev) => [...prev, expanded[0]]);
-        markRead(conversationIdRef.current!);
+        if (conversationIdRef.current) markRead(conversationIdRef.current);
       } else {
-        // Multiple — show first immediately, queue rest with delays
         setMessages((prev) => [...prev, expanded[0]]);
         pollQueueRef.current = expanded.slice(1);
         const gap = 3000 + Math.random() * 5000;
@@ -915,7 +840,7 @@ export function GroupChatView({
       clearInterval(interval);
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
     };
-  }, [CHAT_ID, loading, conversationId]);
+  }, [CHAT_ID, loading, conversationId, streaming, markRead]);
 
   // Scroll-to-top lazy loading
   useEffect(() => {
@@ -1098,7 +1023,7 @@ export function GroupChatView({
         <div ref={sentinelRef} className="h-1" />
 
         <GroupMessageList
-          messages={messages}
+          messages={displayMessages}
           agents={agents}
           loading={loading}
           loadingMore={loadingMore}

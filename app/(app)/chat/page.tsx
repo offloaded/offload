@@ -11,6 +11,7 @@ export default function ChatPage() {
 
   return (
     <GroupChatView
+      key={conversationId || "group"}
       agents={agents}
       openDrawer={openDrawer}
       initialConversationId={conversationId}

@@ -5,18 +5,15 @@ import { Avatar, UserAvatar } from "./Avatar";
 import { SendIcon, MenuIcon, NewChatIcon, CalendarIcon, GlobeIcon, SaveIcon, PaperclipIcon, XIcon } from "./Icons";
 import type { Agent, Message } from "@/lib/types";
 import {
-  getCached,
   setCache,
   prependMessages,
   clearCache,
   updateMessages,
-  pollNewMessages,
   type ChatMessage,
 } from "@/lib/chat-cache";
 import {
   sendDM,
   subscribe,
-  getInflightState,
   resetInflight,
   clearScheduleRequest,
   clearFeatureRequest,
@@ -30,6 +27,7 @@ import {
   type ReportUpdatedEvent,
 } from "@/lib/inflight";
 import { useApp } from "@/app/(app)/layout";
+import { useConversationMessages } from "@/hooks/useConversationMessages";
 import { describeCron } from "@/lib/cron";
 import {
   ChannelDropdown,
@@ -494,21 +492,27 @@ export function ChatView({
   const chatId = initialConversationId
     ? `conv:${initialConversationId}`
     : `agent:${agent.id}`;
-  const inflight = getInflightState(chatId);
-  // If there are unread messages and we're not mid-stream, clear stale cache so we fetch fresh from DB
-  if (unreadCounts[agent.id] && !inflight.streaming) {
-    clearCache(chatId);
-  }
-  const cached = getCached(chatId);
+  const fetchUrl = initialConversationId
+    ? `/api/conversations?conversation_id=${initialConversationId}`
+    : `/api/conversations?agent_id=${agent.id}`;
 
-  const [messages, setMessages] = useState<ChatMessage[]>(cached?.messages || []);
-  const [streaming, setStreaming] = useState(inflight.streaming);
-  const [streamText, setStreamText] = useState(inflight.streamText);
-  const [conversationId, setConversationId] = useState<string | null>(
-    inflight.conversationId || (cached?.conversationId ?? initialConversationId ?? null)
-  );
-  const [loading, setLoading] = useState(!cached);
-  const [hasMore, setHasMore] = useState(cached?.hasMore ?? false);
+  // Core message lifecycle — fetch, cache, subscribe, poll all in one hook
+  const {
+    messages, setMessages, loading, conversationId, setConversationId,
+    conversationIdRef, hasMore, setHasMore, streaming, streamText,
+    initialScrollDone,
+  } = useConversationMessages({
+    chatId,
+    fetchUrl,
+    activeChatKey: agent.id,
+    includeFileName: true,
+    includeSummaryDivider: true,
+    unreadCount: unreadCounts[agent.id] || 0,
+    markRead,
+    setActiveChatKey,
+  });
+
+  // DM-specific state
   const [loadingMore, setLoadingMore] = useState(false);
   const [scheduleRequest, setScheduleRequest] = useState<ScheduleRequest | null>(null);
   const [confirmingSchedule, setConfirmingSchedule] = useState(false);
@@ -521,11 +525,8 @@ export function ChatView({
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const initialScrollDone = useRef(false);
   const [scrollReady, setScrollReady] = useState(false);
-  const conversationIdRef = useRef(conversationId);
   const wasStreamingRef = useRef(streaming);
-  conversationIdRef.current = conversationId;
 
   // When streaming finishes, refresh sidebar active DMs so new conversations appear
   useEffect(() => {
@@ -535,20 +536,9 @@ export function ChatView({
     wasStreamingRef.current = streaming;
   }, [streaming, refreshActiveDms]);
 
-  // Track this chat as active so unread badges are suppressed
-  useEffect(() => {
-    setActiveChatKey(agent.id);
-    return () => setActiveChatKey(null);
-  }, [agent.id, setActiveChatKey]);
-
-  // Subscribe to inflight state changes (background streaming)
+  // Subscribe to DM-specific inflight events (schedule, feature, reports)
   useEffect(() => {
     return subscribe(chatId, (state) => {
-      setStreaming(state.streaming);
-      setStreamText(state.streamText);
-      if (state.conversationId) {
-        setConversationId(state.conversationId);
-      }
       if (state.scheduleRequest) {
         setScheduleRequest(state.scheduleRequest);
       }
@@ -566,76 +556,8 @@ export function ChatView({
         setReportLiveUpdate(state.reportUpdated);
         clearReportUpdated(chatId);
       }
-      // Sync messages from cache when streaming state changes
-      const c = getCached(chatId);
-      if (c) {
-        setMessages(c.messages);
-      }
-      // Mark read when streaming finishes so new message doesn't count as unread
-      if (!state.streaming && conversationIdRef.current) {
-        markRead(conversationIdRef.current);
-      }
     });
-  }, [chatId, markRead]);
-
-  // Fetch initial messages — read cache inside effect to avoid stale closures
-  useEffect(() => {
-    initialScrollDone.current = false;
-    setScrollReady(false);
-
-    const currentInflight = getInflightState(chatId);
-    const currentCached = getCached(chatId);
-
-    if (currentCached) {
-      setMessages(currentCached.messages);
-      setConversationId(currentInflight.conversationId || currentCached.conversationId);
-      setHasMore(currentCached.hasMore);
-      setLoading(false);
-      if (currentInflight.conversationId || currentCached.conversationId) {
-        markRead(currentInflight.conversationId || currentCached.conversationId!);
-      }
-      return;
-    }
-
-    setLoading(true);
-    setMessages([]);
-    setConversationId(initialConversationId ?? null);
-
-    // Load specific conversation or most recent for this agent
-    const url = initialConversationId
-      ? `/api/conversations?conversation_id=${initialConversationId}`
-      : `/api/conversations?agent_id=${agent.id}`;
-
-    fetch(url)
-      .then((r) => (r.ok ? r.json() : { messages: [] }))
-      .then((data) => {
-        const convId = data.conversation_id || null;
-        const allMsgs: ChatMessage[] = [];
-        // If there's a previous conversation summary, show a divider at the top
-        if (data.previous_summary) {
-          allMsgs.push({
-            role: "assistant",
-            content: `--- Earlier messages archived --- \n${data.previous_summary}`,
-            created_at: new Date(0).toISOString(), // sort to top
-          });
-        }
-        allMsgs.push(...(data.messages || []).map((m: Message) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          created_at: m.created_at,
-          file_name: m.role === "user" ? (m.content.match(/\[Attached: ([^\]]+)\]/)?.[1] || null) : null,
-        })));
-        const more = data.has_more ?? false;
-        setConversationId(convId);
-        setMessages(allMsgs);
-        setHasMore(more);
-        setCache(chatId, { conversationId: convId, messages: allMsgs, hasMore: more });
-        if (convId) markRead(convId);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [agent.id, chatId, initialConversationId]);
+  }, [chatId, setReportLiveUpdate]);
 
   // Scroll to bottom — instant on first render (before paint), smooth on subsequent updates
   useLayoutEffect(() => {
@@ -645,12 +567,12 @@ export function ChatView({
       initialScrollDone.current = true;
       setScrollReady(true);
     }
-  }, [messages, loading]);
+  }, [messages, loading, initialScrollDone]);
 
   useEffect(() => {
     if (!endRef.current || !initialScrollDone.current) return;
     endRef.current.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamText]);
+  }, [messages, streamText, initialScrollDone]);
 
   // Auto-open report panel when a report is saved — pass content so no API fetch needed
   useEffect(() => {
@@ -675,20 +597,6 @@ export function ChatView({
       reportEditCallback.current = null;
     };
   }, [chatId, agent.id, reportEditCallback]);
-
-  // Poll for new messages every 12 seconds (catches scheduled task responses)
-  useEffect(() => {
-    if (loading || !conversationId) return;
-    const interval = setInterval(async () => {
-      if (getInflightState(chatId).streaming) return;
-      const newMsgs = await pollNewMessages(chatId);
-      if (newMsgs.length > 0) {
-        setMessages((prev) => [...prev, ...newMsgs]);
-        markRead(conversationIdRef.current!);
-      }
-    }, 12_000);
-    return () => clearInterval(interval);
-  }, [chatId, loading, conversationId]);
 
   // Scroll-to-top lazy loading
   useEffect(() => {

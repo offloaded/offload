@@ -129,6 +129,7 @@ function ProfileTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [dirty, setDirty] = useState(false);
 
   // Track original values to detect changes
@@ -160,6 +161,7 @@ function ProfileTab() {
 
   const save = useCallback(async () => {
     setSaving(true);
+    setSaveError("");
     try {
       const res = await fetch("/api/profile", {
         method: "PUT",
@@ -171,9 +173,12 @@ function ProfileTab() {
         setOrigTz(timezone);
         setDirty(false);
         setSaved(true);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setSaveError(data.error || "Failed to save profile");
       }
     } catch {
-      // ignore
+      setSaveError("Failed to save profile");
     } finally {
       setSaving(false);
     }
@@ -259,6 +264,9 @@ function ProfileTab() {
       >
         {saving ? "Saving..." : saved ? "Saved" : "Save changes"}
       </button>
+      {saveError && (
+        <div className="mt-2 text-[13px] text-[var(--color-red)]">{saveError}</div>
+      )}
     </div>
   );
 }
