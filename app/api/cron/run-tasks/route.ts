@@ -224,10 +224,13 @@ async function runTask(
   });
 
   // 8. Update conversation timestamp and unhide from sidebar (if hidden)
-  await supabase
-    .from("conversations")
-    .update({ updated_at: new Date().toISOString(), sidebar_hidden: false })
-    .eq("id", convId);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const updatePayload: any = { updated_at: new Date().toISOString(), sidebar_hidden: false };
+  const { error: tsError } = await supabase.from("conversations").update(updatePayload).eq("id", convId);
+  if (tsError) {
+    // sidebar_hidden column may not exist yet — update timestamp only
+    await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
+  }
 
   // 8b. For group/team chat, trigger other agents to react via full orchestration
   if (isChannelDest) {
