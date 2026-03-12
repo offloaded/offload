@@ -423,11 +423,11 @@ export async function POST(request: Request) {
   } catch { /* non-fatal */ }
 
   // Fetch available report templates for this workspace
-  let reportTemplates: Array<{ id: string; name: string; description: string }> = [];
+  let reportTemplates: Array<{ id: string; name: string; description: string; structure?: Array<{ heading: string; description: string }> }> = [];
   try {
     const { data: templates } = await serviceDb
       .from("report_templates")
-      .select("id, name, description")
+      .select("id, name, description, structure")
       .eq("workspace_id", ctx.workspaceId)
       .order("created_at", { ascending: false })
       .limit(20);

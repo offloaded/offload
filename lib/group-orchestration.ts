@@ -329,7 +329,7 @@ function buildGroupAgentSystemPrompt(
   teamExpectationsContext?: string,
   channelContext?: { channelName: string; channelDescription?: string },
   reportEdits?: Array<{ title: string; original: string; edited: string }>,
-  reportTemplates?: Array<{ id: string; name: string; description: string }>
+  reportTemplates?: Array<{ id: string; name: string; description: string; structure?: Array<{ heading: string; description: string }> }>
 ): string {
   const otherMembers = teamMemberNames.filter((n) => n !== agent.name);
   const teamList = otherMembers.length > 0 ? otherMembers.join(", ") : "no other members";
@@ -441,11 +441,19 @@ CONTEXT: Only respond to the MOST RECENT message in the conversation. Ignore old
   }
 
   if (reportTemplates && reportTemplates.length > 0) {
-    prompt += `\n\nAVAILABLE REPORT TEMPLATES:\n`;
+    prompt += `\n\nAVAILABLE REPORT TEMPLATES:\nWhen the user asks for a report using a template, use that template's structure to organize the report — include each heading as a section and follow the section descriptions for what content to write.\n`;
     for (const t of reportTemplates) {
-      prompt += `- ${t.name} (ID: ${t.id})${t.description ? `: ${t.description}` : ""}\n`;
+      prompt += `\n### Template: ${t.name} (ID: ${t.id})`;
+      if (t.description) prompt += `\n${t.description}`;
+      if (t.structure && t.structure.length > 0) {
+        prompt += `\nSections:`;
+        for (const s of t.structure) {
+          prompt += `\n- **${s.heading}**`;
+          if (s.description) prompt += `: ${s.description}`;
+        }
+      }
+      prompt += `\n`;
     }
-    prompt += `\nWhen the user asks for a report using a template, read the template first to get its structure, then follow it.\nTo read a template:\n\`\`\`read_report_template\n{"id": "template-uuid"}\n\`\`\``;
   }
 
   return prompt;
@@ -555,7 +563,7 @@ export async function generateAgentResponse(
   teamExpectationsContext?: string,
   channelContext?: { channelName: string; channelDescription?: string },
   reportEdits?: Array<{ title: string; original: string; edited: string }>,
-  reportTemplates?: Array<{ id: string; name: string; description: string }>
+  reportTemplates?: Array<{ id: string; name: string; description: string; structure?: Array<{ heading: string; description: string }> }>
 ): Promise<string> {
   let context: ContextChunk[] = [];
   if (docsByAgent.has(agent.id)) {

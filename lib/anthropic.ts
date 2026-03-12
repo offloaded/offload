@@ -89,7 +89,7 @@ export function buildSystemPrompt(
     activitySummary?: string;
     teamMemberships?: Array<{ id: string; name: string }>;
     reportEdits?: Array<{ title: string; original: string; edited: string }>;
-    reportTemplates?: Array<{ id: string; name: string; description: string }>;
+    reportTemplates?: Array<{ id: string; name: string; description: string; structure?: Array<{ heading: string; description: string }> }>;
     recentReports?: Array<{ id: string; title: string; generated_title?: string; content: string; agent_name?: string; updated_at: string; is_mine?: boolean }>;
     asanaProjects?: Array<{ gid: string; name: string }>;
   }
@@ -292,20 +292,19 @@ The title field is optional — only include it if the title should change. The 
   }
 
   if (options?.reportTemplates && options.reportTemplates.length > 0) {
-    prompt += `\n\nAVAILABLE REPORT TEMPLATES:\nThe user has configured these report templates. When they ask for a report using a template, read the template first to get its structure, then follow that structure when writing the report.\n`;
+    prompt += `\n\nAVAILABLE REPORT TEMPLATES:\nThe user has configured these report templates. When they ask for a report using a template, use that template's structure to organize the report — include each heading as a section and follow the section descriptions for what content to write.\n`;
     for (const t of options.reportTemplates) {
-      prompt += `- ${t.name} (ID: ${t.id})${t.description ? `: ${t.description}` : ""}\n`;
+      prompt += `\n### Template: ${t.name} (ID: ${t.id})`;
+      if (t.description) prompt += `\n${t.description}`;
+      if (t.structure && t.structure.length > 0) {
+        prompt += `\nSections:`;
+        for (const s of t.structure) {
+          prompt += `\n- **${s.heading}**`;
+          if (s.description) prompt += `: ${s.description}`;
+        }
+      }
+      prompt += `\n`;
     }
-    prompt += `\nREADING TEMPLATES:
-To read a template's structure before generating a report, use this block:
-\`\`\`read_report_template
-{"id": "template-uuid-here"}
-\`\`\`
-OR by name:
-\`\`\`read_report_template
-{"name": "template name"}
-\`\`\`
-The system will return the template's headings and section descriptions. Use these to structure your report — include each heading as a section in the report and follow the section descriptions for what content to include.`;
   }
 
   if (options?.reportEdits && options.reportEdits.length > 0) {
