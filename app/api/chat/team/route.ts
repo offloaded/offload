@@ -270,12 +270,12 @@ export async function POST(request: Request) {
     }
   }
 
-  // Save user message with sender info for multi-user channels
+  // Save user message with sender info — include file content so it persists in history
   const senderName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "User";
   await supabase.from("messages").insert({
     conversation_id: convId,
     role: "user",
-    content: message.trim(),
+    content: messageForAgents,
     sender_id: user.id,
     sender_name: senderName,
   });

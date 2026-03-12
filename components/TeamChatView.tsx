@@ -177,6 +177,16 @@ const UserMessage = memo(function UserMessage({
 }) {
   const displayName = senderName || "You";
 
+  // Parse file attachment from message content
+  const fileMatch = text.match(/\[Attached: ([^\]]+)\]/);
+  const fileName = fileMatch ? fileMatch[1] : null;
+  let displayText = text;
+  if (fileName) {
+    displayText = displayText.replace(/\[Attached: [^\]]+\]\s*/g, "");
+    displayText = displayText.replace(/\n*--- Attached file: .+? ---\n[\s\S]*$/, "");
+    displayText = displayText.trim();
+  }
+
   return (
     <div className="px-5 py-3 md:px-8">
       <div className="flex max-w-[760px] gap-3">
@@ -186,9 +196,17 @@ const UserMessage = memo(function UserMessage({
             <span className="text-[13px] font-semibold text-[var(--color-text)]">{displayName}</span>
             <span className="text-[11px] text-[var(--color-text-tertiary)]">{time}</span>
           </div>
-          <div className="text-[14px] leading-[1.75] text-[var(--color-text)] whitespace-pre-wrap break-words">
-            {renderTextWithMentions(text, agents)}
-          </div>
+          {fileName && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[var(--color-accent-soft)] text-[12px] text-[var(--color-accent)] mb-1.5 w-fit font-medium">
+              <PaperclipIcon />
+              <span className="max-w-[300px] truncate">{fileName}</span>
+            </div>
+          )}
+          {displayText && (
+            <div className="text-[14px] leading-[1.75] text-[var(--color-text)] whitespace-pre-wrap break-words">
+              {renderTextWithMentions(displayText, agents)}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -751,7 +769,7 @@ export function TeamChatView({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".pdf,.docx,.xlsx,.xls,.txt,.md,.csv,.png,.jpg,.jpeg,.gif,.webp"
+            accept=".pdf,.docx,.xlsx,.xls,.txt,.md,.csv,.json,.xml,.png,.jpg,.jpeg,.gif,.webp"
             onChange={handleFileChange}
             className="hidden"
           />

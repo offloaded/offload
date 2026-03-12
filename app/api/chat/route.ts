@@ -270,11 +270,11 @@ export async function POST(request: Request) {
     }
   }
 
-  // Save the user message (original, with #channel for display)
+  // Save the user message — include file content so it persists in conversation history
   const { error: userMsgError } = await supabase.from("messages").insert({
     conversation_id: convId,
     role: "user",
-    content: message.trim(),
+    content: messageForLLM,
   });
 
   if (userMsgError) {

@@ -64,8 +64,13 @@ const MessageRow = memo(function MessageRow({
 }) {
   const [saving, setSaving] = useState(false);
 
-  // Strip [Attached: ...] from displayed text when we have a file badge
-  const displayText = fileName ? text.replace(/\[Attached: [^\]]+\]\s*/g, "").trim() : text;
+  // Strip [Attached: ...] marker and inline file content block from displayed text
+  let displayText = text;
+  if (fileName) {
+    displayText = displayText.replace(/\[Attached: [^\]]+\]\s*/g, "");
+    displayText = displayText.replace(/\n*--- Attached file: .+? ---\n[\s\S]*$/, "");
+    displayText = displayText.trim();
+  }
 
   if (isUser) {
     return (
@@ -279,7 +284,7 @@ function autoResize(el: HTMLTextAreaElement) {
 }
 
 // Isolated input component with #channel support
-const FILE_TYPES = ".pdf,.docx,.xlsx,.xls,.txt,.md,.csv,.png,.jpg,.jpeg,.gif,.webp";
+const FILE_TYPES = ".pdf,.docx,.xlsx,.xls,.txt,.md,.csv,.json,.xml,.png,.jpg,.jpeg,.gif,.webp";
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 
 function ChatInput({
