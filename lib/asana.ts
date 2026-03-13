@@ -123,6 +123,9 @@ export interface AsanaTask {
   completed: boolean;
   start_on: string | null;
   due_on: string | null;
+  /** Datetime due date (ISO 8601) — takes precedence over due_on when present */
+  due_at: string | null;
+  created_at?: string;
   assignee: { gid: string; name: string; email?: string } | null;
   notes?: string;
   custom_fields?: Array<{ name: string; display_value: string | null }>;
@@ -135,7 +138,7 @@ export async function listTasks(
   opts?: { completedSince?: string; assignee?: string }
 ): Promise<{ ok: boolean; tasks?: AsanaTask[]; error?: string }> {
   const params = new URLSearchParams({
-    opt_fields: "name,completed,start_on,due_on,assignee,assignee.name,assignee.email,custom_fields.name,custom_fields.display_value,permalink_url",
+    opt_fields: "name,completed,start_on,due_on,due_at,created_at,assignee,assignee.name,assignee.email,custom_fields.name,custom_fields.display_value,permalink_url",
   });
   if (opts?.completedSince) params.set("completed_since", opts.completedSince);
   if (opts?.assignee) params.set("assignee", opts.assignee);
@@ -143,11 +146,12 @@ export async function listTasks(
   const result = await asanaFetch(workspaceId, `/projects/${projectGid}/tasks?${params}`);
   if (!result.ok) return { ok: false, error: result.error };
 
-  // Diagnostic: log raw task data to verify date fields
+  // Diagnostic: log raw task data to verify date fields (including due_at and created_at)
   const tasks = result.data as AsanaTask[];
   if (tasks && tasks.length > 0) {
-    console.log(`[Asana] listTasks raw sample (first 3):`, JSON.stringify(tasks.slice(0, 3).map(t => ({
-      name: t.name, gid: t.gid, start_on: t.start_on, due_on: t.due_on, completed: t.completed,
+    console.log(`[Asana] listTasks raw sample (first 5):`, JSON.stringify(tasks.slice(0, 5).map(t => ({
+      name: t.name, gid: t.gid, start_on: t.start_on, due_on: t.due_on,
+      due_at: t.due_at, created_at: t.created_at, completed: t.completed,
     }))));
   }
 
@@ -160,7 +164,7 @@ export async function getTask(
 ): Promise<{ ok: boolean; task?: AsanaTask & { stories?: Array<{ text: string; created_by: { name: string }; created_at: string; type: string }> }; error?: string }> {
   const result = await asanaFetch(
     workspaceId,
-    `/tasks/${taskGid}?opt_fields=name,completed,start_on,due_on,assignee,assignee.name,assignee.email,notes,custom_fields.name,custom_fields.display_value,permalink_url,subtasks.name,subtasks.completed,tags.name`
+    `/tasks/${taskGid}?opt_fields=name,completed,start_on,due_on,due_at,created_at,assignee,assignee.name,assignee.email,notes,custom_fields.name,custom_fields.display_value,permalink_url,subtasks.name,subtasks.completed,tags.name`
   );
   if (!result.ok) return { ok: false, error: result.error };
 
@@ -168,9 +172,10 @@ export async function getTask(
   const storiesResult = await asanaFetch(workspaceId, `/tasks/${taskGid}/stories?opt_fields=text,created_by.name,created_at,type`);
   const task = result.data as AsanaTask;
 
-  // Diagnostic: log raw task data to verify date fields
+  // Diagnostic: log all date fields to identify the mismatch
   console.log(`[Asana] getTask raw:`, JSON.stringify({
     name: task.name, gid: task.gid, start_on: task.start_on, due_on: task.due_on,
+    due_at: task.due_at, created_at: task.created_at,
     completed: task.completed, notes: task.notes?.slice(0, 100),
   }));
 

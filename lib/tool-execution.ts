@@ -6,8 +6,21 @@
  * generateAgentResponse) to avoid hallucinated tool results.
  */
 
-import { listTasks, getTask, createTask, updateTask, addComment } from "./asana";
+import { listTasks, getTask, createTask, updateTask, addComment, type AsanaTask } from "./asana";
 import { listIssues, getIssue, createIssue, updateIssue, addIssueComment, listLabels } from "./github";
+
+/**
+ * Resolve the effective due date for an Asana task.
+ * Prefers `due_at` (datetime) over `due_on` (date-only) when present,
+ * because `due_on` can be stale or timezone-shifted when `due_at` is set.
+ */
+export function effectiveDueDate(task: AsanaTask): string | null {
+  if (task.due_at) {
+    // Extract date portion from ISO datetime (e.g. "2026-02-27T08:00:00.000Z" → "2026-02-27")
+    return task.due_at.slice(0, 10);
+  }
+  return task.due_on;
+}
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -55,7 +68,7 @@ export async function executeAsanaTool(
           gid: t.gid,
           completed: t.completed,
           start_on: t.start_on,
-          due_on: t.due_on,
+          due_on: effectiveDueDate(t),
           assignee: t.assignee ? (t.assignee.name || t.assignee.email || t.assignee.gid) : null,
         })));
       } else if (!result.ok) {
@@ -78,7 +91,8 @@ export async function executeAsanaTool(
     if (result.ok && result.task) {
       const t = result.task;
       const assigneeLabel = t.assignee ? (t.assignee.name || t.assignee.email || t.assignee.gid) : "Unassigned";
-      let out = `Task: ${t.name} (GID: ${t.gid})\nStatus: ${t.completed ? "Complete" : "Incomplete"}\nAssignee: ${assigneeLabel}${t.assignee?.email ? ` (${t.assignee.email})` : ""}\nStart: ${t.start_on || "No start date"}\nDue: ${t.due_on || "No due date"}${t.notes ? `\nDescription: ${t.notes}` : ""}${t.permalink_url ? `\nURL: ${t.permalink_url}` : ""}`;
+      const dueDate = effectiveDueDate(t);
+      let out = `Task: ${t.name} (GID: ${t.gid})\nStatus: ${t.completed ? "Complete" : "Incomplete"}\nAssignee: ${assigneeLabel}${t.assignee?.email ? ` (${t.assignee.email})` : ""}\nStart: ${t.start_on || "No start date"}\nDue: ${dueDate || "No due date"}${t.notes ? `\nDescription: ${t.notes}` : ""}${t.permalink_url ? `\nURL: ${t.permalink_url}` : ""}`;
       if (t.stories && t.stories.length > 0) {
         out += `\n\nComments (${t.stories.length}):\n${t.stories.map((s: { created_by?: { name?: string }; created_at: string; text: string }) => `- ${s.created_by?.name || "Unknown"} (${new Date(s.created_at).toLocaleDateString()}): ${s.text}`).join("\n")}`;
       }

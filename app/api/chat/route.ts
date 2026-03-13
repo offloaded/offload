@@ -11,6 +11,7 @@ import { getWorkspaceContext } from "@/lib/workspace";
 import { listTasks, getTask, createTask, updateTask, addComment } from "@/lib/asana";
 import { listIssues, getIssue, createIssue, updateIssue, addIssueComment, listLabels } from "@/lib/github";
 import { shouldCompact, compactConversation, injectCompactionContext, type CompactableMessage } from "@/lib/compaction";
+import { effectiveDueDate } from "@/lib/tool-execution";
 
 export async function POST(request: Request) {
   const ctx = await getWorkspaceContext();
@@ -1368,7 +1369,7 @@ export async function POST(request: Request) {
                       gid: t.gid,
                       completed: t.completed,
                       start_on: t.start_on,
-                      due_on: t.due_on,
+                      due_on: effectiveDueDate(t),
                       assignee: t.assignee ? (t.assignee.name || t.assignee.email || t.assignee.gid) : null,
                     })));
                   } else if (!result.ok) {
@@ -1393,7 +1394,8 @@ export async function POST(request: Request) {
               if (result.ok && result.task) {
                 const t = result.task;
                 const assigneeLabel = t.assignee ? (t.assignee.name || t.assignee.email || t.assignee.gid) : "Unassigned";
-                asanaResult = `Task: ${t.name} (GID: ${t.gid})\nStatus: ${t.completed ? "Complete" : "Incomplete"}\nAssignee: ${assigneeLabel}${t.assignee?.email ? ` (${t.assignee.email})` : ""}\nStart: ${t.start_on || "No start date"}\nDue: ${t.due_on || "No due date"}${t.notes ? `\nDescription: ${t.notes}` : ""}${t.permalink_url ? `\nURL: ${t.permalink_url}` : ""}`;
+                const dueDate = effectiveDueDate(t);
+                asanaResult = `Task: ${t.name} (GID: ${t.gid})\nStatus: ${t.completed ? "Complete" : "Incomplete"}\nAssignee: ${assigneeLabel}${t.assignee?.email ? ` (${t.assignee.email})` : ""}\nStart: ${t.start_on || "No start date"}\nDue: ${dueDate || "No due date"}${t.notes ? `\nDescription: ${t.notes}` : ""}${t.permalink_url ? `\nURL: ${t.permalink_url}` : ""}`;
                 if (t.stories && t.stories.length > 0) {
                   asanaResult += `\n\nComments (${t.stories.length}):\n${t.stories.map((s) => `- ${s.created_by?.name || "Unknown"} (${new Date(s.created_at).toLocaleDateString()}): ${s.text}`).join("\n")}`;
                 }
