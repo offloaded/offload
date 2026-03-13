@@ -691,7 +691,7 @@ export function SidebarContent({
               <span className="text-[10px] font-medium text-[var(--color-accent)] bg-[var(--color-accent-soft)] rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">{activeTaskCount}</span>
             )}
           </NavItem>
-          <NavItem href="/settings" isActive={pathname === "/settings" || pathname.startsWith("/settings/") && !pathname.startsWith("/settings/members")}>
+          <NavItem href="/settings" isActive={pathname === "/settings" || (pathname.startsWith("/settings/") && !pathname.startsWith("/settings/members"))}>
             <span className="w-4 flex items-center justify-center opacity-50"><GearIcon /></span>
             <span>Settings</span>
           </NavItem>
