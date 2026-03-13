@@ -374,7 +374,8 @@ export async function POST(request: Request) {
               user.id, buildTeamExpectationsForAgent(agent.id),
               { channelName: team.name, channelDescription: team.description || undefined },
               undefined, // reportEdits
-              reportTemplatesList
+              reportTemplatesList,
+              { workspaceId: ctx.workspaceId, conversationId: convId!, serviceDb }
             ),
             new Promise<void>((r) => setTimeout(r, targetDelay)),
           ]);

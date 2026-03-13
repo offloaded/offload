@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient, cleanResponse, buildStyleInstructions } from "./anthropic";
 import { retrieveContext } from "./rag";
 import { isStandupQuestion, getAgentActivitySummary } from "./activity";
+import { executeAsanaTool, executeGithubTool, executeSaveReport, executeReadReport, executeUpdateReport, type ToolContext } from "./tool-execution";
 
 type MessageIntent = "casual" | "knowledge" | "action" | "search";
 
@@ -553,7 +554,7 @@ export async function generateAgentResponse(
   anthropic: Anthropic,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
-  agent: { id: string; name: string; purpose: string; working_style?: string[] | null; communication_style?: string[] | null; voice_profile?: string | null; soft_skills?: { skill: string; confidence: string; note?: string }[] | null; team_expectations?: { expectation: string; category?: string }[] | null },
+  agent: { id: string; name: string; purpose: string; working_style?: string[] | null; communication_style?: string[] | null; voice_profile?: string | null; soft_skills?: { skill: string; confidence: string; note?: string }[] | null; team_expectations?: { expectation: string; category?: string }[] | null; asana_enabled?: boolean; asana_projects?: unknown; github_enabled?: boolean; github_repositories?: unknown },
   messages: { role: "user" | "assistant"; content: string }[],
   plainMessage: string,
   docsByAgent: Map<string, string[]>,
@@ -565,7 +566,9 @@ export async function generateAgentResponse(
   teamExpectationsContext?: string,
   channelContext?: { channelName: string; channelDescription?: string },
   reportEdits?: Array<{ title: string; original: string; edited: string }>,
-  reportTemplates?: Array<{ id: string; name: string; description: string; structure?: Array<{ heading: string; description: string }> }>
+  reportTemplates?: Array<{ id: string; name: string; description: string; structure?: Array<{ heading: string; description: string }> }>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  toolContext?: { workspaceId: string; conversationId: string; serviceDb?: any }
 ): Promise<string> {
   let context: ContextChunk[] = [];
   if (docsByAgent.has(agent.id)) {
@@ -699,6 +702,134 @@ export async function generateAgentResponse(
       }
     } catch (e) {
       console.error(`[Generate] ${agent.name}: read_report_template failed:`, e);
+    }
+  }
+
+  // ── Execute tool blocks (Asana, GitHub, reports) ──────────────────────
+  // When called from team chat, toolContext is provided so we can execute
+  // real tool calls instead of letting the agent hallucinate results.
+  if (toolContext && userId) {
+    const ctx: ToolContext = {
+      workspaceId: toolContext.workspaceId,
+      userId,
+      agentId: agent.id,
+      agentName: agent.name,
+      conversationId: toolContext.conversationId,
+      supabase: toolContext.serviceDb || supabase,
+    };
+
+    // Asana tool blocks
+    const asanaMatch = rawText.match(/```(asana_list_tasks|asana_get_task|asana_create_task|asana_update_task|asana_add_comment)\s*\n?([\s\S]*?)\n?```/);
+    if (asanaMatch && agent.asana_enabled && agent.asana_projects) {
+      try {
+        const asanaProjects = (agent.asana_projects as Array<{ gid: string; name: string }>);
+        const asanaPayload = JSON.parse(asanaMatch[2].trim());
+        const asanaResult = await executeAsanaTool(asanaMatch[1], asanaPayload, asanaProjects, ctx);
+        console.log(`[Generate] ${agent.name}: executed ${asanaMatch[1]} → ${asanaResult.slice(0, 100)}`);
+
+        // Follow-up call so agent can present results naturally
+        const cleanedFirst = cleanResponse(rawText);
+        const followUpMessages = [
+          ...messages,
+          ...(cleanedFirst ? [{ role: "assistant" as const, content: cleanedFirst }] : []),
+          { role: "user" as const, content: `[System: Asana operation result]\n${asanaResult}` },
+        ];
+        const followUpResponse = await anthropic.messages.create({
+          model: "claude-sonnet-4-5-20250929",
+          max_tokens: maxTokens,
+          system: systemPrompt,
+          messages: followUpMessages,
+        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const followUpText = followUpResponse.content.filter((b: any) => b.type === "text").map((b: any) => b.text as string).join("").trim();
+        rawText = (cleanedFirst ? cleanedFirst + "\n\n" : "") + followUpText;
+      } catch (e) {
+        console.error(`[Generate] ${agent.name}: Asana tool execution failed:`, e);
+      }
+    }
+
+    // GitHub tool blocks
+    const githubMatch = rawText.match(/```(github_list_issues|github_get_issue|github_create_issue|github_update_issue|github_add_comment|github_list_labels)\s*\n?([\s\S]*?)\n?```/);
+    if (githubMatch && agent.github_enabled && agent.github_repositories) {
+      try {
+        const githubRepos = (agent.github_repositories as Array<{ full_name: string; name: string }>);
+        const githubPayload = JSON.parse(githubMatch[2].trim());
+        const githubResult = await executeGithubTool(githubMatch[1], githubPayload, githubRepos, ctx);
+        console.log(`[Generate] ${agent.name}: executed ${githubMatch[1]} → ${githubResult.slice(0, 100)}`);
+
+        const cleanedFirst = cleanResponse(rawText);
+        const followUpMessages = [
+          ...messages,
+          ...(cleanedFirst ? [{ role: "assistant" as const, content: cleanedFirst }] : []),
+          { role: "user" as const, content: `[System: GitHub operation result]\n${githubResult}` },
+        ];
+        const followUpResponse = await anthropic.messages.create({
+          model: "claude-sonnet-4-5-20250929",
+          max_tokens: maxTokens,
+          system: systemPrompt,
+          messages: followUpMessages,
+        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const followUpText = followUpResponse.content.filter((b: any) => b.type === "text").map((b: any) => b.text as string).join("").trim();
+        rawText = (cleanedFirst ? cleanedFirst + "\n\n" : "") + followUpText;
+      } catch (e) {
+        console.error(`[Generate] ${agent.name}: GitHub tool execution failed:`, e);
+      }
+    }
+
+    // save_report tool block
+    const saveReportMatch = rawText.match(/```save_report(?!_)\s*\n?([\s\S]*?)\n?```/);
+    if (saveReportMatch) {
+      try {
+        const result = await executeSaveReport(saveReportMatch[1].trim(), ctx);
+        if (result) {
+          console.log(`[Generate] ${agent.name}: saved report "${result.title}" (${result.id})`);
+        }
+      } catch (e) {
+        console.error(`[Generate] ${agent.name}: save_report failed:`, e);
+      }
+    }
+
+    // read_report tool block (not already handled by read_report_template above)
+    const readReportMatch = rawText.match(/```read_report(?!_)\s*\n?([\s\S]*?)\n?```/);
+    if (readReportMatch && !templateMatch) {
+      try {
+        const readReq = JSON.parse(readReportMatch[1].trim());
+        const reportContent = await executeReadReport(readReq, ctx);
+        if (reportContent) {
+          const cleanedFirst = cleanResponse(rawText);
+          const followUpMessages = [
+            ...messages,
+            ...(cleanedFirst ? [{ role: "assistant" as const, content: cleanedFirst }] : []),
+            { role: "user" as const, content: reportContent },
+          ];
+          const followUpResponse = await anthropic.messages.create({
+            model: "claude-sonnet-4-5-20250929",
+            max_tokens: maxTokens,
+            system: systemPrompt,
+            messages: followUpMessages,
+          });
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const followUpText = followUpResponse.content.filter((b: any) => b.type === "text").map((b: any) => b.text as string).join("").trim();
+          rawText = (cleanedFirst ? cleanedFirst + "\n\n" : "") + followUpText;
+        }
+      } catch (e) {
+        console.error(`[Generate] ${agent.name}: read_report failed:`, e);
+      }
+    }
+
+    // update_report tool block
+    const updateReportMatch = rawText.match(/```update_report(?!_)\s*\n?([\s\S]*?)\n?```/);
+    if (updateReportMatch) {
+      try {
+        const updateReq = JSON.parse(updateReportMatch[1].trim());
+        const updateResult = await executeUpdateReport(updateReq, ctx);
+        if (updateResult) {
+          console.log(`[Generate] ${agent.name}: update_report → ${updateResult}`);
+        }
+      } catch (e) {
+        console.error(`[Generate] ${agent.name}: update_report failed:`, e);
+      }
     }
   }
 
