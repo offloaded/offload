@@ -173,7 +173,9 @@ Updates a task. Include only the fields you want to change.
 \`\`\`
 Adds a comment to a task.
 
-Write your visible reply naturally, then include the block at the end. The system will execute the operation and provide results in a follow-up. Only access projects listed above — if asked about other projects, say you don't have access.`;
+Write your visible reply naturally, then include the block at the end. The system will execute the operation and provide results in a follow-up. Only access projects listed above — if asked about other projects, say you don't have access.
+
+IMPORTANT: When the user asks you to check, pull, query, or refresh data from Asana, you MUST make a fresh tool call every time. Never reference previous tool results from earlier in the conversation — the data may have changed. Always call the tool again.`;
   }
 
   if (options?.githubRepos && options.githubRepos.length > 0) {
@@ -214,7 +216,9 @@ Adds a comment to an issue.
 \`\`\`
 Lists available labels for a repository.
 
-Write your visible reply naturally, then include the block at the end. The system will execute the operation and provide results in a follow-up. Only access repositories listed above — if asked about other repos, say you don't have access.`;
+Write your visible reply naturally, then include the block at the end. The system will execute the operation and provide results in a follow-up. Only access repositories listed above — if asked about other repos, say you don't have access.
+
+IMPORTANT: When the user asks you to check, pull, query, or refresh data from GitHub, you MUST make a fresh tool call every time. Never reference previous tool results from earlier in the conversation — the data may have changed. Always call the tool again.`;
   }
 
   if (options?.enableScheduleDetection) {
