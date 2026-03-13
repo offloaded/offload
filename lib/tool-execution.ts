@@ -57,7 +57,7 @@ export async function executeAsanaTool(
       return "Error: You don't have access to that project.";
     }
     const targetGids = payload.project_gid ? [payload.project_gid] : [...allowedGids];
-    const allTasks: Array<{ name: string; gid: string; completed: boolean; start_on: string | null; due_on: string | null; assignee: string | null }> = [];
+    const allTasks: Array<{ name: string; gid: string; completed: boolean; start_on: string | null; due_on: string | null; assignee: string | null; section: string | null }> = [];
     for (const gid of targetGids) {
       const result = await listTasks(ctx.workspaceId, gid, {
         completedSince: payload.completed_since === "now" ? "now" : undefined,
@@ -70,6 +70,7 @@ export async function executeAsanaTool(
           start_on: t.start_on,
           due_on: effectiveDueDate(t),
           assignee: t.assignee ? (t.assignee.name || t.assignee.email || t.assignee.gid) : null,
+          section: t.memberships?.[0]?.section?.name || null,
         })));
       } else if (!result.ok) {
         return `Error: ${result.error}`;
@@ -81,7 +82,7 @@ export async function executeAsanaTool(
           if (t.start_on && t.due_on) dates = ` ${t.start_on} → ${t.due_on}`;
           else if (t.start_on) dates = ` starts ${t.start_on}`;
           else if (t.due_on) dates = ` due ${t.due_on}`;
-          return `- ${t.name} (GID: ${t.gid})${t.assignee ? ` [${t.assignee}]` : ""}${dates}${t.completed ? " [DONE]" : ""}`;
+          return `- ${t.name} (GID: ${t.gid})${t.assignee ? ` [${t.assignee}]` : ""}${dates}${t.section ? ` {${t.section}}` : ""}${t.completed ? " [DONE]" : ""}`;
         }).join("\n")}`
       : "No tasks found.";
   }

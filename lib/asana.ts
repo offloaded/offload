@@ -80,7 +80,7 @@ export async function asanaFetch(
   workspaceId: string,
   path: string,
   options: RequestInit = {}
-): Promise<{ ok: boolean; status: number; data?: unknown; error?: string }> {
+): Promise<{ ok: boolean; status: number; data?: unknown; error?: string; nextPage?: { offset: string; uri: string } | null }> {
   const tokens = await getAsanaTokens(workspaceId);
   if (!tokens) {
     return { ok: false, status: 401, error: "Asana not connected" };
@@ -112,7 +112,38 @@ export async function asanaFetch(
     return { ok: false, status: res.status, error: errMsg };
   }
 
-  return { ok: true, status: res.status, data: body.data };
+  return { ok: true, status: res.status, data: body.data, nextPage: body.next_page || null };
+}
+
+/**
+ * Fetch all pages of a paginated Asana list endpoint.
+ * Follows next_page links until all results are collected.
+ */
+export async function asanaFetchAll(
+  workspaceId: string,
+  path: string
+): Promise<{ ok: boolean; data?: unknown[]; error?: string }> {
+  const allData: unknown[] = [];
+  let currentPath = path;
+  // Add limit=100 to reduce roundtrips (default is 20)
+  if (!currentPath.includes("limit=")) {
+    currentPath += (currentPath.includes("?") ? "&" : "?") + "limit=100";
+  }
+
+  for (let page = 0; page < 10; page++) { // safety cap at 10 pages (1000 items)
+    const result = await asanaFetch(workspaceId, currentPath);
+    if (!result.ok) return { ok: false, error: result.error };
+
+    const items = result.data;
+    if (Array.isArray(items)) {
+      allData.push(...items);
+    }
+
+    if (!result.nextPage?.uri) break;
+    currentPath = result.nextPage.uri; // Asana returns full URI for next page
+  }
+
+  return { ok: true, data: allData };
 }
 
 // ─── Asana Operations ───
@@ -127,6 +158,8 @@ export interface AsanaTask {
   due_at: string | null;
   created_at?: string;
   assignee: { gid: string; name: string; email?: string } | null;
+  /** Section memberships — shows which section(s) a task belongs to */
+  memberships?: Array<{ section?: { name: string } }>;
   notes?: string;
   custom_fields?: Array<{ name: string; display_value: string | null }>;
   permalink_url?: string;
@@ -138,20 +171,22 @@ export async function listTasks(
   opts?: { completedSince?: string; assignee?: string }
 ): Promise<{ ok: boolean; tasks?: AsanaTask[]; error?: string }> {
   const params = new URLSearchParams({
-    opt_fields: "name,completed,start_on,due_on,due_at,created_at,assignee,assignee.name,assignee.email,custom_fields.name,custom_fields.display_value,permalink_url",
+    opt_fields: "name,completed,start_on,due_on,due_at,created_at,assignee,assignee.name,assignee.email,memberships.section.name,custom_fields.name,custom_fields.display_value,permalink_url",
   });
   if (opts?.completedSince) params.set("completed_since", opts.completedSince);
   if (opts?.assignee) params.set("assignee", opts.assignee);
 
-  const result = await asanaFetch(workspaceId, `/projects/${projectGid}/tasks?${params}`);
+  // Use paginated fetch to get ALL tasks (default page size is only 20)
+  const result = await asanaFetchAll(workspaceId, `/projects/${projectGid}/tasks?${params}`);
   if (!result.ok) return { ok: false, error: result.error };
 
-  // Diagnostic: log raw task data to verify date fields (including due_at and created_at)
   const tasks = result.data as AsanaTask[];
-  if (tasks && tasks.length > 0) {
-    console.log(`[Asana] listTasks raw sample (first 5):`, JSON.stringify(tasks.slice(0, 5).map(t => ({
-      name: t.name, gid: t.gid, start_on: t.start_on, due_on: t.due_on,
-      due_at: t.due_at, created_at: t.created_at, completed: t.completed,
+  console.log(`[Asana] listTasks: ${tasks.length} task(s) returned for project ${projectGid}`);
+  if (tasks.length > 0) {
+    console.log(`[Asana] listTasks sample (first 3):`, JSON.stringify(tasks.slice(0, 3).map(t => ({
+      name: t.name, gid: t.gid, assignee: t.assignee?.name,
+      due_on: t.due_on, due_at: t.due_at,
+      section: t.memberships?.[0]?.section?.name,
     }))));
   }
 
