@@ -787,7 +787,7 @@ export async function POST(request: Request) {
         }
 
         // Check if any tool blocks will produce follow-up content or handle the response
-        const hasFollowUpTool = !!(readReportMatch || readTemplateMatch || saveReportMatch || updateReportMatch);
+        const hasFollowUpTool = !!(readReportMatch || readTemplateMatch || saveReportMatch || updateReportMatch || asanaMatch || githubMatch);
 
         // Track the saved assistant message ID so follow-up handlers can update it instead of inserting duplicates
         let savedAssistantMsgId: string | null = null;
@@ -803,12 +803,9 @@ export async function POST(request: Request) {
               `data: ${JSON.stringify({ type: "replace", text: fallbackMsg })}\n\n`
             )
           );
-          const { data: fallbackRow } = await supabase.from("messages").insert({
-            conversation_id: convId,
-            role: "assistant",
-            content: fallbackMsg,
-          }).select("id").single();
-          savedAssistantMsgId = fallbackRow?.id || null;
+          // Do NOT persist error fallback to DB — it poisons conversation history
+          // and causes the model to pattern-match on failure responses.
+          // The user sees it in the current session but it won't appear in future API payloads.
           savedContent = fallbackMsg;
         } else if (cleaned) {
           // Save the cleaned response
