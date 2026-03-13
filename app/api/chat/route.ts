@@ -1431,6 +1431,7 @@ export async function POST(request: Request) {
 
             // Do a follow-up call so the agent can summarize the results naturally
             if (asanaResult) {
+              console.log(`[Chat] Asana ${asanaAction} result:\n${asanaResult.slice(0, 500)}`);
               const followUpMessages = [
                 ...messages,
                 { role: "assistant" as const, content: cleaned || "" },

@@ -142,7 +142,16 @@ export async function listTasks(
 
   const result = await asanaFetch(workspaceId, `/projects/${projectGid}/tasks?${params}`);
   if (!result.ok) return { ok: false, error: result.error };
-  return { ok: true, tasks: result.data as AsanaTask[] };
+
+  // Diagnostic: log raw task data to verify date fields
+  const tasks = result.data as AsanaTask[];
+  if (tasks && tasks.length > 0) {
+    console.log(`[Asana] listTasks raw sample (first 3):`, JSON.stringify(tasks.slice(0, 3).map(t => ({
+      name: t.name, gid: t.gid, start_on: t.start_on, due_on: t.due_on, completed: t.completed,
+    }))));
+  }
+
+  return { ok: true, tasks };
 }
 
 export async function getTask(
@@ -158,6 +167,13 @@ export async function getTask(
   // Also fetch comments/stories
   const storiesResult = await asanaFetch(workspaceId, `/tasks/${taskGid}/stories?opt_fields=text,created_by.name,created_at,type`);
   const task = result.data as AsanaTask;
+
+  // Diagnostic: log raw task data to verify date fields
+  console.log(`[Asana] getTask raw:`, JSON.stringify({
+    name: task.name, gid: task.gid, start_on: task.start_on, due_on: task.due_on,
+    completed: task.completed, notes: task.notes?.slice(0, 100),
+  }));
+
   const stories = storiesResult.ok
     ? (storiesResult.data as Array<{ text: string; created_by: { name: string }; created_at: string; type: string }>).filter(s => s.type === "comment")
     : [];
