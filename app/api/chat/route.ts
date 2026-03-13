@@ -10,6 +10,7 @@ import { estimateTokens, trimHistory, trimRagChunks, shouldArchive, calculateBud
 import { getWorkspaceContext } from "@/lib/workspace";
 import { listTasks, getTask, createTask, updateTask, addComment } from "@/lib/asana";
 import { listIssues, getIssue, createIssue, updateIssue, addIssueComment, listLabels } from "@/lib/github";
+import { shouldCompact, compactConversation, injectCompactionContext, type CompactableMessage } from "@/lib/compaction";
 
 export async function POST(request: Request) {
   const ctx = await getWorkspaceContext();
@@ -295,15 +296,24 @@ export async function POST(request: Request) {
     .update({ updated_at: new Date().toISOString() })
     .eq("id", convId);
 
-  // Load message history for context — fetch more than we'll use, then trim by tokens
+  // Load message history for context — only non-compacted messages for the API payload
   const { data: history } = await supabase
     .from("messages")
-    .select("role, content")
+    .select("id, role, content, created_at")
     .eq("conversation_id", convId)
+    .is("compacted_at", null)
     .order("created_at", { ascending: true })
     .limit(60);
 
-  let messages = (history || []).map((m) => ({
+  // Keep full message objects for compaction, then derive the simpler format for Claude
+  const fullMessages: CompactableMessage[] = (history || []).map((m: { id: string; role: string; content: string; created_at: string }) => ({
+    id: m.id,
+    role: m.role,
+    content: m.content,
+    created_at: m.created_at,
+  }));
+
+  let messages = fullMessages.map((m) => ({
     role: m.role as "user" | "assistant",
     content: m.content,
   }));
@@ -318,10 +328,10 @@ export async function POST(request: Request) {
     }
   }
 
-  // Load previous conversation summary if this is a continuation
+  // Load previous conversation summary and compaction state
   const { data: convRecord } = await supabase
     .from("conversations")
-    .select("previous_conversation_id, summary")
+    .select("previous_conversation_id, summary, compaction_summary")
     .eq("id", convId)
     .single();
 
@@ -561,6 +571,46 @@ export async function POST(request: Request) {
   // Inject previous conversation summary if available
   if (previousSummary) {
     systemPrompt += `\n\nSummary of your previous conversation with this user: ${previousSummary}\n\nUse this context when relevant, but focus on the current conversation.`;
+  }
+
+  // ── Chat compaction ──────────────────────────────────────────────────
+  // If history is approaching the context limit, summarise older messages
+  // and only send the summary + recent messages to Claude.
+  let compactionSummary: string | null = convRecord?.compaction_summary || null;
+  const systemTokensForCompaction = estimateTokens(systemPrompt);
+
+  if (shouldCompact(systemTokensForCompaction, messages)) {
+    console.log(`[Chat] Compaction triggered for conv=${convId} (${messages.length} msgs)`);
+    try {
+      const newSummary = await compactConversation(
+        supabase,
+        convId!,
+        fullMessages,
+        compactionSummary
+      );
+      if (newSummary) {
+        compactionSummary = newSummary;
+        // Reload non-compacted messages after compaction
+        const { data: freshHistory } = await supabase
+          .from("messages")
+          .select("id, role, content, created_at")
+          .eq("conversation_id", convId)
+          .is("compacted_at", null)
+          .order("created_at", { ascending: true })
+          .limit(60);
+        messages = (freshHistory || []).map((m: { role: string; content: string }) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        }));
+      }
+    } catch (compactErr) {
+      console.error("[Chat] Compaction failed (non-fatal):", compactErr);
+    }
+  }
+
+  // Inject compaction summary into system prompt so Claude has earlier context
+  if (compactionSummary) {
+    systemPrompt = injectCompactionContext(systemPrompt, compactionSummary);
   }
 
   // Trim history to fit within context window
@@ -1229,12 +1279,16 @@ export async function POST(request: Request) {
               // Fetch current version before overwriting
               const { data: currentReport } = await serviceDb
                 .from("reports")
-                .select("id, title, content, user_id")
+                .select("id, title, content, user_id, agent_id")
                 .eq("id", updateReq.id)
                 .eq("workspace_id", ctx.workspaceId)
                 .single();
 
               if (currentReport) {
+                // Validate: agent can only update reports it authored
+                if (currentReport.agent_id && currentReport.agent_id !== agent_id) {
+                  console.log(`[Chat] update_report: agent ${agent_id} denied update to report ${updateReq.id} (owned by ${currentReport.agent_id})`);
+                } else {
                 // Save current version to version history
                 await serviceDb.from("report_versions").insert({
                   report_id: currentReport.id,
@@ -1281,6 +1335,7 @@ export async function POST(request: Request) {
                 );
 
                 console.log(`[Chat] Report updated: ${updateReq.id}`);
+                } // end permission check else
               } else {
                 console.log(`[Chat] update_report: report not found: ${updateReq.id}`);
               }
