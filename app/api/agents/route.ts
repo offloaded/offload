@@ -92,7 +92,7 @@ export async function PUT(request: Request) {
   }
 
   const body = await request.json();
-  const { id, name, role, purpose, color, web_search_enabled, asana_enabled, asana_projects, github_enabled, github_repositories, working_style, communication_style, voice_samples, voice_profile, soft_skills, team_expectations } = body;
+  const { id, name, role, purpose, color, web_search_enabled, asana_enabled, asana_projects, github_enabled, github_repositories, working_style, communication_style, voice_samples, voice_profile, soft_skills, team_expectations, assigned_templates } = body;
 
   if (!id) {
     return NextResponse.json({ error: "Agent ID required" }, { status: 400 });
@@ -116,6 +116,7 @@ export async function PUT(request: Request) {
   if (voice_profile !== undefined) updates.voice_profile = voice_profile;
   if (soft_skills !== undefined) updates.soft_skills = soft_skills;
   if (team_expectations !== undefined) updates.team_expectations = team_expectations;
+  if (assigned_templates !== undefined) updates.assigned_templates = assigned_templates;
 
   const service = createServiceSupabase();
   const { data, error } = await service

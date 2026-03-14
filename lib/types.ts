@@ -22,6 +22,7 @@ export interface Agent {
   soft_skills: SoftSkill[] | null;
   // Team expectations
   team_expectations: TeamExpectation[] | null;
+  assigned_templates: string[] | null;
   last_message_at: string | null;
   deleted_at: string | null;
   created_at: string;

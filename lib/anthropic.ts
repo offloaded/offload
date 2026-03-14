@@ -91,6 +91,7 @@ export function buildSystemPrompt(
     teamMemberships?: Array<{ id: string; name: string }>;
     reportEdits?: Array<{ title: string; original: string; edited: string }>;
     reportTemplates?: Array<{ id: string; name: string; description: string; structure?: Array<{ heading: string; description: string }> }>;
+    assignedTemplates?: Array<{ id: string; name: string; description: string; structure?: Array<{ heading: string; description: string }> }>;
     recentReports?: Array<{ id: string; title: string; generated_title?: string; content: string; agent_name?: string; updated_at: string; is_mine?: boolean }>;
     asanaProjects?: Array<{ gid: string; name: string }>;
     githubRepos?: Array<{ full_name: string; name: string }>;
@@ -340,10 +341,11 @@ The title field is optional — only include it if the title should change. The 
     prompt += `\n\nIMPORTANT: When the user asks "what reports have you written" or "show me your reports", ONLY list the reports under "REPORTS YOU AUTHORED" — these are the reports you actually wrote. Do NOT claim authorship of reports listed under "OTHER WORKSPACE REPORTS". You can still read and reference any report when the user asks about a specific one. Always use the report's display name (the first title shown) when referring to reports.`;
   }
 
-  if (options?.reportTemplates && options.reportTemplates.length > 0) {
-    prompt += `\n\nREPORT TEMPLATES (already loaded — do NOT use read_report to fetch these):
-Templates are NOT reports. Their full structure is provided below. When the user asks for a report using a template, use the template's sections directly from here — do NOT call read_report with a template ID. read_report is ONLY for reading saved reports, not templates.\n`;
-    for (const t of options.reportTemplates) {
+  // Assigned templates: full structure in context, no need for read_report_template
+  if (options?.assignedTemplates && options.assignedTemplates.length > 0) {
+    prompt += `\n\nYOUR REPORT TEMPLATES (assigned to you — already loaded, do NOT use read_report_template to fetch these):
+When asked to generate a report, use the most appropriate template below. When asked to use a specific template by name, follow its structure exactly.\n`;
+    for (const t of options.assignedTemplates) {
       prompt += `\n### Template: ${t.name} (ID: ${t.id})`;
       if (t.description) prompt += `\n${t.description}`;
       if (t.structure && t.structure.length > 0) {
@@ -356,6 +358,13 @@ Templates are NOT reports. Their full structure is provided below. When the user
       prompt += `\n`;
     }
     prompt += `\nWhen generating a report from a template: use each section heading above as a heading in your report, and follow the description for what to write in each section. Write the report directly — you already have everything you need.`;
+  }
+
+  // Unassigned templates: listed by name only, agent can fetch via read_report_template
+  if (options?.reportTemplates && options.reportTemplates.length > 0) {
+    prompt += `\n\nADDITIONAL REPORT TEMPLATES (available but not assigned — use read_report_template to fetch):
+These templates are available in the workspace but not assigned to you. If the user asks for one of these, use read_report_template to fetch its structure first.
+${options.reportTemplates.map((t) => `- ${t.name} (ID: ${t.id})${t.description ? ` — ${t.description}` : ""}`).join("\n")}`;
   }
 
   if (options?.reportEdits && options.reportEdits.length > 0) {

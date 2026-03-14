@@ -439,7 +439,11 @@ export async function POST(request: Request) {
   } catch { /* non-fatal */ }
 
   // Fetch available report templates for this workspace
-  let reportTemplates: Array<{ id: string; name: string; description: string; structure?: Array<{ heading: string; description: string }> }> = [];
+  // Split into assigned (full context in prompt) vs unassigned (available via read_report_template)
+  type TemplateRecord = { id: string; name: string; description: string; structure?: Array<{ heading: string; description: string }> };
+  let reportTemplates: TemplateRecord[] = [];
+  let assignedTemplates: TemplateRecord[] = [];
+  const assignedTemplateIds = new Set<string>((agent.assigned_templates as string[]) || []);
   try {
     const { data: templates } = await serviceDb
       .from("report_templates")
@@ -447,7 +451,15 @@ export async function POST(request: Request) {
       .eq("workspace_id", ctx.workspaceId)
       .order("created_at", { ascending: false })
       .limit(20);
-    if (templates) reportTemplates = templates;
+    if (templates) {
+      for (const t of templates) {
+        if (assignedTemplateIds.has(t.id)) {
+          assignedTemplates.push(t);
+        } else {
+          reportTemplates.push(t);
+        }
+      }
+    }
   } catch { /* non-fatal */ }
 
   // Fetch recent reports — split into "mine" (authored by this agent) and "others" (by other agents)
@@ -558,6 +570,7 @@ export async function POST(request: Request) {
       teamMemberships: agentTeams.length > 0 ? agentTeams : undefined,
       reportEdits: reportEdits.length > 0 ? reportEdits : undefined,
       reportTemplates: reportTemplates.length > 0 ? reportTemplates : undefined,
+      assignedTemplates: assignedTemplates.length > 0 ? assignedTemplates : undefined,
       recentReports: recentReports.length > 0 ? recentReports : undefined,
       asanaProjects: asanaProjects.length > 0 ? asanaProjects : undefined,
       githubRepos: githubRepos.length > 0 ? githubRepos : undefined,

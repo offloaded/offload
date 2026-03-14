@@ -96,6 +96,11 @@ export default function AgentEditorPage() {
   const [availableGithubRepos, setAvailableGithubRepos] = useState<Array<{ full_name: string; name: string; owner: string; private: boolean; description: string | null }>>([]);
   const [loadingGithubRepos, setLoadingGithubRepos] = useState(false);
   const [githubRepoPickerOpen, setGithubRepoPickerOpen] = useState(false);
+  // Report Templates
+  const [assignedTemplates, setAssignedTemplates] = useState<Array<{ id: string; name: string }>>([]);
+  const [availableTemplates, setAvailableTemplates] = useState<Array<{ id: string; name: string; description: string }>>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
 
   // Initialize form state from existing agent — only once, not on every poll refresh
   useEffect(() => {
@@ -116,6 +121,17 @@ export default function AgentEditorPage() {
       setVoiceProfile(existing.voice_profile ?? "");
       setSoftSkills(existing.soft_skills ?? []);
       setTeamExpectations(existing.team_expectations ?? []);
+      // Load assigned template details if IDs exist
+      const templateIds = existing.assigned_templates;
+      if (templateIds && templateIds.length > 0) {
+        fetch("/api/report-templates")
+          .then((r) => (r.ok ? r.json() : []))
+          .then((all: Array<{ id: string; name: string }>) => {
+            const idSet = new Set(templateIds);
+            setAssignedTemplates(all.filter((t) => idSet.has(t.id)).map((t) => ({ id: t.id, name: t.name })));
+          })
+          .catch(() => {});
+      }
     } else if (isNew) {
       setColor(PALETTE[agents.length % PALETTE.length]);
     }
@@ -243,6 +259,38 @@ export default function AgentEditorPage() {
     }
   };
 
+  const loadAvailableTemplates = useCallback(() => {
+    if (availableTemplates.length > 0) return;
+    setLoadingTemplates(true);
+    fetch("/api/report-templates")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setAvailableTemplates)
+      .catch(() => {})
+      .finally(() => setLoadingTemplates(false));
+  }, [availableTemplates.length]);
+
+  const persistAssignedTemplates = useCallback((templates: Array<{ id: string; name: string }>) => {
+    if (isNew) return;
+    fetch("/api/agents", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: params.id, assigned_templates: templates.length > 0 ? templates.map((t) => t.id) : null }),
+    }).catch(() => {});
+  }, [isNew, params.id]);
+
+  const addTemplate = (templateId: string, templateName: string) => {
+    const updated = [...assignedTemplates, { id: templateId, name: templateName }];
+    setAssignedTemplates(updated);
+    persistAssignedTemplates(updated);
+    setTemplatePickerOpen(false);
+  };
+
+  const removeTemplate = (templateId: string) => {
+    const updated = assignedTemplates.filter((t) => t.id !== templateId);
+    setAssignedTemplates(updated);
+    persistAssignedTemplates(updated);
+  };
+
   const save = async () => {
     if (!name.trim() || saving) return;
     setSaving(true);
@@ -270,6 +318,7 @@ export default function AgentEditorPage() {
           } : {}),
           ...(!isNew ? { soft_skills: softSkills.length > 0 ? softSkills : null } : {}),
           ...(!isNew ? { team_expectations: teamExpectations.length > 0 ? teamExpectations : null } : {}),
+          ...(!isNew ? { assigned_templates: assignedTemplates.length > 0 ? assignedTemplates.map((t) => t.id) : null } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1208,6 +1257,85 @@ export default function AgentEditorPage() {
                       )}
                     </div>
                   )}
+                </div>
+
+                {/* Report Templates */}
+                <div className="border border-[var(--color-border)] rounded-xl">
+                  <div className="w-full flex items-center gap-3 py-3 px-4">
+                    <span className="text-lg">📄</span>
+                    <span className="flex-1 text-[14px] text-[var(--color-text)]">
+                      Report Templates
+                    </span>
+                    <span className="text-[12px] text-[var(--color-text-tertiary)]">
+                      {assignedTemplates.length > 0 ? `${assignedTemplates.length} assigned` : "None"}
+                    </span>
+                  </div>
+
+                  <div className="px-4 pb-3 border-t border-[var(--color-border)] pt-3">
+                    <div className="text-[12px] text-[var(--color-text-tertiary)] mb-2">
+                      Assigned templates are loaded into the agent&apos;s context automatically — no need for the agent to fetch them.
+                    </div>
+
+                    {assignedTemplates.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {assignedTemplates.map((t) => (
+                          <span
+                            key={t.id}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-[var(--color-accent-soft)] border border-[var(--color-accent)] text-[12px] text-[var(--color-text)]"
+                          >
+                            {t.name}
+                            <button
+                              onClick={() => removeTemplate(t.id)}
+                              className="bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] cursor-pointer p-0 flex"
+                            >
+                              <XIcon />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {templatePickerOpen ? (
+                      <div className="border border-[var(--color-border)] rounded-xl bg-[var(--color-surface)] max-h-[200px] overflow-y-auto">
+                        {loadingTemplates ? (
+                          <div className="p-3 text-[13px] text-[var(--color-text-tertiary)]">Loading templates...</div>
+                        ) : availableTemplates.filter((t) => !assignedTemplates.some((at) => at.id === t.id)).length === 0 ? (
+                          <div className="p-3 text-[13px] text-[var(--color-text-tertiary)]">No templates available</div>
+                        ) : (
+                          availableTemplates
+                            .filter((t) => !assignedTemplates.some((at) => at.id === t.id))
+                            .map((t) => (
+                              <button
+                                key={t.id}
+                                onClick={() => addTemplate(t.id, t.name)}
+                                className="w-full text-left px-3 py-2 bg-transparent border-none text-[13px] text-[var(--color-text)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
+                              >
+                                <span>{t.name}</span>
+                                {t.description && (
+                                  <span className="block text-[11px] text-[var(--color-text-tertiary)] mt-0.5">{t.description}</span>
+                                )}
+                              </button>
+                            ))
+                        )}
+                        <button
+                          onClick={() => setTemplatePickerOpen(false)}
+                          className="w-full px-3 py-2 bg-transparent border-t border-[var(--color-border)] text-[12px] text-[var(--color-text-tertiary)] cursor-pointer hover:bg-[var(--color-hover)]"
+                        >
+                          Close
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setTemplatePickerOpen(true);
+                          loadAvailableTemplates();
+                        }}
+                        className="flex items-center gap-1.5 py-1.5 px-3 border border-dashed border-[var(--color-border)] rounded-xl bg-transparent cursor-pointer text-[var(--color-accent)] text-[12px] font-medium hover:bg-[var(--color-hover)] transition-colors"
+                      >
+                        <PlusIcon /> Assign template
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
