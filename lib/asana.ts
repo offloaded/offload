@@ -165,25 +165,37 @@ export interface AsanaTask {
   permalink_url?: string;
 }
 
+const TASK_OPT_FIELDS = "name,completed,start_on,due_on,due_at,created_at,assignee,assignee.name,assignee.email,memberships.section.name,custom_fields.name,custom_fields.display_value,permalink_url,notes";
+
 export async function listTasks(
   workspaceId: string,
   projectGid: string,
   opts?: { completedSince?: string; assignee?: string }
 ): Promise<{ ok: boolean; tasks?: AsanaTask[]; error?: string }> {
-  const params = new URLSearchParams({
-    opt_fields: "name,completed,start_on,due_on,due_at,created_at,assignee,assignee.name,assignee.email,memberships.section.name,custom_fields.name,custom_fields.display_value,permalink_url",
-  });
+  const params = new URLSearchParams({ opt_fields: TASK_OPT_FIELDS });
   if (opts?.completedSince) params.set("completed_since", opts.completedSince);
   if (opts?.assignee) params.set("assignee", opts.assignee);
 
-  // Use paginated fetch to get ALL tasks (default page size is only 20)
+  // Primary: fetch via project-level endpoint with pagination
   const result = await asanaFetchAll(workspaceId, `/projects/${projectGid}/tasks?${params}`);
   if (!result.ok) return { ok: false, error: result.error };
 
-  const tasks = result.data as AsanaTask[];
-  console.log(`[Asana] listTasks: ${tasks.length} task(s) returned for project ${projectGid}`);
+  let tasks = result.data as AsanaTask[];
+  console.log(`[Asana] listTasks (project-level): ${tasks.length} task(s) for project ${projectGid}`);
+
+  // Fallback: if project-level fetch returned few/no tasks, try section-based retrieval
+  // This catches tasks that Asana's project-level endpoint sometimes misses
+  if (tasks.length < 5) {
+    console.log(`[Asana] listTasks: few tasks found, trying section-based retrieval for ${projectGid}`);
+    const sectionTasks = await listTasksBySections(workspaceId, projectGid, opts);
+    if (sectionTasks.ok && sectionTasks.tasks && sectionTasks.tasks.length > tasks.length) {
+      console.log(`[Asana] listTasks: section-based found ${sectionTasks.tasks.length} tasks (vs ${tasks.length} from project-level) — using section results`);
+      tasks = sectionTasks.tasks;
+    }
+  }
+
   if (tasks.length > 0) {
-    console.log(`[Asana] listTasks sample (first 3):`, JSON.stringify(tasks.slice(0, 3).map(t => ({
+    console.log(`[Asana] listTasks final (first 5):`, JSON.stringify(tasks.slice(0, 5).map(t => ({
       name: t.name, gid: t.gid, assignee: t.assignee?.name,
       due_on: t.due_on, due_at: t.due_at,
       section: t.memberships?.[0]?.section?.name,
@@ -191,6 +203,55 @@ export async function listTasks(
   }
 
   return { ok: true, tasks };
+}
+
+/**
+ * Alternative task retrieval: fetch sections first, then tasks per section.
+ * This catches tasks that the project-level endpoint sometimes misses.
+ */
+async function listTasksBySections(
+  workspaceId: string,
+  projectGid: string,
+  opts?: { completedSince?: string; assignee?: string }
+): Promise<{ ok: boolean; tasks?: AsanaTask[]; error?: string }> {
+  // Step 1: Get all sections in the project
+  const sectionsResult = await asanaFetchAll(workspaceId, `/projects/${projectGid}/sections?opt_fields=name`);
+  if (!sectionsResult.ok) return { ok: false, error: sectionsResult.error };
+
+  const sections = sectionsResult.data as Array<{ gid: string; name: string }>;
+  console.log(`[Asana] listTasksBySections: ${sections.length} section(s) in project ${projectGid}: ${sections.map(s => s.name).join(", ")}`);
+
+  // Step 2: Fetch tasks from each section
+  const allTasks: AsanaTask[] = [];
+  const seenGids = new Set<string>();
+
+  for (const section of sections) {
+    const params = new URLSearchParams({ opt_fields: TASK_OPT_FIELDS });
+    if (opts?.completedSince) params.set("completed_since", opts.completedSince);
+    if (opts?.assignee) params.set("assignee", opts.assignee);
+
+    const result = await asanaFetchAll(workspaceId, `/sections/${section.gid}/tasks?${params}`);
+    if (!result.ok) {
+      console.error(`[Asana] listTasksBySections: failed for section "${section.name}": ${result.error}`);
+      continue;
+    }
+
+    const sectionTasks = result.data as AsanaTask[];
+    console.log(`[Asana] listTasksBySections: section "${section.name}" → ${sectionTasks.length} task(s)`);
+
+    for (const task of sectionTasks) {
+      if (!seenGids.has(task.gid)) {
+        seenGids.add(task.gid);
+        // Ensure section name is populated even if memberships is missing
+        if (!task.memberships || task.memberships.length === 0) {
+          task.memberships = [{ section: { name: section.name } }];
+        }
+        allTasks.push(task);
+      }
+    }
+  }
+
+  return { ok: true, tasks: allTasks };
 }
 
 export async function getTask(

@@ -686,6 +686,11 @@ export async function POST(request: Request) {
     });
   }
 
+  // Log system prompt summary for debugging tool availability
+  const hasAsanaInPrompt = systemPrompt.includes("ASANA INTEGRATION");
+  const hasGithubInPrompt = systemPrompt.includes("GITHUB INTEGRATION");
+  console.log(`[Chat] Agent "${agent.name}" system prompt: ${systemPrompt.length} chars, asana=${hasAsanaInPrompt}, github=${hasGithubInPrompt}, projects=${asanaProjects.length}, messages=${claudeMessages.length}`);
+
   const stream = anthropic.messages.stream({
     model: "claude-sonnet-4-5-20250929",
     max_tokens: 4096,
@@ -1371,12 +1376,16 @@ export async function POST(request: Request) {
                 asanaResult = "Error: You don't have access to that project.";
               } else {
                 const targetGids = asanaPayload.project_gid ? [asanaPayload.project_gid] : [...allowedGids];
-                const allTasks: Array<{ name: string; gid: string; completed: boolean; start_on: string | null; due_on: string | null; assignee: string | null; section: string | null }> = [];
+                const projectNameMap = new Map(asanaProjects.map((p) => [p.gid, p.name]));
+                console.log(`[Chat] Asana list_tasks: querying ${targetGids.length} project(s): ${targetGids.map((g) => `${projectNameMap.get(g) || "?"} (${g})`).join(", ")}`);
+                const allTasks: Array<{ name: string; gid: string; completed: boolean; start_on: string | null; due_on: string | null; assignee: string | null; section: string | null; project: string }> = [];
                 for (const gid of targetGids) {
+                  const pName = projectNameMap.get(gid) || gid;
                   const result = await listTasks(ctx.workspaceId, gid, {
                     completedSince: asanaPayload.completed_since === "now" ? "now" : undefined,
                   });
                   if (result.ok && result.tasks) {
+                    console.log(`[Chat] Asana project "${pName}": ${result.tasks.length} task(s) returned`);
                     allTasks.push(...result.tasks.map((t) => ({
                       name: t.name,
                       gid: t.gid,
@@ -1385,22 +1394,49 @@ export async function POST(request: Request) {
                       due_on: effectiveDueDate(t),
                       assignee: t.assignee ? (t.assignee.name || t.assignee.email || t.assignee.gid) : null,
                       section: t.memberships?.[0]?.section?.name || null,
+                      project: pName,
                     })));
                   } else if (!result.ok) {
+                    console.error(`[Chat] Asana project "${pName}" failed: ${result.error}`);
                     asanaResult = `Error: ${result.error}`;
                     break;
                   }
                 }
+                console.log(`[Chat] Asana list_tasks total: ${allTasks.length} task(s) across ${targetGids.length} project(s)`);
                 if (!asanaResult) {
-                  asanaResult = allTasks.length > 0
-                    ? `Found ${allTasks.length} task(s):\n${allTasks.map((t) => {
+                  if (allTasks.length > 0) {
+                    // Group by project for clearer output when querying multiple projects
+                    if (targetGids.length > 1) {
+                      const byProject = new Map<string, typeof allTasks>();
+                      for (const t of allTasks) {
+                        const key = t.project;
+                        if (!byProject.has(key)) byProject.set(key, []);
+                        byProject.get(key)!.push(t);
+                      }
+                      let out = `Found ${allTasks.length} task(s) across ${byProject.size} project(s):\n`;
+                      for (const [project, tasks] of byProject) {
+                        out += `\n## ${project} (${tasks.length} tasks)\n`;
+                        out += tasks.map((t) => {
+                          let dates = "";
+                          if (t.start_on && t.due_on) dates = ` ${t.start_on} → ${t.due_on}`;
+                          else if (t.start_on) dates = ` starts ${t.start_on}`;
+                          else if (t.due_on) dates = ` due ${t.due_on}`;
+                          return `- ${t.name} (GID: ${t.gid})${t.assignee ? ` [${t.assignee}]` : ""}${dates}${t.section ? ` {${t.section}}` : ""}${t.completed ? " [DONE]" : ""}`;
+                        }).join("\n");
+                      }
+                      asanaResult = out;
+                    } else {
+                      asanaResult = `Found ${allTasks.length} task(s):\n${allTasks.map((t) => {
                         let dates = "";
                         if (t.start_on && t.due_on) dates = ` ${t.start_on} → ${t.due_on}`;
                         else if (t.start_on) dates = ` starts ${t.start_on}`;
                         else if (t.due_on) dates = ` due ${t.due_on}`;
                         return `- ${t.name} (GID: ${t.gid})${t.assignee ? ` [${t.assignee}]` : ""}${dates}${t.section ? ` {${t.section}}` : ""}${t.completed ? " [DONE]" : ""}`;
-                      }).join("\n")}`
-                    : "No tasks found.";
+                      }).join("\n")}`;
+                    }
+                  } else {
+                    asanaResult = "No tasks found.";
+                  }
                 }
               }
             } else if (asanaAction === "asana_get_task") {

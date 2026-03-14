@@ -143,16 +143,22 @@ CRITICAL — YOU ARE NOT A TOOL-USING SYSTEM: Never output XML tags, tool calls,
 
   if (agent.asana_enabled && options?.asanaProjects && options.asanaProjects.length > 0) {
     const projectList = options.asanaProjects.map((p) => `- ${p.name} (GID: ${p.gid})`).join("\n");
-    prompt += `\n\nASANA INTEGRATION:
+    prompt += `\n\nCRITICAL — ASANA DATA INTEGRITY RULE: You MUST call the Asana API tool for ANY question about tasks, projects, deadlines, assignments, or status updates. NEVER generate, guess, or fabricate task data from memory, assumptions, or prior conversation context. If you cannot reach the API, say so explicitly. Do not under any circumstances present task information that did not come directly from a tool call response in this conversation turn.
+
+ASANA INTEGRATION:
 You have access to Asana for task management. You are connected to these projects:
 ${projectList}
 
-To perform Asana operations, include one of these blocks at the END of your response (only one per response):
+To perform Asana operations, include a tool block at the END of your response:
 
 \`\`\`asana_list_tasks
 {"project_gid": "...", "completed_since": "now"}
 \`\`\`
-Lists incomplete tasks. Use "completed_since": "now" for incomplete only, omit for all tasks.
+Lists incomplete tasks for ONE project. Use "completed_since": "now" for incomplete only, omit for all tasks.
+To query ALL your projects at once, omit "project_gid" entirely — the system will automatically query every project listed above and merge the results:
+\`\`\`asana_list_tasks
+{"completed_since": "now"}
+\`\`\`
 
 \`\`\`asana_get_task
 {"task_gid": "..."}
@@ -174,9 +180,9 @@ Updates a task. Include only the fields you want to change.
 \`\`\`
 Adds a comment to a task.
 
-Write your visible reply naturally, then include the block at the end. The system will execute the operation and provide results in a follow-up. Only access projects listed above — if asked about other projects, say you don't have access.
+Write your visible reply naturally (e.g. "Let me check Asana for the latest status..."), then include the tool block at the end. The system will execute the operation and provide results in a follow-up. Only access projects listed above — if asked about other projects, say you don't have access.
 
-IMPORTANT: When the user asks you to check, pull, query, or refresh data from Asana, you MUST make a fresh tool call every time. Never reference previous tool results from earlier in the conversation — the data may have changed. Always call the tool again.`;
+When the user asks for a status report, team update, or overview across multiple people/projects, use a single asana_list_tasks call WITHOUT project_gid to query all projects at once. Do NOT make separate calls per project.`;
   }
 
   if (options?.githubRepos && options.githubRepos.length > 0) {
