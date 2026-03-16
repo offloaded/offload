@@ -708,10 +708,84 @@ export async function POST(request: Request) {
     });
   }
 
+  // ── Asana pre-fetch ──────────────────────────────────────────────────
+  // When the user's message contains Asana-related keywords and the agent
+  // has Asana enabled, pre-fetch task data and inject it into context.
+  // This prevents the hallucination bug where the model generates a text
+  // response instead of making a tool call.
+  const ASANA_KEYWORDS = /\b(tasks?|asana|outstanding|overdue|due|status update|what'?s happening|action items?|to[\s-]?dos?|deadlines?|assigned|backlog|sprint|what needs|what'?s on|agenda|checklist)\b/i;
+  let asanaPreFetchResult: string | null = null;
+  if (agent.asana_enabled && asanaProjects.length > 0 && lastUserMessage?.role === "user" && ASANA_KEYWORDS.test(lastUserMessage.content)) {
+    try {
+      console.log(`[Chat] Asana pre-fetch triggered for "${agent.name}" — user message matches Asana keywords`);
+      const projectNameMap = new Map(asanaProjects.map((p) => [p.gid, p.name]));
+      const allTasks: Array<{ name: string; gid: string; completed: boolean; start_on: string | null; due_on: string | null; assignee: string | null; section: string | null; project: string }> = [];
+
+      for (const proj of asanaProjects) {
+        const result = await listTasks(ctx.workspaceId, proj.gid, { completedSince: "now" });
+        if (result.ok && result.tasks) {
+          allTasks.push(...result.tasks.map((t) => ({
+            name: t.name,
+            gid: t.gid,
+            completed: t.completed,
+            start_on: t.start_on,
+            due_on: effectiveDueDate(t),
+            assignee: t.assignee ? (t.assignee.name || t.assignee.email || t.assignee.gid) : null,
+            section: t.memberships?.[0]?.section?.name || null,
+            project: projectNameMap.get(proj.gid) || proj.gid,
+          })));
+        }
+      }
+
+      if (allTasks.length > 0) {
+        // Build a structured summary grouped by project and section
+        const byProject = new Map<string, typeof allTasks>();
+        for (const t of allTasks) {
+          if (!byProject.has(t.project)) byProject.set(t.project, []);
+          byProject.get(t.project)!.push(t);
+        }
+        let out = `[System: Live Asana data — ${allTasks.length} incomplete task(s) across ${byProject.size} project(s). Use ONLY this data to answer. Do NOT make up or guess any task information.]\n`;
+        for (const [project, tasks] of byProject) {
+          out += `\n## ${project} (${tasks.length} tasks)\n`;
+          // Group by section within project
+          const bySection = new Map<string, typeof tasks>();
+          for (const t of tasks) {
+            const sec = t.section || "(Default)";
+            if (!bySection.has(sec)) bySection.set(sec, []);
+            bySection.get(sec)!.push(t);
+          }
+          for (const [section, secTasks] of bySection) {
+            out += `\n### ${section}\n`;
+            out += secTasks.map((t) => {
+              let dates = "";
+              if (t.start_on && t.due_on) dates = ` ${t.start_on} → ${t.due_on}`;
+              else if (t.start_on) dates = ` starts ${t.start_on}`;
+              else if (t.due_on) dates = ` due ${t.due_on}`;
+              return `- ${t.name} (GID: ${t.gid})${t.assignee ? ` [${t.assignee}]` : ""}${dates}${t.completed ? " [DONE]" : ""}`;
+            }).join("\n");
+          }
+        }
+        asanaPreFetchResult = out;
+        console.log(`[Chat] Asana pre-fetch: ${allTasks.length} task(s) injected into context`);
+      } else {
+        asanaPreFetchResult = "[System: Live Asana data — No incomplete tasks found across any connected projects.]";
+        console.log(`[Chat] Asana pre-fetch: no tasks found`);
+      }
+
+      // Inject Asana data into the system prompt so the model has live data
+      // available without needing to make a tool call
+      if (asanaPreFetchResult) {
+        systemPrompt += `\n\n${asanaPreFetchResult}`;
+      }
+    } catch (e) {
+      console.error(`[Chat] Asana pre-fetch failed (non-fatal):`, e);
+    }
+  }
+
   // Log system prompt summary for debugging tool availability
   const hasAsanaInPrompt = systemPrompt.includes("ASANA INTEGRATION");
   const hasGithubInPrompt = systemPrompt.includes("GITHUB INTEGRATION");
-  console.log(`[Chat] Agent "${agent.name}" system prompt: ${systemPrompt.length} chars, asana=${hasAsanaInPrompt}, github=${hasGithubInPrompt}, projects=${asanaProjects.length}, messages=${claudeMessages.length}`);
+  console.log(`[Chat] Agent "${agent.name}" system prompt: ${systemPrompt.length} chars, asana=${hasAsanaInPrompt}, github=${hasGithubInPrompt}, projects=${asanaProjects.length}, messages=${claudeMessages.length}, asanaPreFetch=${!!asanaPreFetchResult}`);
 
   const stream = anthropic.messages.stream({
     model: "claude-sonnet-4-5-20250929",
@@ -813,6 +887,12 @@ export async function POST(request: Request) {
         const asanaMatch = fullResponse.match(
           /```(asana_list_tasks|asana_get_task|asana_create_task|asana_update_task|asana_add_comment)\s*\n?([\s\S]*?)\n?```/
         );
+
+        // Diagnostic: log when Asana is enabled but agent didn't make a tool call
+        // and we didn't pre-fetch data either
+        if (agent.asana_enabled && asanaProjects.length > 0 && !asanaMatch && !asanaPreFetchResult) {
+          console.warn(`[Chat] Asana hallucination risk: agent "${agent.name}" has Asana enabled (${asanaProjects.length} projects) but produced no tool call and no pre-fetch. Raw response (first 500): ${fullResponse.slice(0, 500)}`);
+        }
 
         // GitHub tool blocks
         const githubMatch = fullResponse.match(

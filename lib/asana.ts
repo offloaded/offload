@@ -172,30 +172,27 @@ export async function listTasks(
   projectGid: string,
   opts?: { completedSince?: string; assignee?: string }
 ): Promise<{ ok: boolean; tasks?: AsanaTask[]; error?: string }> {
-  const params = new URLSearchParams({ opt_fields: TASK_OPT_FIELDS });
-  if (opts?.completedSince) params.set("completed_since", opts.completedSince);
-  if (opts?.assignee) params.set("assignee", opts.assignee);
+  // Always use section-based retrieval as primary strategy.
+  // The project-level endpoint (GET /projects/{gid}/tasks) does NOT reliably
+  // return tasks from all sections — only the default/first section.
+  // This has been reported 3 times. Section-based fetch is the only reliable approach.
+  console.log(`[Asana] listTasks: using section-based retrieval for project ${projectGid}`);
+  const result = await listTasksBySections(workspaceId, projectGid, opts);
 
-  // Primary: fetch via project-level endpoint with pagination
-  const result = await asanaFetchAll(workspaceId, `/projects/${projectGid}/tasks?${params}`);
-  if (!result.ok) return { ok: false, error: result.error };
-
-  let tasks = result.data as AsanaTask[];
-  console.log(`[Asana] listTasks (project-level): ${tasks.length} task(s) for project ${projectGid}`);
-
-  // Fallback: if project-level fetch returned few/no tasks, try section-based retrieval
-  // This catches tasks that Asana's project-level endpoint sometimes misses
-  if (tasks.length < 5) {
-    console.log(`[Asana] listTasks: few tasks found, trying section-based retrieval for ${projectGid}`);
-    const sectionTasks = await listTasksBySections(workspaceId, projectGid, opts);
-    if (sectionTasks.ok && sectionTasks.tasks && sectionTasks.tasks.length > tasks.length) {
-      console.log(`[Asana] listTasks: section-based found ${sectionTasks.tasks.length} tasks (vs ${tasks.length} from project-level) — using section results`);
-      tasks = sectionTasks.tasks;
-    }
+  if (!result.ok) {
+    // Fallback to project-level endpoint only if section-based retrieval fails entirely
+    console.warn(`[Asana] listTasks: section-based retrieval failed, falling back to project-level for ${projectGid}`);
+    const params = new URLSearchParams({ opt_fields: TASK_OPT_FIELDS });
+    if (opts?.completedSince) params.set("completed_since", opts.completedSince);
+    if (opts?.assignee) params.set("assignee", opts.assignee);
+    const fallback = await asanaFetchAll(workspaceId, `/projects/${projectGid}/tasks?${params}`);
+    if (!fallback.ok) return { ok: false, error: fallback.error };
+    return { ok: true, tasks: fallback.data as AsanaTask[] };
   }
 
+  const tasks = result.tasks || [];
   if (tasks.length > 0) {
-    console.log(`[Asana] listTasks final (first 5):`, JSON.stringify(tasks.slice(0, 5).map(t => ({
+    console.log(`[Asana] listTasks final: ${tasks.length} task(s), first 5:`, JSON.stringify(tasks.slice(0, 5).map(t => ({
       name: t.name, gid: t.gid, assignee: t.assignee?.name,
       due_on: t.due_on, due_at: t.due_at,
       section: t.memberships?.[0]?.section?.name,
