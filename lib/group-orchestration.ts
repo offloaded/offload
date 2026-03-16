@@ -742,7 +742,9 @@ export async function generateAgentResponse(
         });
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const followUpText = followUpResponse.content.filter((b: any) => b.type === "text").map((b: any) => b.text as string).join("").trim();
-        rawText = (cleanedFirst ? cleanedFirst + "\n\n" : "") + followUpText;
+        // Save ONLY the follow-up text — not the initial "Let me check Asana..." text.
+        // This prevents raw tool data patterns from accumulating in conversation history.
+        rawText = followUpText || cleanedFirst || rawText;
       } catch (e) {
         console.error(`[Generate] ${agent.name}: Asana tool execution failed:`, e);
       }
@@ -771,7 +773,8 @@ export async function generateAgentResponse(
         });
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const followUpText = followUpResponse.content.filter((b: any) => b.type === "text").map((b: any) => b.text as string).join("").trim();
-        rawText = (cleanedFirst ? cleanedFirst + "\n\n" : "") + followUpText;
+        // Save ONLY the follow-up text — same rationale as Asana above
+        rawText = followUpText || cleanedFirst || rawText;
       } catch (e) {
         console.error(`[Generate] ${agent.name}: GitHub tool execution failed:`, e);
       }

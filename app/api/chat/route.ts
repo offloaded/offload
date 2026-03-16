@@ -613,10 +613,14 @@ export async function POST(request: Request) {
 
   // Force compaction on topic change (even if below normal threshold) to
   // reduce the weight of the old topic in the context window.
-  const forceCompact = isTopicChange && messages.length >= 8;
+  // Also force compaction in tool-heavy conversations: when Asana/GitHub is
+  // active and the conversation has grown enough that previous tool results
+  // could dominate the context and cause hallucinations.
+  const isToolHeavyConversation = (agent.asana_enabled || agent.github_enabled) && messages.length >= 12;
+  const forceCompact = (isTopicChange && messages.length >= 8) || isToolHeavyConversation;
 
   if (forceCompact || shouldCompact(systemTokensForCompaction, messages)) {
-    console.log(`[Chat] Compaction triggered for conv=${convId} (${messages.length} msgs${forceCompact ? ", topic-change" : ""})`);
+    console.log(`[Chat] Compaction triggered for conv=${convId} (${messages.length} msgs${isTopicChange ? ", topic-change" : ""}${isToolHeavyConversation ? ", tool-heavy" : ""})`);
     try {
       const newSummary = await compactConversation(
         supabase,
@@ -1611,16 +1615,20 @@ export async function POST(request: Request) {
 
               const followUpCleaned = cleanResponse(followUpText);
               if (followUpCleaned) {
-                const combined = savedContent ? savedContent + "\n\n" + followUpCleaned : followUpCleaned;
+                // Save ONLY the follow-up (natural language summary), not the initial
+                // "Let me check Asana..." text. Raw tool data and intermediate text
+                // are ephemeral — only the final formatted answer should persist in
+                // conversation history. This prevents context bloat that causes the
+                // model to hallucinate instead of making fresh API calls on later queries.
                 if (savedAssistantMsgId) {
-                  await supabase.from("messages").update({ content: combined }).eq("id", savedAssistantMsgId);
+                  await supabase.from("messages").update({ content: followUpCleaned }).eq("id", savedAssistantMsgId);
                 } else {
-                  const { data: newRow } = await supabase.from("messages").insert({ conversation_id: convId, role: "assistant", content: combined }).select("id").single();
+                  const { data: newRow } = await supabase.from("messages").insert({ conversation_id: convId, role: "assistant", content: followUpCleaned }).select("id").single();
                   savedAssistantMsgId = newRow?.id || null;
                 }
-                savedContent = combined;
+                savedContent = followUpCleaned;
                 controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ type: "replace", text: combined })}\n\n`)
+                  encoder.encode(`data: ${JSON.stringify({ type: "replace", text: followUpCleaned })}\n\n`)
                 );
               }
             }
@@ -1741,16 +1749,16 @@ export async function POST(request: Request) {
 
               const followUpCleaned = cleanResponse(followUpText);
               if (followUpCleaned) {
-                const combined = savedContent ? savedContent + "\n\n" + followUpCleaned : followUpCleaned;
+                // Save ONLY the follow-up (natural language summary) — same rationale as Asana above
                 if (savedAssistantMsgId) {
-                  await supabase.from("messages").update({ content: combined }).eq("id", savedAssistantMsgId);
+                  await supabase.from("messages").update({ content: followUpCleaned }).eq("id", savedAssistantMsgId);
                 } else {
-                  const { data: newRow } = await supabase.from("messages").insert({ conversation_id: convId, role: "assistant", content: combined }).select("id").single();
+                  const { data: newRow } = await supabase.from("messages").insert({ conversation_id: convId, role: "assistant", content: followUpCleaned }).select("id").single();
                   savedAssistantMsgId = newRow?.id || null;
                 }
-                savedContent = combined;
+                savedContent = followUpCleaned;
                 controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ type: "replace", text: combined })}\n\n`)
+                  encoder.encode(`data: ${JSON.stringify({ type: "replace", text: followUpCleaned })}\n\n`)
                 );
               }
             }

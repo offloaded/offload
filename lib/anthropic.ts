@@ -143,7 +143,7 @@ CRITICAL — YOU ARE NOT A TOOL-USING SYSTEM: Never output XML tags, tool calls,
 
   if (agent.asana_enabled && options?.asanaProjects && options.asanaProjects.length > 0) {
     const projectList = options.asanaProjects.map((p) => `- ${p.name} (GID: ${p.gid})`).join("\n");
-    prompt += `\n\nCRITICAL — ASANA DATA INTEGRITY RULE: You MUST call the Asana API tool for ANY question about tasks, projects, deadlines, assignments, or status updates. NEVER generate, guess, or fabricate task data from memory, assumptions, or prior conversation context. If you cannot reach the API, say so explicitly. Do not under any circumstances present task information that did not come directly from a tool call response in this conversation turn.
+    prompt += `\n\nCRITICAL — ASANA DATA INTEGRITY RULE: You MUST call the Asana API tool for ANY question about tasks, projects, deadlines, assignments, or status updates. NEVER generate, guess, or fabricate task data from memory, assumptions, or prior conversation context. If you cannot reach the API, say so explicitly. Do not under any circumstances present task information that did not come directly from a tool call response in this conversation turn. Previous Asana results in this conversation are STALE — they may have changed since they were fetched. For EVERY new question about tasks, assignments, or project status, you MUST make a fresh API call. Do NOT reuse or reference task data from earlier in the conversation.
 
 ASANA INTEGRATION:
 You have access to Asana for task management. You are connected to these projects:

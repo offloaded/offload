@@ -94,10 +94,13 @@ export async function compactConversation(
       max_tokens: 1024,
       system:
         "Summarise this conversation history concisely. Preserve: all key decisions made, " +
-        "all facts and data discussed, all commitments and action items, the user's preferences " +
-        "and instructions, and any report or tool outputs that were produced. Do not lose specific " +
-        "details like names, dates, numbers, or task assignments. Drop verbose explanations, " +
-        "redundant greetings, and raw tool invocation syntax — keep only results.",
+        "all commitments and action items, the user's preferences and instructions. " +
+        "Do not lose specific details like names, dates, numbers, or task assignments. " +
+        "IMPORTANT: Drop ALL raw API/tool data (task lists, issue lists, project data). " +
+        "These are ephemeral snapshots that become stale immediately — the agent will make " +
+        "fresh API calls for new queries. Only keep the CONCLUSIONS the agent drew from the " +
+        "data (e.g. 'User asked about Katie's tasks and was told she has 3 overdue items'). " +
+        "Drop verbose explanations, redundant greetings, and raw tool invocation syntax.",
       messages: [{ role: "user", content: textToSummarise.slice(0, 30_000) }],
     });
     summary = resp.content
