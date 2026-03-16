@@ -6,7 +6,7 @@ import { webSearch, formatSearchResults } from "@/lib/web-search";
 import { logActivity, isStandupQuestion, getAgentActivitySummary } from "@/lib/activity";
 import { runGroupOrchestration } from "@/lib/group-orchestration";
 import { logApiUsage, estimateCost } from "@/lib/api-usage";
-import { estimateTokens, trimHistory, trimRagChunks, shouldArchive, calculateBudget } from "@/lib/context-manager";
+import { estimateTokens, trimHistory, trimRagChunks, shouldArchive, calculateBudget, detectTopicChange } from "@/lib/context-manager";
 import { getWorkspaceContext } from "@/lib/workspace";
 import { listTasks, getTask, createTask, updateTask, addComment } from "@/lib/asana";
 import { listIssues, getIssue, createIssue, updateIssue, addIssueComment, listLabels } from "@/lib/github";
@@ -587,14 +587,36 @@ export async function POST(request: Request) {
     systemPrompt += `\n\nSummary of your previous conversation with this user: ${previousSummary}\n\nUse this context when relevant, but focus on the current conversation.`;
   }
 
+  // ── Topic change detection ───────────────────────────────────────────
+  // If the user's latest message signals a topic change, inject a system
+  // nudge and force early compaction to reduce old-topic weight.
+  const lastUserMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+  const isTopicChange = lastUserMessage?.role === "user" && detectTopicChange(lastUserMessage.content);
+
+  if (isTopicChange && messages.length > 1) {
+    // Inject a system-level nudge right before the user's latest message
+    // so Claude knows to pivot. We insert it as a user message that gets
+    // coalesced with the actual user message during the coalesce step.
+    const nudge = "[System: The user has changed topic. Respond only to their current question below. Do not reference or continue the previous topic unless they ask.]";
+    messages.splice(messages.length - 1, 0, {
+      role: "user" as const,
+      content: nudge,
+    });
+    console.log(`[Chat] Topic change detected for conv=${convId}`);
+  }
+
   // ── Chat compaction ──────────────────────────────────────────────────
   // If history is approaching the context limit, summarise older messages
   // and only send the summary + recent messages to Claude.
   let compactionSummary: string | null = convRecord?.compaction_summary || null;
   const systemTokensForCompaction = estimateTokens(systemPrompt);
 
-  if (shouldCompact(systemTokensForCompaction, messages)) {
-    console.log(`[Chat] Compaction triggered for conv=${convId} (${messages.length} msgs)`);
+  // Force compaction on topic change (even if below normal threshold) to
+  // reduce the weight of the old topic in the context window.
+  const forceCompact = isTopicChange && messages.length >= 8;
+
+  if (forceCompact || shouldCompact(systemTokensForCompaction, messages)) {
+    console.log(`[Chat] Compaction triggered for conv=${convId} (${messages.length} msgs${forceCompact ? ", topic-change" : ""})`);
     try {
       const newSummary = await compactConversation(
         supabase,

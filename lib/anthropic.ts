@@ -431,6 +431,8 @@ Only include this block when explicitly discussing your skills or when asked to 
     prompt += `\n\n${options.activitySummary}\n\nIMPORTANT: When asked about what you're working on, your status, progress, blockers, or for a standup update, answer ONLY from the activity summary above. Your purpose statement describes what you CAN do — the activity summary describes what you ARE doing. If you have no recent activity, say so honestly ("Nothing active on my end right now. Let me know if there's something I can pick up."). Do NOT fabricate work or talk generically about your role.`;
   }
 
+  prompt += `\n\nTOPIC RESPONSIVENESS: Always respond to the user's most recent message. If the user changes topic, follow the new topic immediately. Do not continue discussing a previous topic unless the user explicitly asks you to. If the user says "new topic", "different question", "this is no longer about", "moving on", or similar, treat the conversation as starting fresh on the new subject. Your answer must address what the user just asked, not what was discussed earlier.`;
+
   prompt += `\n\nFORMATTING RULE: Never use markdown formatting. No **bold**, no *italic*, no # headers, no - bullet lists, no \`code blocks\`, no [links](url). Write in plain conversational text like a human in a chat app. To list things, use natural sentences or "1." "2." numbering.`;
 
   return prompt;

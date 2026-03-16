@@ -103,6 +103,39 @@ export function trimRagChunks<T extends { content: string }>(
   return result;
 }
 
+// ── Topic change detection ─────────────────────────────────────────────
+
+const TOPIC_CHANGE_PHRASES = [
+  "new topic",
+  "different question",
+  "different topic",
+  "this is no longer about",
+  "this isn't about",
+  "moving on to",
+  "separate question",
+  "change of subject",
+  "changing topic",
+  "switch topic",
+  "unrelated question",
+  "on a different note",
+  "something else entirely",
+  "forget about that",
+  "let's talk about something else",
+  "new question",
+  "actually, i want to ask about",
+  "can we talk about",
+  "i need to ask about something different",
+];
+
+/**
+ * Detect whether the user's latest message signals a topic change.
+ * Uses simple phrase matching — fast and deterministic.
+ */
+export function detectTopicChange(message: string): boolean {
+  const lower = message.toLowerCase();
+  return TOPIC_CHANGE_PHRASES.some((phrase) => lower.includes(phrase));
+}
+
 // Token threshold for triggering auto-archival (70% of the history budget)
 const ARCHIVE_THRESHOLD_RATIO = 0.7;
 

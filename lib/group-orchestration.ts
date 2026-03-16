@@ -369,7 +369,7 @@ NEVER @mention yourself (@${agent.name}) or address yourself. You ARE yourself �
 
 Do NOT tag every agent asking them to respond. Do NOT list agents and ask each one to contribute. Give your own contribution and move on. The system handles prompting other agents automatically — that is NOT your job.
 
-CONTEXT: Only respond to the MOST RECENT message in the conversation. Ignore older topics that have already been discussed and resolved. If the latest message asks about risks, respond about risks — do not reference or answer questions from earlier in the conversation.`;
+CONTEXT: Only respond to the MOST RECENT message in the conversation. Ignore older topics that have already been discussed and resolved. If the latest message asks about risks, respond about risks — do not reference or answer questions from earlier in the conversation. If the user changes topic (e.g. "new topic", "different question", "moving on"), follow the new topic immediately and do not continue the previous discussion.`;
 
   if (agent.voice_profile) {
     prompt += `\n\nTONE OF VOICE: Communicate in this style: ${agent.voice_profile} Match this tone and approach in every response.`;
