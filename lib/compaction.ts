@@ -4,7 +4,7 @@
  * display; compaction only affects the API payload sent to Claude.
  *
  * Flow:
- *  1. Before each API call, check if system prompt + history exceeds 70% of
+ *  1. Before each API call, check if system prompt + history exceeds 50% of
  *     the model's context window.
  *  2. If so, take the oldest 70% of messages and summarise them via Claude.
  *  3. Store the summary on the conversation and mark those messages as compacted.
@@ -15,8 +15,11 @@
 import { estimateTokens } from "./context-manager";
 import { getAnthropicClient } from "./anthropic";
 
-// Trigger compaction when history tokens exceed this fraction of the context window
-const COMPACTION_TRIGGER_RATIO = 0.70;
+// Trigger compaction when history tokens exceed this fraction of the context window.
+// Set to 50% rather than 70% — tool calls fail well before 70% because the tool
+// instructions in the system prompt get deprioritised by the model when overwhelmed
+// with conversation history.
+const COMPACTION_TRIGGER_RATIO = 0.50;
 const MODEL_CONTEXT_LIMIT = 200_000;
 const MAX_OUTPUT_TOKENS = 4096;
 const SAFETY_BUFFER = 4_000;

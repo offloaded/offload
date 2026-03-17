@@ -6,7 +6,7 @@ import { webSearch, formatSearchResults } from "@/lib/web-search";
 import { logActivity, isStandupQuestion, getAgentActivitySummary } from "@/lib/activity";
 import { runGroupOrchestration } from "@/lib/group-orchestration";
 import { logApiUsage, estimateCost } from "@/lib/api-usage";
-import { estimateTokens, trimHistory, trimRagChunks, shouldArchive, calculateBudget, detectTopicChange } from "@/lib/context-manager";
+import { estimateTokens, trimHistory, trimRagChunks, shouldArchive, calculateBudget, detectTopicChange, checkConversationHealth } from "@/lib/context-manager";
 import { getWorkspaceContext } from "@/lib/workspace";
 import { listTasks, getTask, createTask, updateTask, addComment } from "@/lib/asana";
 import { listIssues, getIssue, createIssue, updateIssue, addIssueComment, listLabels } from "@/lib/github";
@@ -605,22 +605,23 @@ export async function POST(request: Request) {
     console.log(`[Chat] Topic change detected for conv=${convId}`);
   }
 
+  // ── Conversation health check ──────────────────────────────────────────
+  const preHealth = checkConversationHealth(systemPrompt, messages);
+  const hasToolIntegrations = agent.asana_enabled || agent.github_enabled;
+  console.log(`[Chat] Health check: msgs=${preHealth.messageCount} tokens=${preHealth.estimatedTokens} budgetUsed=${(preHealth.contextBudgetUsed * 100).toFixed(1)}% consecutiveAssistant=${preHealth.consecutiveAssistantMessages} tools=${hasToolIntegrations}`);
+
   // ── Chat compaction ──────────────────────────────────────────────────
-  // If history is approaching the context limit, summarise older messages
-  // and only send the summary + recent messages to Claude.
+  // Summarise older messages to prevent context bloat.
+  // Triggers: (1) >50% context budget used, (2) topic change, (3) tool-heavy conversations
   let compactionSummary: string | null = convRecord?.compaction_summary || null;
   const systemTokensForCompaction = estimateTokens(systemPrompt);
 
-  // Force compaction on topic change (even if below normal threshold) to
-  // reduce the weight of the old topic in the context window.
-  // Also force compaction in tool-heavy conversations: when Asana/GitHub is
-  // active and the conversation has grown enough that previous tool results
-  // could dominate the context and cause hallucinations.
-  const isToolHeavyConversation = (agent.asana_enabled || agent.github_enabled) && messages.length >= 12;
+  const isToolHeavyConversation = hasToolIntegrations && messages.length >= 10;
   const forceCompact = (isTopicChange && messages.length >= 8) || isToolHeavyConversation;
 
-  if (forceCompact || shouldCompact(systemTokensForCompaction, messages)) {
-    console.log(`[Chat] Compaction triggered for conv=${convId} (${messages.length} msgs${isTopicChange ? ", topic-change" : ""}${isToolHeavyConversation ? ", tool-heavy" : ""})`);
+  if (forceCompact || preHealth.needsCompaction || shouldCompact(systemTokensForCompaction, messages)) {
+    const reason = isTopicChange ? "topic-change" : isToolHeavyConversation ? "tool-heavy" : preHealth.needsCompaction ? "budget>50%" : "token-threshold";
+    console.log(`[Chat] Compaction triggered for conv=${convId} (${messages.length} msgs, reason=${reason})`);
     try {
       const newSummary = await compactConversation(
         supabase,
@@ -654,7 +655,18 @@ export async function POST(request: Request) {
   }
 
   // Trim history to fit within context window
-  messages = trimHistory(systemPrompt, messages);
+  // For tool-heavy conversations, use a tighter message cap (15) to ensure
+  // tool instructions in the system prompt remain prominent
+  const maxMsgs = hasToolIntegrations ? 15 : 20;
+  messages = trimHistory(systemPrompt, messages, maxMsgs);
+
+  // Hard safety net: if after trimming we still have >15 messages with tool
+  // integrations active, force-trim to the most recent 15. This prevents
+  // any conversation from degrading regardless of what else fails.
+  if (hasToolIntegrations && messages.length > 15) {
+    console.warn(`[Chat] Hard message limit: trimming ${messages.length} → 15 messages (tool integrations active)`);
+    messages = messages.slice(-15);
+  }
 
   // Coalesce consecutive same-role messages (Claude API requires alternating roles)
   // This can happen from report edit diffs, system injections, or DB quirks
@@ -679,9 +691,9 @@ export async function POST(request: Request) {
   }
   messages = coalesced;
 
-  // Log context budget
+  // Log context budget after all trimming
   const budget = calculateBudget(systemPrompt, messages);
-  console.log(`[Chat] Context budget: system=${budget.systemTokens} history=${budget.historyTokens} total=${budget.totalTokens} msgs=${messages.length} remaining=${budget.remainingForOutput} overBudget=${budget.overBudget}`);
+  console.log(`[Chat] Context budget: system=${budget.systemTokens} history=${budget.historyTokens} total=${budget.totalTokens} msgs=${messages.length} remaining=${budget.remainingForOutput} budgetUsed=${(budget.contextBudgetUsed * 100).toFixed(1)}% overBudget=${budget.overBudget}`);
 
   if (budget.overBudget) {
     console.warn(`[Chat] WARNING: Context may be over budget even after trimming. Remaining for output: ${budget.remainingForOutput}`);
@@ -717,16 +729,21 @@ export async function POST(request: Request) {
   // has Asana enabled, pre-fetch task data and inject it into context.
   // This prevents the hallucination bug where the model generates a text
   // response instead of making a tool call.
-  const ASANA_KEYWORDS = /\b(tasks?|asana|outstanding|overdue|due|status update|what'?s happening|action items?|to[\s-]?dos?|deadlines?|assigned|backlog|sprint|what needs|what'?s on|agenda|checklist)\b/i;
+  const ASANA_KEYWORDS = /\b(tasks?|asana|outstanding|overdue|due|status update|what'?s happening|action items?|to[\s-]?dos?|deadlines?|assigned|backlog|sprint|what needs|what'?s on|agenda|checklist|one on one|1:1|briefing|prepare|this week|today|upcoming)\b/i;
   let asanaPreFetchResult: string | null = null;
+  // Track fetched task names for hallucination detection
+  let asanaPreFetchTaskNames: string[] = [];
   if (agent.asana_enabled && asanaProjects.length > 0 && lastUserMessage?.role === "user" && ASANA_KEYWORDS.test(lastUserMessage.content)) {
     try {
       console.log(`[Chat] Asana pre-fetch triggered for "${agent.name}" — user message matches Asana keywords`);
       const projectNameMap = new Map(asanaProjects.map((p) => [p.gid, p.name]));
       const allTasks: Array<{ name: string; gid: string; completed: boolean; start_on: string | null; due_on: string | null; assignee: string | null; section: string | null; project: string }> = [];
 
-      for (const proj of asanaProjects) {
-        const result = await listTasks(ctx.workspaceId, proj.gid, { completedSince: "now" });
+      // Fetch all projects in parallel for speed
+      const projectResults = await Promise.all(
+        asanaProjects.map((proj) => listTasks(ctx.workspaceId, proj.gid, { completedSince: "now" }).then((r) => ({ ...r, gid: proj.gid })))
+      );
+      for (const result of projectResults) {
         if (result.ok && result.tasks) {
           allTasks.push(...result.tasks.map((t) => ({
             name: t.name,
@@ -736,10 +753,11 @@ export async function POST(request: Request) {
             due_on: effectiveDueDate(t),
             assignee: t.assignee ? (t.assignee.name || t.assignee.email || t.assignee.gid) : null,
             section: t.memberships?.[0]?.section?.name || null,
-            project: projectNameMap.get(proj.gid) || proj.gid,
+            project: projectNameMap.get(result.gid) || result.gid,
           })));
         }
       }
+      asanaPreFetchTaskNames = allTasks.map((t) => t.name);
 
       if (allTasks.length > 0) {
         // Build a structured summary grouped by project and section
@@ -933,13 +951,19 @@ export async function POST(request: Request) {
           // The user sees it in the current session but it won't appear in future API payloads.
           savedContent = fallbackMsg;
         } else if (cleaned) {
-          // Save the cleaned response
-          const { data: savedRow } = await supabase.from("messages").insert({
-            conversation_id: convId,
-            role: "assistant",
-            content: cleaned,
-          }).select("id").single();
-          savedAssistantMsgId = savedRow?.id || null;
+          // When an Asana/GitHub tool follow-up is coming, defer saving the
+          // initial response. The follow-up handler will save ONLY the final
+          // natural-language summary. This prevents intermediate text like
+          // "Let me check Asana..." from persisting in conversation history.
+          const deferSave = !!(asanaMatch || githubMatch);
+          if (!deferSave) {
+            const { data: savedRow } = await supabase.from("messages").insert({
+              conversation_id: convId,
+              role: "assistant",
+              content: cleaned,
+            }).select("id").single();
+            savedAssistantMsgId = savedRow?.id || null;
+          }
           savedContent = cleaned;
         }
 
@@ -1764,6 +1788,29 @@ export async function POST(request: Request) {
             }
           } catch (e) {
             console.error("[Chat] GitHub operation failed:", e);
+          }
+        }
+
+        // ── Hallucination detection ────────────────────────────────────
+        // If we pre-fetched Asana data, check if the agent's response references
+        // task names that don't exist in the real data. Log a warning if so.
+        if (asanaPreFetchTaskNames.length > 0 && savedContent) {
+          // Extract quoted or capitalised phrases that look like task names
+          const mentionedPhrases = savedContent.match(/[""]([^""]+)[""]|(?:^|\n)[-•]\s*(.+?)(?:\s*[-–—([]|$)/gm) || [];
+          const realNamesLower = new Set(asanaPreFetchTaskNames.map((n) => n.toLowerCase().trim()));
+          const suspicious: string[] = [];
+          for (const match of mentionedPhrases) {
+            const phrase = (match.replace(/[""\-•[\]()]/g, "").trim());
+            if (phrase.length > 5 && phrase.length < 100 && !realNamesLower.has(phrase.toLowerCase())) {
+              // Check if it's a substring of any real task name
+              const isSubstring = asanaPreFetchTaskNames.some((n) => n.toLowerCase().includes(phrase.toLowerCase()) || phrase.toLowerCase().includes(n.toLowerCase()));
+              if (!isSubstring) {
+                suspicious.push(phrase);
+              }
+            }
+          }
+          if (suspicious.length > 0) {
+            console.warn(`[Chat] Possible hallucination — phrases in response not found in Asana data: ${suspicious.slice(0, 5).join("; ")}`);
           }
         }
 

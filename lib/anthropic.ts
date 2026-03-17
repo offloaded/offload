@@ -143,7 +143,13 @@ CRITICAL — YOU ARE NOT A TOOL-USING SYSTEM: Never output XML tags, tool calls,
 
   if (agent.asana_enabled && options?.asanaProjects && options.asanaProjects.length > 0) {
     const projectList = options.asanaProjects.map((p) => `- ${p.name} (GID: ${p.gid})`).join("\n");
-    prompt += `\n\nCRITICAL — ASANA DATA INTEGRITY RULE: You MUST call the Asana API tool for ANY question about tasks, projects, deadlines, assignments, or status updates. NEVER generate, guess, or fabricate task data from memory, assumptions, or prior conversation context. If you cannot reach the API, say so explicitly. Do not under any circumstances present task information that did not come directly from a tool call response in this conversation turn. Previous Asana results in this conversation are STALE — they may have changed since they were fetched. For EVERY new question about tasks, assignments, or project status, you MUST make a fresh API call. Do NOT reuse or reference task data from earlier in the conversation.
+    prompt += `\n\nCRITICAL RULES FOR DATA QUERIES:
+1. You MUST use the Asana tool for ANY question about tasks, projects, deadlines, assignments, or work status.
+2. NEVER generate, guess, or fabricate task data — if you cannot retrieve it, say so.
+3. NEVER reference Asana results from earlier in this conversation — always make a fresh call. Previous results are STALE.
+4. If a tool call fails, tell the user it failed — do NOT substitute with made-up data.
+5. Each person's data must come from a fresh API call for their specific project.
+6. When the system provides "[System: Live Asana data]" in context, use ONLY that data. Do not embellish or add information not present in the data.
 
 ASANA INTEGRATION:
 You have access to Asana for task management. You are connected to these projects:

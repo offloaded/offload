@@ -24,6 +24,48 @@ interface ContextBudget {
   remainingForOutput: number;
   totalTokens: number;
   overBudget: boolean;
+  contextBudgetUsed: number;
+}
+
+// ── Conversation health check ──────────────────────────────────────────
+
+export interface ConversationHealth {
+  messageCount: number;
+  estimatedTokens: number;
+  contextBudgetUsed: number;
+  consecutiveAssistantMessages: number;
+  needsCompaction: boolean;
+  needsCoalescing: boolean;
+}
+
+/**
+ * Run a health check on the conversation state before an API call.
+ * Returns diagnostics and flags for compaction/coalescing.
+ */
+export function checkConversationHealth(
+  systemPrompt: string,
+  messages: { role: string; content: string }[]
+): ConversationHealth {
+  const systemTokens = estimateTokens(systemPrompt);
+  const historyTokens = messages.reduce((sum, m) => sum + estimateTokens(m.content) + 4, 0);
+  const totalTokens = systemTokens + historyTokens;
+  const contextBudgetUsed = totalTokens / MODEL_CONTEXT_LIMIT;
+
+  // Count consecutive assistant messages at the tail
+  let consecutive = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant") consecutive++;
+    else break;
+  }
+
+  return {
+    messageCount: messages.length,
+    estimatedTokens: totalTokens,
+    contextBudgetUsed,
+    consecutiveAssistantMessages: consecutive,
+    needsCompaction: contextBudgetUsed > 0.5,
+    needsCoalescing: consecutive > 1,
+  };
 }
 
 export function calculateBudget(
@@ -41,6 +83,7 @@ export function calculateBudget(
     remainingForOutput,
     totalTokens,
     overBudget: remainingForOutput < MAX_OUTPUT_TOKENS,
+    contextBudgetUsed: totalTokens / MODEL_CONTEXT_LIMIT,
   };
 }
 
@@ -52,7 +95,7 @@ export function calculateBudget(
 export function trimHistory<T extends { role: string; content: string }>(
   systemPrompt: string,
   messages: T[],
-  maxMessages = 30
+  maxMessages = 20
 ): T[] {
   if (messages.length === 0) return messages;
 
