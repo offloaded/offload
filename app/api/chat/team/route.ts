@@ -9,11 +9,12 @@ import {
   evaluateAgents,
   generateAgentResponse,
   scoreAgentRelevance,
-  buildSmartHistory,
   isDuplicateResponse,
   stripSelfMentions,
 } from "@/lib/group-orchestration";
 import { getWorkspaceContext } from "@/lib/workspace";
+import { estimateTokens, trimHistory, calculateBudget, checkConversationHealth } from "@/lib/context-manager";
+import { shouldCompact, compactConversation, injectCompactionContext, type CompactableMessage } from "@/lib/compaction";
 
 function buildScheduleInstructions(): string {
   return `If the user is asking you to schedule, remind, or delay something, acknowledge the request and include a JSON block at the END of your response.
@@ -282,9 +283,138 @@ export async function POST(request: Request) {
   });
   await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
 
-  // Load message history
+  // Load message history — only non-compacted messages for the API payload
   const anthropic = getAnthropicClient();
-  const messages = await buildSmartHistory(supabase, anthropic, convId!);
+  const { data: history } = await supabase
+    .from("messages")
+    .select("id, role, content, created_at")
+    .eq("conversation_id", convId)
+    .is("compacted_at", null)
+    .order("created_at", { ascending: true })
+    .limit(60);
+
+  const fullMessages: CompactableMessage[] = (history || []).map((m: { id: string; role: string; content: string; created_at: string }) => ({
+    id: m.id,
+    role: m.role,
+    content: m.content,
+    created_at: m.created_at,
+  }));
+
+  let messages: { role: "user" | "assistant"; content: string }[] = fullMessages.map((m) => ({
+    role: m.role as "user" | "assistant",
+    content: m.content,
+  }));
+
+  // Merge consecutive same-role messages (Claude API requires alternation)
+  const merged: typeof messages = [];
+  for (const msg of messages) {
+    if (merged.length === 0) {
+      if (msg.role === "assistant") merged.push({ role: "user", content: "[group chat]" });
+      merged.push(msg);
+    } else {
+      const last = merged[merged.length - 1];
+      if (last.role === msg.role) {
+        last.content += "\n" + msg.content;
+      } else {
+        merged.push(msg);
+      }
+    }
+  }
+  messages = merged;
+
+  // ── Conversation health check & compaction ──────────────────────────
+  // Team chats are more aggressive: 4+ agents responding = 4 assistant messages per turn
+  const { data: convRecord } = await supabase
+    .from("conversations")
+    .select("compaction_summary")
+    .eq("id", convId)
+    .single();
+
+  // Use a lightweight system prompt estimate for budget checks
+  const systemEstimate = "You are an agent responding in a team channel.";
+  const preHealth = checkConversationHealth(systemEstimate, messages);
+  console.log(`${LOG} Health check: msgs=${preHealth.messageCount} tokens=${preHealth.estimatedTokens} budgetUsed=${(preHealth.contextBudgetUsed * 100).toFixed(1)}%`);
+
+  let compactionSummary: string | null = convRecord?.compaction_summary || null;
+  const systemTokensForCompaction = estimateTokens(systemEstimate);
+
+  // Team chats compact more aggressively — trigger at 6+ messages (vs 8+ for DM)
+  // because each round generates one assistant message per agent
+  const forceCompact = messages.length >= 6 && preHealth.contextBudgetUsed > 0.3;
+
+  if (forceCompact || preHealth.needsCompaction || shouldCompact(systemTokensForCompaction, messages)) {
+    const reason = forceCompact ? "team-aggressive" : preHealth.needsCompaction ? "budget>50%" : "token-threshold";
+    console.log(`${LOG} Compaction triggered for conv=${convId} (${messages.length} msgs, reason=${reason})`);
+    try {
+      const newSummary = await compactConversation(
+        supabase,
+        convId!,
+        fullMessages,
+        compactionSummary
+      );
+      if (newSummary) {
+        compactionSummary = newSummary;
+        // Reload non-compacted messages after compaction
+        const { data: freshHistory } = await supabase
+          .from("messages")
+          .select("id, role, content, created_at")
+          .eq("conversation_id", convId)
+          .is("compacted_at", null)
+          .order("created_at", { ascending: true })
+          .limit(60);
+        const freshMsgs = (freshHistory || []).map((m: { role: string; content: string }) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        }));
+        // Re-merge after reload
+        const reMerged: typeof messages = [];
+        for (const msg of freshMsgs) {
+          if (reMerged.length === 0) {
+            if (msg.role === "assistant") reMerged.push({ role: "user", content: "[group chat]" });
+            reMerged.push(msg);
+          } else {
+            const last = reMerged[reMerged.length - 1];
+            if (last.role === msg.role) {
+              last.content += "\n" + msg.content;
+            } else {
+              reMerged.push(msg);
+            }
+          }
+        }
+        messages = reMerged;
+      }
+    } catch (compactErr) {
+      console.error(`${LOG} Compaction failed (non-fatal):`, compactErr);
+    }
+  }
+
+  // Trim history — team chats use a tighter cap (10 messages = ~2.5 rounds with 4 agents)
+  // to stay within 50% of the context budget
+  messages = trimHistory(systemEstimate, messages, 10);
+
+  // Ensure conversation starts with a user message
+  while (messages.length > 0 && messages[0].role !== "user") {
+    messages.shift();
+  }
+
+  // Log context budget after trimming
+  const budget = calculateBudget(systemEstimate, messages);
+  console.log(`${LOG} Context budget: system=${budget.systemTokens} history=${budget.historyTokens} total=${budget.totalTokens} msgs=${messages.length} remaining=${budget.remainingForOutput} budgetUsed=${(budget.contextBudgetUsed * 100).toFixed(1)}% overBudget=${budget.overBudget}`);
+
+  if (budget.overBudget) {
+    console.warn(`${LOG} WARNING: Context may be over budget even after trimming. Remaining for output: ${budget.remainingForOutput}`);
+  }
+
+  // Inject compaction summary as context at the start of messages so agents
+  // have earlier conversation context even after old messages are trimmed
+  if (compactionSummary && messages.length > 0) {
+    const summaryContext = `[Earlier conversation context]\n${compactionSummary}\n[End of earlier context]`;
+    if (messages[0].role === "user") {
+      messages[0] = { ...messages[0], content: summaryContext + "\n\n" + messages[0].content };
+    } else {
+      messages.unshift({ role: "user", content: summaryContext });
+    }
+  }
 
   // Load docs per agent
   const { data: allDocs } = await supabase
@@ -416,7 +546,10 @@ export async function POST(request: Request) {
             const agent = casualAgents[i];
             const delay = i === 0 ? 2000 + Math.random() * 2000 : 3000 + Math.random() * 5000;
             send({ type: "agent_typing", agent_id: agent.id, agent_name: agent.name, agent_color: agent.color });
-            const systemPrompt = `You are ${agent.name}, responding in the #${team.name} channel.${team.description ? ` This channel is for: ${team.description}.` : ""} Only members of the ${team.name} team are in this channel.\nYour role: ${agent.purpose}\n\nWrite a brief, natural response (1-2 sentences). Plain text only, no markdown.\nNEVER prefix your response with your name or anyone else's name in brackets like [Name]. NEVER speak as the user or write [You]. The system handles attribution — just write your response naturally.\nNever @mention yourself or address yourself. You ARE yourself — just give your update directly.\nDon't tag every agent asking them to respond. Give your own update and let others respond naturally.${priorResponses ? `\n\nColleagues already said:\n${priorResponses}\nDon't repeat them.` : ""}`;
+            let systemPrompt = `You are ${agent.name}, responding in the #${team.name} channel.${team.description ? ` This channel is for: ${team.description}.` : ""} Only members of the ${team.name} team are in this channel.\nYour role: ${agent.purpose}\n\nWrite a brief, natural response (1-2 sentences). Plain text only, no markdown.\nNEVER prefix your response with your name or anyone else's name in brackets like [Name]. NEVER speak as the user or write [You]. The system handles attribution — just write your response naturally.\nNever @mention yourself or address yourself. You ARE yourself — just give your update directly.\nDon't tag every agent asking them to respond. Give your own update and let others respond naturally.${priorResponses ? `\n\nColleagues already said:\n${priorResponses}\nDon't repeat them.` : ""}`;
+            if (compactionSummary) {
+              systemPrompt = injectCompactionContext(systemPrompt, compactionSummary);
+            }
             const [response] = await Promise.all([
               anthropic.messages.create({
                 model: "claude-haiku-4-5-20251001",
