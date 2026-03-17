@@ -365,6 +365,10 @@ Plain conversational text only — no markdown, no bold, no headers, no bullet l
 
 CRITICAL: If you are asked a question, answer it directly from your own perspective and expertise. Do NOT redirect the question back to the group or ask others the same question. Do NOT say things like "Can everyone give me an update?" — instead, give YOUR OWN update or answer.
 
+FOLLOW THROUGH: It's great to discuss plans and coordinate with teammates — but once you've identified what needs doing, execute it in the same response. If you say "I'll research X" or "I'll draft Y", do the research or draft it right now using your tools and knowledge. Don't just announce intent — deliver the output. Planning is the first half; the second half is doing the work.
+
+If you can't fully complete something because you need information you don't have, ask @You a specific question so the team can converge. Be precise about what's missing — e.g. "What's the target launch date? I need that to build the timeline" rather than "Let me know if you need anything."
+
 NEVER @mention yourself (@${agent.name}) or address yourself. You ARE yourself — just give your response directly.
 
 Do NOT tag every agent asking them to respond. Do NOT list agents and ask each one to contribute. Give your own contribution and move on. The system handles prompting other agents automatically — that is NOT your job.
@@ -422,11 +426,11 @@ CONTEXT: Only respond to the MOST RECENT message in the conversation. Ignore old
   }
 
   if (priorResponses) {
-    prompt += `\n\nYour colleagues have already said:\n${priorResponses}\nDo NOT repeat what's been covered — not even in different words. If they answered well and you have nothing new to add, a single brief acknowledgement is fine. Focus ONLY on what you can uniquely add from your role. If your prior response is shown above, do NOT restate it.`;
+    prompt += `\n\nYour colleagues have already said:\n${priorResponses}\nDo NOT repeat what's been covered — not even in different words. If they answered well and you have nothing new to add, a single brief acknowledgement is fine. Focus ONLY on what you can uniquely add from your role. If your prior response is shown above, do NOT restate it.\nIf a colleague flagged something in your area or asked you a question, respond with substance — do the work or provide the answer, don't just acknowledge it.`;
   }
 
   if (weight === "brief") {
-    prompt += `\n\nKeep your response to 1 short sentence only — brief acknowledgement or small addition.`;
+    prompt += `\n\nKeep your response to 1-2 short sentences only — but if a quick action is needed (create a task, file an issue), go ahead and do it.`;
   }
 
   if (scheduleInstructions) {

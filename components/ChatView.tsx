@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, memo } from "react";
 import { Avatar, UserAvatar } from "./Avatar";
-import { SendIcon, MenuIcon, NewChatIcon, CalendarIcon, GlobeIcon, SaveIcon, PaperclipIcon, XIcon } from "./Icons";
+import { SendIcon, MenuIcon, NewChatIcon, CalendarIcon, GlobeIcon, SaveIcon, PaperclipIcon, XIcon, TrashIcon } from "./Icons";
 import type { Agent, Message } from "@/lib/types";
 import {
   setCache,
@@ -560,6 +560,7 @@ export function ChatView({
 
   // DM-specific state
   const [loadingMore, setLoadingMore] = useState(false);
+  const [confirmingClear, setConfirmingClear] = useState(false);
   const [scheduleRequest, setScheduleRequest] = useState<ScheduleRequest | null>(null);
   const [confirmingSchedule, setConfirmingSchedule] = useState(false);
   const [featureRequest, setFeatureRequest] = useState<FeatureRequest | null>(null);
@@ -871,6 +872,24 @@ export function ChatView({
     window.location.href = `/agent/${agent.id}`;
   }, [chatId, agent.id, initialConversationId]);
 
+  const handleClearChat = useCallback(async () => {
+    if (!conversationId) return;
+    try {
+      const res = await fetch("/api/conversations/clear", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation_id: conversationId }),
+      });
+      if (res.ok) {
+        setMessages([]);
+        clearCache(chatId);
+        setConfirmingClear(false);
+      }
+    } catch (err) {
+      console.error("Failed to clear chat:", err);
+    }
+  }, [conversationId, chatId, setMessages]);
+
   return (
     <div className="flex-1 flex flex-col bg-[var(--color-surface)] overflow-hidden">
       {/* Header — fixed on mobile, in-flow on desktop */}
@@ -899,6 +918,15 @@ export function ChatView({
             </div>
           )}
         </div>
+        {conversationId && messages.length > 0 && (
+          <button
+            onClick={() => setConfirmingClear(true)}
+            className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-2 flex items-center hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] rounded-lg transition-colors"
+            title="Clear chat"
+          >
+            <TrashIcon />
+          </button>
+        )}
         <button
           onClick={handleNewChat}
           className="bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-2 flex items-center gap-1.5 hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] rounded-lg transition-colors"
@@ -908,6 +936,32 @@ export function ChatView({
           <span className="text-[12px] font-medium hidden md:inline">New chat</span>
         </button>
       </div>
+
+      {/* Clear chat confirmation dialog */}
+      {confirmingClear && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40" onClick={() => setConfirmingClear(false)}>
+          <div className="bg-[var(--color-surface)] rounded-xl shadow-xl max-w-[400px] w-[90%] p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-[15px] font-semibold text-[var(--color-text)] mb-2">Clear chat</h3>
+            <p className="text-[13px] text-[var(--color-text-secondary)] leading-relaxed mb-5">
+              This will delete all messages in this conversation. Your agent&apos;s configuration, knowledge base, and reports are not affected. This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmingClear(false)}
+                className="px-4 py-2 text-[13px] rounded-lg bg-transparent border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-hover)] cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleClearChat}
+                className="px-4 py-2 text-[13px] rounded-lg bg-red-600 text-white border-none hover:bg-red-700 cursor-pointer transition-colors"
+              >
+                Clear all messages
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Messages — padded for fixed header/input on mobile */}
       <div
