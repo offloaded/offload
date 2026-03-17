@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicClient, cleanResponse, buildStyleInstructions } from "./anthropic";
+import { getAnthropicClient, cleanResponse, buildStyleInstructions, resolveModel } from "./anthropic";
 import { retrieveContext } from "./rag";
 import { isStandupQuestion, getAgentActivitySummary } from "./activity";
 import { executeAsanaTool, executeGithubTool, executeSaveReport, executeReadReport, executeUpdateReport, type ToolContext } from "./tool-execution";
@@ -554,7 +554,7 @@ export async function generateAgentResponse(
   anthropic: Anthropic,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
-  agent: { id: string; name: string; purpose: string; working_style?: string[] | null; communication_style?: string[] | null; voice_profile?: string | null; soft_skills?: { skill: string; confidence: string; note?: string }[] | null; team_expectations?: { expectation: string; category?: string }[] | null; asana_enabled?: boolean; asana_projects?: unknown; github_enabled?: boolean; github_repositories?: unknown },
+  agent: { id: string; name: string; purpose: string; model?: string | null; working_style?: string[] | null; communication_style?: string[] | null; voice_profile?: string | null; soft_skills?: { skill: string; confidence: string; note?: string }[] | null; team_expectations?: { expectation: string; category?: string }[] | null; asana_enabled?: boolean; asana_projects?: unknown; github_enabled?: boolean; github_repositories?: unknown },
   messages: { role: "user" | "assistant"; content: string }[],
   plainMessage: string,
   docsByAgent: Map<string, string[]>,
@@ -605,7 +605,7 @@ export async function generateAgentResponse(
   const maxTokens = weight === "brief" ? 512 : detectLongFormRequest(plainMessage);
 
   const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-5-20250929",
+    model: resolveModel(agent),
     max_tokens: maxTokens,
     system: systemPrompt,
     messages,
@@ -687,7 +687,7 @@ export async function generateAgentResponse(
               { role: "user" as const, content: templateContext },
             ];
         const followUpResponse = await anthropic.messages.create({
-          model: "claude-sonnet-4-5-20250929",
+          model: resolveModel(agent),
           max_tokens: detectLongFormRequest("write report"),
           system: systemPrompt,
           messages: followUpMessages,
@@ -735,7 +735,7 @@ export async function generateAgentResponse(
           { role: "user" as const, content: `[System: Asana operation result]\n${asanaResult}` },
         ];
         const followUpResponse = await anthropic.messages.create({
-          model: "claude-sonnet-4-5-20250929",
+          model: resolveModel(agent),
           max_tokens: maxTokens,
           system: systemPrompt,
           messages: followUpMessages,
@@ -766,7 +766,7 @@ export async function generateAgentResponse(
           { role: "user" as const, content: `[System: GitHub operation result]\n${githubResult}` },
         ];
         const followUpResponse = await anthropic.messages.create({
-          model: "claude-sonnet-4-5-20250929",
+          model: resolveModel(agent),
           max_tokens: maxTokens,
           system: systemPrompt,
           messages: followUpMessages,
@@ -807,7 +807,7 @@ export async function generateAgentResponse(
             { role: "user" as const, content: reportContent },
           ];
           const followUpResponse = await anthropic.messages.create({
-            model: "claude-sonnet-4-5-20250929",
+            model: resolveModel(agent),
             max_tokens: maxTokens,
             system: systemPrompt,
             messages: followUpMessages,
@@ -851,7 +851,7 @@ export async function generateAgentResponse(
         { role: "user" as const, content: "Continue from where you left off. Do not repeat anything you already said." },
       ];
       const contResponse = await anthropic.messages.create({
-        model: "claude-sonnet-4-5-20250929",
+        model: resolveModel(agent),
         max_tokens: maxTokens,
         system: systemPrompt,
         messages: contMessages,

@@ -1,5 +1,5 @@
 import { createServiceSupabase } from "@/lib/supabase-server";
-import { getAnthropicClient, buildSystemPrompt, cleanResponse } from "@/lib/anthropic";
+import { getAnthropicClient, buildSystemPrompt, cleanResponse, resolveModel } from "@/lib/anthropic";
 import { retrieveContext, type RetrievedChunk } from "@/lib/rag";
 import { webSearch, formatSearchResults } from "@/lib/web-search";
 import { getNextRun } from "@/lib/cron";
@@ -86,6 +86,7 @@ async function runTask(
       id: string;
       name: string;
       purpose: string;
+      model: string | null;
       web_search_enabled: boolean;
     };
   }
@@ -198,7 +199,7 @@ async function runTask(
   // 6. Call Claude
   const anthropic = getAnthropicClient();
   const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-5-20250929",
+    model: resolveModel(agent),
     max_tokens: 4096,
     system: systemPrompt,
     messages: [{ role: "user", content: task.instruction }],

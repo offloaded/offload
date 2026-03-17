@@ -1,5 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
 
+export const DEFAULT_MODEL = "claude-sonnet-4-5-20250929";
+
+/** Resolve the model to use for an agent — falls back to Sonnet if not set */
+export function resolveModel(agent: { model?: string | null }): string {
+  return agent.model || DEFAULT_MODEL;
+}
+
 let client: Anthropic | null = null;
 
 export function getAnthropicClient(): Anthropic {

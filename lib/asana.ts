@@ -4,6 +4,9 @@ import { encrypt, decrypt } from "./encryption";
 const ASANA_API = "https://app.asana.com/api/1.0";
 const ASANA_TOKEN_URL = "https://app.asana.com/-/oauth_token";
 
+// Mutex to prevent concurrent token refreshes for the same workspace
+const refreshLocks = new Map<string, Promise<AsanaTokens | null>>();
+
 interface AsanaTokens {
   access_token: string;
   refresh_token: string;
@@ -26,9 +29,16 @@ export async function getAsanaTokens(workspaceId: string): Promise<AsanaTokens |
   const accessToken = decrypt(data.access_token_encrypted);
   const refreshToken = decrypt(data.refresh_token_encrypted);
 
-  // If token expires within 5 minutes, refresh it
+  // If token expires within 5 minutes, refresh it (with mutex to prevent concurrent refreshes)
   if (expiresAt.getTime() - Date.now() < 5 * 60 * 1000) {
-    return refreshAsanaToken(workspaceId, refreshToken);
+    const existing = refreshLocks.get(workspaceId);
+    if (existing) return existing;
+
+    const refreshPromise = refreshAsanaToken(workspaceId, refreshToken).finally(() => {
+      refreshLocks.delete(workspaceId);
+    });
+    refreshLocks.set(workspaceId, refreshPromise);
+    return refreshPromise;
   }
 
   return { access_token: accessToken, refresh_token: refreshToken, expires_at: expiresAt };
@@ -75,7 +85,7 @@ async function refreshAsanaToken(workspaceId: string, refreshToken: string): Pro
   };
 }
 
-/** Make an authenticated request to the Asana API */
+/** Make an authenticated request to the Asana API with retry on transient errors */
 export async function asanaFetch(
   workspaceId: string,
   path: string,
@@ -87,32 +97,61 @@ export async function asanaFetch(
   }
 
   const url = path.startsWith("http") ? path : `${ASANA_API}${path}`;
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${tokens.access_token}`,
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
+  const MAX_RETRIES = 2;
 
-  if (res.status === 429) {
-    return { ok: false, status: 429, error: "Asana rate limit reached. Try again in a moment." };
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(url, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${tokens.access_token}`,
+          "Content-Type": "application/json",
+          ...options.headers,
+        },
+      });
+
+      if (res.status === 429) {
+        if (attempt < MAX_RETRIES) {
+          const retryAfter = res.headers.get("Retry-After");
+          const delay = retryAfter ? parseInt(retryAfter) * 1000 : 1000 * (attempt + 1);
+          console.warn(`[Asana] Rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        return { ok: false, status: 429, error: "Asana rate limit reached. Try again in a moment." };
+      }
+
+      if (res.status === 401) {
+        return { ok: false, status: 401, error: "Asana authorization expired. Please reconnect in Settings." };
+      }
+
+      // Retry on server errors (500, 502, 503)
+      if (res.status >= 500 && attempt < MAX_RETRIES) {
+        console.warn(`[Asana] Server error ${res.status}, retrying (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+
+      const body = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const errMsg = body?.errors?.[0]?.message || `Asana API error (${res.status})`;
+        return { ok: false, status: res.status, error: errMsg };
+      }
+
+      return { ok: true, status: res.status, data: body.data, nextPage: body.next_page || null };
+    } catch (err) {
+      // Network error — retry on transient failures
+      if (attempt < MAX_RETRIES) {
+        console.warn(`[Asana] Network error, retrying (attempt ${attempt + 1}/${MAX_RETRIES}):`, err);
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+      return { ok: false, status: 0, error: `Asana request failed: ${err instanceof Error ? err.message : "network error"}` };
+    }
   }
 
-  if (res.status === 401) {
-    // Token might have been revoked
-    return { ok: false, status: 401, error: "Asana authorization expired. Please reconnect in Settings." };
-  }
-
-  const body = await res.json().catch(() => ({}));
-
-  if (!res.ok) {
-    const errMsg = body?.errors?.[0]?.message || `Asana API error (${res.status})`;
-    return { ok: false, status: res.status, error: errMsg };
-  }
-
-  return { ok: true, status: res.status, data: body.data, nextPage: body.next_page || null };
+  return { ok: false, status: 0, error: "Asana request failed after retries" };
 }
 
 /**

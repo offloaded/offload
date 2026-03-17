@@ -63,9 +63,25 @@ interface InflightEntry {
   state: InflightState;
   listeners: Set<Listener>;
   abortController: AbortController | null;
+  lastAccessedAt: number;
 }
 
 const inflights = new Map<string, InflightEntry>();
+
+// TTL cleanup: remove idle entries older than 30 minutes every 5 minutes
+const INFLIGHT_TTL_MS = 30 * 60 * 1000;
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+
+if (typeof setInterval !== "undefined") {
+  setInterval(() => {
+    const now = Date.now();
+    for (const [chatId, entry] of inflights) {
+      if (!entry.state.streaming && entry.listeners.size === 0 && now - entry.lastAccessedAt > INFLIGHT_TTL_MS) {
+        inflights.delete(chatId);
+      }
+    }
+  }, CLEANUP_INTERVAL_MS);
+}
 
 const EMPTY_STATE: () => InflightState = () => ({
   streaming: false, streamText: "", conversationId: null,
@@ -76,9 +92,10 @@ const EMPTY_STATE: () => InflightState = () => ({
 function getOrCreate(chatId: string): InflightEntry {
   let entry = inflights.get(chatId);
   if (!entry) {
-    entry = { state: EMPTY_STATE(), listeners: new Set(), abortController: null };
+    entry = { state: EMPTY_STATE(), listeners: new Set(), abortController: null, lastAccessedAt: Date.now() };
     inflights.set(chatId, entry);
   }
+  entry.lastAccessedAt = Date.now();
   return entry;
 }
 

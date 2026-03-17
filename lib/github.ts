@@ -17,7 +17,7 @@ export async function getGithubToken(workspaceId: string): Promise<string | null
   return decrypt(data.access_token_encrypted);
 }
 
-/** Make an authenticated request to the GitHub API */
+/** Make an authenticated request to the GitHub API with retry on transient errors */
 export async function githubFetch(
   workspaceId: string,
   path: string,
@@ -29,36 +29,58 @@ export async function githubFetch(
   }
 
   const url = path.startsWith("http") ? path : `${GITHUB_API}${path}`;
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
+  const MAX_RETRIES = 2;
 
-  // Check rate limits
-  const remaining = res.headers.get("X-RateLimit-Remaining");
-  if (remaining && parseInt(remaining) === 0) {
-    const resetAt = res.headers.get("X-RateLimit-Reset");
-    const resetDate = resetAt ? new Date(parseInt(resetAt) * 1000).toLocaleTimeString() : "soon";
-    return { ok: false, status: 429, error: `GitHub rate limit reached. Resets at ${resetDate}.` };
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(url, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          ...options.headers,
+        },
+      });
+
+      // Check rate limits
+      const remaining = res.headers.get("X-RateLimit-Remaining");
+      if (remaining && parseInt(remaining) === 0) {
+        const resetAt = res.headers.get("X-RateLimit-Reset");
+        const resetDate = resetAt ? new Date(parseInt(resetAt) * 1000).toLocaleTimeString() : "soon";
+        return { ok: false, status: 429, error: `GitHub rate limit reached. Resets at ${resetDate}.` };
+      }
+
+      if (res.status === 401) {
+        return { ok: false, status: 401, error: "GitHub authorization expired. Please reconnect in Settings." };
+      }
+
+      // Retry on server errors and rate limits with Retry-After
+      if (res.status >= 500 && attempt < MAX_RETRIES) {
+        console.warn(`[GitHub] Server error ${res.status}, retrying (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+
+      const body = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const errMsg = body?.message || `GitHub API error (${res.status})`;
+        return { ok: false, status: res.status, error: errMsg };
+      }
+
+      return { ok: true, status: res.status, data: body };
+    } catch (err) {
+      if (attempt < MAX_RETRIES) {
+        console.warn(`[GitHub] Network error, retrying (attempt ${attempt + 1}/${MAX_RETRIES}):`, err);
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+      return { ok: false, status: 0, error: `GitHub request failed: ${err instanceof Error ? err.message : "network error"}` };
+    }
   }
 
-  if (res.status === 401) {
-    return { ok: false, status: 401, error: "GitHub authorization expired. Please reconnect in Settings." };
-  }
-
-  const body = await res.json().catch(() => ({}));
-
-  if (!res.ok) {
-    const errMsg = body?.message || `GitHub API error (${res.status})`;
-    return { ok: false, status: res.status, error: errMsg };
-  }
-
-  return { ok: true, status: res.status, data: body };
+  return { ok: false, status: 0, error: "GitHub request failed after retries" };
 }
 
 // ─── GitHub Operations ───

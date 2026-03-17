@@ -46,17 +46,41 @@ async function tavilySearch(
     include_domains: payload.include_domains || "none",
   }));
 
-  const res = await fetch("https://api.tavily.com/search", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  const MAX_RETRIES = 2;
+  let res: Response | null = null;
 
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    console.error(`${LOG} Tavily API error (${res.status}):`, errText);
-    throw new Error(`Tavily search failed (${res.status})`);
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      res = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) break;
+
+      // Retry on server errors (5xx)
+      if (res.status >= 500 && attempt < MAX_RETRIES) {
+        console.warn(`${LOG} Tavily server error ${res.status}, retrying (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+
+      const errText = await res.text().catch(() => "");
+      console.error(`${LOG} Tavily API error (${res.status}):`, errText);
+      throw new Error(`Tavily search failed (${res.status})`);
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith("Tavily search failed")) throw err;
+      if (attempt < MAX_RETRIES) {
+        console.warn(`${LOG} Tavily network error, retrying (attempt ${attempt + 1}/${MAX_RETRIES}):`, err);
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+      throw new Error(`Tavily search failed: ${err instanceof Error ? err.message : "network error"}`);
+    }
   }
+
+  if (!res || !res.ok) throw new Error("Tavily search failed after retries");
 
   const data = await res.json();
   const results = (data.results || []).map(

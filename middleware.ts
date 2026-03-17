@@ -66,6 +66,7 @@ export async function middleware(request: NextRequest) {
     request.nextUrl.pathname !== "/suspended"
   ) {
     // Check user_profiles for suspension - use service role via fetch to Supabase REST API
+    // Fails closed: if the check errors, redirect to suspended page for safety
     try {
       const profileRes = await fetch(
         `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/user_profiles?id=eq.${user.id}&select=suspended`,
@@ -83,9 +84,15 @@ export async function middleware(request: NextRequest) {
           url.pathname = "/suspended";
           return NextResponse.redirect(url);
         }
+      } else {
+        console.error(`[Middleware] Suspension check failed with status ${profileRes.status}`);
       }
-    } catch {
-      // If profile check fails, allow through rather than blocking
+    } catch (err) {
+      // Fail closed: log and block access when suspension check is unavailable
+      console.error("[Middleware] Suspension check error, blocking access:", err);
+      const url = request.nextUrl.clone();
+      url.pathname = "/suspended";
+      return NextResponse.redirect(url);
     }
   }
 

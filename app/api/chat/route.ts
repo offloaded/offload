@@ -1,5 +1,5 @@
 import { createServerSupabase, createServiceSupabase } from "@/lib/supabase-server";
-import { getAnthropicClient, buildSystemPrompt, cleanResponse } from "@/lib/anthropic";
+import { getAnthropicClient, buildSystemPrompt, cleanResponse, resolveModel } from "@/lib/anthropic";
 import { retrieveContext, type RetrievedChunk } from "@/lib/rag";
 import { extractText } from "@/lib/rag";
 import { webSearch, formatSearchResults } from "@/lib/web-search";
@@ -12,6 +12,18 @@ import { listTasks, getTask, createTask, updateTask, addComment } from "@/lib/as
 import { listIssues, getIssue, createIssue, updateIssue, addIssueComment, listLabels } from "@/lib/github";
 import { shouldCompact, compactConversation, injectCompactionContext, type CompactableMessage } from "@/lib/compaction";
 import { effectiveDueDate } from "@/lib/tool-execution";
+
+/** Safely parse JSON, returning null on failure instead of throwing */
+function safeJsonParse(text: string): unknown | null {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+// Vercel streaming timeout — allow up to 5 minutes for tool follow-ups
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   const ctx = await getWorkspaceContext();
@@ -94,7 +106,9 @@ export async function POST(request: Request) {
           fileContext = await extractText(buffer, file.name);
           // Truncate very large files to ~50k chars to stay within context limits
           if (fileContext.length > 50000) {
-            fileContext = fileContext.slice(0, 50000) + "\n\n[... file truncated ...]";
+            const originalLength = fileContext.length;
+            fileContext = fileContext.slice(0, 50000) + `\n\n[... file truncated: showing first 50,000 of ${originalLength.toLocaleString()} characters ...]`;
+            console.warn(`[Chat] File "${file.name}" truncated: ${originalLength.toLocaleString()} → 50,000 chars`);
           }
         }
       } catch (err) {
@@ -218,7 +232,9 @@ export async function POST(request: Request) {
 
   // Unhide conversation if it was hidden from sidebar
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (supabase as any).from("conversations").update({ sidebar_hidden: false }).eq("id", convId).eq("sidebar_hidden", true).then(() => {}, () => {});
+  await (supabase as any).from("conversations").update({ sidebar_hidden: false }).eq("id", convId).eq("sidebar_hidden", true).catch((err: unknown) => {
+    console.warn("[Chat] Failed to unhide conversation:", err);
+  });
 
   // ─── Explicit channel routing: extract #channel-name before LLM ───
   // This replaces the unreliable LLM-based group_message_request detection.
@@ -739,10 +755,16 @@ export async function POST(request: Request) {
       const projectNameMap = new Map(asanaProjects.map((p) => [p.gid, p.name]));
       const allTasks: Array<{ name: string; gid: string; completed: boolean; start_on: string | null; due_on: string | null; assignee: string | null; section: string | null; project: string }> = [];
 
-      // Fetch all projects in parallel for speed
-      const projectResults = await Promise.all(
-        asanaProjects.map((proj) => listTasks(ctx.workspaceId, proj.gid, { completedSince: "now" }).then((r) => ({ ...r, gid: proj.gid })))
-      );
+      // Fetch projects with concurrency limit to avoid rate limiting
+      const BATCH_SIZE = 3;
+      const projectResults: Array<Awaited<ReturnType<typeof listTasks>> & { gid: string }> = [];
+      for (let i = 0; i < asanaProjects.length; i += BATCH_SIZE) {
+        const batch = asanaProjects.slice(i, i + BATCH_SIZE);
+        const batchResults = await Promise.all(
+          batch.map((proj) => listTasks(ctx.workspaceId, proj.gid, { completedSince: "now" }).then((r) => ({ ...r, gid: proj.gid })))
+        );
+        projectResults.push(...batchResults);
+      }
       for (const result of projectResults) {
         if (result.ok && result.tasks) {
           allTasks.push(...result.tasks.map((t) => ({
@@ -810,7 +832,7 @@ export async function POST(request: Request) {
   console.log(`[Chat] Agent "${agent.name}" system prompt: ${systemPrompt.length} chars, asana=${hasAsanaInPrompt}, github=${hasGithubInPrompt}, projects=${asanaProjects.length}, messages=${claudeMessages.length}, asanaPreFetch=${!!asanaPreFetchResult}`);
 
   const stream = anthropic.messages.stream({
-    model: "claude-sonnet-4-5-20250929",
+    model: resolveModel(agent),
     max_tokens: 4096,
     system: systemPrompt,
     messages: claudeMessages,
@@ -982,9 +1004,11 @@ export async function POST(request: Request) {
             } else {
               // Fall back to JSON (fix literal newlines in strings before parsing)
               const fixedJson = raw.replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
-              const parsed = JSON.parse(fixedJson);
-              reportTitle = parsed.title;
-              reportContent = parsed.content?.replace(/\\n/g, "\n") || "";
+              const parsed = safeJsonParse(fixedJson) as { title?: string; content?: string } | null;
+              if (parsed) {
+                reportTitle = parsed.title || "";
+                reportContent = parsed.content?.replace(/\\n/g, "\n") || "";
+              }
             }
 
             if (reportTitle && reportContent) {
@@ -1040,7 +1064,7 @@ export async function POST(request: Request) {
 
             try {
               const retryStream = anthropic.messages.stream({
-                model: "claude-sonnet-4-5-20250929",
+                model: resolveModel(agent),
                 max_tokens: 4096,
                 system: systemPrompt,
                 messages: followUpMessages,
@@ -1112,7 +1136,8 @@ export async function POST(request: Request) {
         // Handle read_report — fetch the requested report and do a follow-up call
         if (readReportMatch) {
           try {
-            const readReq = JSON.parse(readReportMatch[1].trim());
+            const readReq = safeJsonParse(readReportMatch[1].trim()) as { id?: string; title?: string } | null;
+            if (!readReq) throw new Error("Invalid JSON in read_report block");
             let reportData = null;
             if (readReq.id) {
               const { data } = await serviceDb
@@ -1204,7 +1229,7 @@ export async function POST(request: Request) {
 
               // Stream the follow-up response
               const followUpStream = anthropic.messages.stream({
-                model: "claude-sonnet-4-5-20250929",
+                model: resolveModel(agent),
                 max_tokens: 4096,
                 system: systemPrompt,
                 messages: followUpMessages,
@@ -1286,7 +1311,8 @@ export async function POST(request: Request) {
         // Handle read_report_template — fetch template structure and re-call Claude
         if (readTemplateMatch) {
           try {
-            const templateReq = JSON.parse(readTemplateMatch[1].trim());
+            const templateReq = safeJsonParse(readTemplateMatch[1].trim()) as { id?: string; name?: string; title?: string } | null;
+            if (!templateReq) throw new Error("Invalid JSON in read_report_template block");
             let templateData = null;
             if (templateReq.id) {
               const { data } = await serviceDb
@@ -1332,7 +1358,7 @@ export async function POST(request: Request) {
                   ];
 
               const followUpStream = anthropic.messages.stream({
-                model: "claude-sonnet-4-5-20250929",
+                model: resolveModel(agent),
                 max_tokens: 4096,
                 system: systemPrompt,
                 messages: followUpMessages,
@@ -1420,7 +1446,8 @@ export async function POST(request: Request) {
         // Handle update_report — update report in DB and emit SSE event
         if (updateReportMatch) {
           try {
-            const updateReq = JSON.parse(updateReportMatch[1].trim());
+            const updateReq = safeJsonParse(updateReportMatch[1].trim()) as { id?: string; content?: string; title?: string } | null;
+            if (!updateReq) throw new Error("Invalid JSON in update_report block");
             if (updateReq.id && updateReq.content) {
               // Fetch current version before overwriting
               const { data: currentReport } = await serviceDb
@@ -1495,7 +1522,9 @@ export async function POST(request: Request) {
         if (asanaMatch && agent.asana_enabled && asanaProjects.length > 0) {
           try {
             const asanaAction = asanaMatch[1];
-            const asanaPayload = JSON.parse(asanaMatch[2].trim());
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const asanaPayload = safeJsonParse(asanaMatch[2].trim()) as any;
+            if (!asanaPayload) throw new Error("Invalid JSON in Asana tool block");
             let asanaResult = "";
 
             // Validate project access for operations that reference a project
@@ -1621,7 +1650,7 @@ export async function POST(request: Request) {
               ];
 
               const followUpStream = anthropic.messages.stream({
-                model: "claude-sonnet-4-5-20250929",
+                model: resolveModel(agent),
                 max_tokens: 4096,
                 system: systemPrompt,
                 messages: followUpMessages,
@@ -1665,7 +1694,9 @@ export async function POST(request: Request) {
         if (githubMatch && agent.github_enabled && githubRepos.length > 0) {
           try {
             const githubAction = githubMatch[1];
-            const githubPayload = JSON.parse(githubMatch[2].trim());
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const githubPayload = safeJsonParse(githubMatch[2].trim()) as any;
+            if (!githubPayload) throw new Error("Invalid JSON in GitHub tool block");
             let githubResult = "";
 
             // Validate repo access
@@ -1755,7 +1786,7 @@ export async function POST(request: Request) {
               ];
 
               const followUpStream = anthropic.messages.stream({
-                model: "claude-sonnet-4-5-20250929",
+                model: resolveModel(agent),
                 max_tokens: 4096,
                 system: systemPrompt,
                 messages: followUpMessages,
@@ -1824,28 +1855,24 @@ export async function POST(request: Request) {
         }
 
         if (scheduleMatch) {
-          try {
-            const schedule = JSON.parse(scheduleMatch[1]);
+          const schedule = safeJsonParse(scheduleMatch[1]);
+          if (schedule) {
             controller.enqueue(
               encoder.encode(
-                `data: ${JSON.stringify({ type: "schedule_request", ...schedule })}\n\n`
+                `data: ${JSON.stringify({ type: "schedule_request", ...(schedule as Record<string, unknown>) })}\n\n`
               )
             );
-          } catch {
-            // Invalid JSON in schedule block — ignore
           }
         }
 
         if (featureMatch) {
-          try {
-            const feature = JSON.parse(featureMatch[1]);
+          const feature = safeJsonParse(featureMatch[1]);
+          if (feature) {
             controller.enqueue(
               encoder.encode(
-                `data: ${JSON.stringify({ type: "feature_request", ...feature })}\n\n`
+                `data: ${JSON.stringify({ type: "feature_request", ...(feature as Record<string, unknown>) })}\n\n`
               )
             );
-          } catch {
-            // Invalid JSON in feature block — ignore
           }
         }
 
@@ -1874,7 +1901,9 @@ export async function POST(request: Request) {
         } else if (groupMsgMatch) {
           console.log(`[CrossPost] group_message_request block detected, raw JSON: ${groupMsgMatch[1].slice(0, 200)}`);
           try {
-            const { message: groupMsg, channel: targetChannel } = JSON.parse(groupMsgMatch[1]);
+            const groupParsed = safeJsonParse(groupMsgMatch[1]) as { message?: string; channel?: string } | null;
+            if (!groupParsed) throw new Error("Invalid JSON in group_message_request block");
+            const { message: groupMsg, channel: targetChannel } = groupParsed;
             console.log(`[CrossPost] Parsed — message: "${(groupMsg || "").slice(0, 80)}", channel: "${targetChannel}"`);
             if (groupMsg) {
               // Resolve target channel: match channel name to a team
@@ -1943,7 +1972,7 @@ export async function POST(request: Request) {
 
         if (skillsMatch) {
           try {
-            const newSkills = JSON.parse(skillsMatch[1]);
+            const newSkills = safeJsonParse(skillsMatch[1]);
             if (Array.isArray(newSkills) && newSkills.length > 0) {
               // Merge with existing skills: update matching skills, add new ones
               const existing: Array<{ skill: string; confidence: string; note?: string }> = agent.soft_skills || [];
@@ -1971,7 +2000,7 @@ export async function POST(request: Request) {
 
         if (expectationsMatch) {
           try {
-            const newExpectations = JSON.parse(expectationsMatch[1]);
+            const newExpectations = safeJsonParse(expectationsMatch[1]);
             if (Array.isArray(newExpectations) && newExpectations.length > 0) {
               const existing: Array<{ expectation: string; category?: string }> = agent.team_expectations || [];
               const merged = [...existing];
@@ -2001,12 +2030,13 @@ export async function POST(request: Request) {
           const finalMessage = await stream.finalMessage();
           actualTokensIn = finalMessage.usage?.input_tokens || 0;
           actualTokensOut = finalMessage.usage?.output_tokens || 0;
-          const cost = estimateCost("claude-sonnet-4-5-20250929", actualTokensIn, actualTokensOut);
+          const agentModel = resolveModel(agent);
+          const cost = estimateCost(agentModel, actualTokensIn, actualTokensOut);
           console.log(`[Chat] API response: tokensIn=${actualTokensIn} tokensOut=${actualTokensOut} responseLen=${fullResponse.length} cleanedLen=${cleaned?.length ?? 0} time=${responseTimeMs}ms`);
           logApiUsage({
             user_id: user.id,
             service: "chat",
-            model: "claude-sonnet-4-5-20250929",
+            model: agentModel,
             tokens_in: actualTokensIn,
             tokens_out: actualTokensOut,
             cost,
