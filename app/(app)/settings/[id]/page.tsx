@@ -96,6 +96,13 @@ export default function AgentEditorPage() {
   const [availableGithubRepos, setAvailableGithubRepos] = useState<Array<{ full_name: string; name: string; owner: string; private: boolean; description: string | null }>>([]);
   const [loadingGithubRepos, setLoadingGithubRepos] = useState(false);
   const [githubRepoPickerOpen, setGithubRepoPickerOpen] = useState(false);
+  // Google Calendar
+  const [googleCalendarEnabled, setGoogleCalendarEnabled] = useState(false);
+  const [googleCalendarConnected, setGoogleCalendarConnected] = useState(false);
+  const [googleCalendarIds, setGoogleCalendarIds] = useState<Array<{ id: string; name: string }>>([]);
+  const [availableGoogleCalendars, setAvailableGoogleCalendars] = useState<Array<{ id: string; name: string; primary: boolean }>>([]);
+  const [loadingGoogleCalendars, setLoadingGoogleCalendars] = useState(false);
+  const [googleCalendarPickerOpen, setGoogleCalendarPickerOpen] = useState(false);
   // Report Templates
   const [assignedTemplates, setAssignedTemplates] = useState<Array<{ id: string; name: string }>>([]);
   const [availableTemplates, setAvailableTemplates] = useState<Array<{ id: string; name: string; description: string }>>([]);
@@ -115,6 +122,8 @@ export default function AgentEditorPage() {
       setAsanaProjects(existing.asana_projects ?? []);
       setGithubEnabled(existing.github_enabled ?? false);
       setGithubRepos(existing.github_repositories ?? []);
+      setGoogleCalendarEnabled(existing.google_calendar_enabled ?? false);
+      setGoogleCalendarIds(existing.google_calendar_ids ?? []);
       setWorkingStyle(existing.working_style ?? []);
       setCommunicationStyle(existing.communication_style ?? []);
       setVoiceSamples(existing.voice_samples ?? []);
@@ -178,6 +187,10 @@ export default function AgentEditorPage() {
     fetch("/api/integrations/github/status")
       .then((r) => (r.ok ? r.json() : { connected: false }))
       .then((d) => setGithubConnected(d.connected))
+      .catch(() => {});
+    fetch("/api/integrations/google-calendar/status")
+      .then((r) => (r.ok ? r.json() : { connected: false }))
+      .then((d) => setGoogleCalendarConnected(d.connected))
       .catch(() => {});
   }, []);
 
@@ -259,6 +272,45 @@ export default function AgentEditorPage() {
     }
   };
 
+  const loadAvailableGoogleCalendars = useCallback(() => {
+    if (availableGoogleCalendars.length > 0) return;
+    setLoadingGoogleCalendars(true);
+    fetch("/api/integrations/google-calendar/calendars")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setAvailableGoogleCalendars)
+      .catch(() => {})
+      .finally(() => setLoadingGoogleCalendars(false));
+  }, [availableGoogleCalendars.length]);
+
+  const persistGoogleCalendars = useCallback((calendars: Array<{ id: string; name: string }>) => {
+    if (isNew) return;
+    fetch("/api/agents", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: params.id, google_calendar_enabled: true, google_calendar_ids: calendars }),
+    }).catch(() => {});
+  }, [isNew, params.id]);
+
+  const addGoogleCalendar = (calId: string, calName: string) => {
+    const entry = { id: calId, name: calName };
+    const updated = [...googleCalendarIds, entry];
+    setGoogleCalendarIds(updated);
+    persistGoogleCalendars(updated);
+    setGoogleCalendarPickerOpen(false);
+  };
+
+  const removeGoogleCalendar = (calId: string) => {
+    const updated = googleCalendarIds.filter((c) => c.id !== calId);
+    setGoogleCalendarIds(updated);
+    if (!isNew) {
+      fetch("/api/agents", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: params.id, google_calendar_ids: updated.length > 0 ? updated : null }),
+      }).catch(() => {});
+    }
+  };
+
   const loadAvailableTemplates = useCallback(() => {
     if (availableTemplates.length > 0) return;
     setLoadingTemplates(true);
@@ -310,6 +362,8 @@ export default function AgentEditorPage() {
           asana_projects: asanaProjects.length > 0 ? asanaProjects : null,
           github_enabled: githubEnabled,
           github_repositories: githubRepos.length > 0 ? githubRepos : null,
+          google_calendar_enabled: googleCalendarEnabled,
+          google_calendar_ids: googleCalendarIds.length > 0 ? googleCalendarIds : null,
           working_style: workingStyle.length > 0 ? workingStyle : null,
           communication_style: communicationStyle.length > 0 ? communicationStyle : null,
           ...(!isNew && (voiceSamples.some((s) => s.trim()) || voiceProfile) ? {
@@ -1253,6 +1307,115 @@ export default function AgentEditorPage() {
                           className="flex items-center gap-1.5 py-1.5 px-3 border border-dashed border-[var(--color-border)] rounded-xl bg-transparent cursor-pointer text-[var(--color-accent)] text-[12px] font-medium hover:bg-[var(--color-hover)] transition-colors"
                         >
                           <PlusIcon /> Add repository
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Google Calendar */}
+                <div className="border border-[var(--color-border)] rounded-xl">
+                  <button
+                    onClick={() => {
+                      if (!googleCalendarConnected) return;
+                      const newVal = !googleCalendarEnabled;
+                      setGoogleCalendarEnabled(newVal);
+                      if (!newVal) setGoogleCalendarIds([]);
+                      if (!isNew) {
+                        fetch("/api/agents", {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ id: params.id, google_calendar_enabled: newVal, ...(!newVal ? { google_calendar_ids: null } : {}) }),
+                        }).catch(() => {});
+                      }
+                    }}
+                    className="w-full flex items-center gap-3 py-3 px-4 bg-transparent border-none cursor-pointer text-left"
+                    style={{ opacity: googleCalendarConnected ? 1 : 0.5 }}
+                  >
+                    <span className="text-lg">📅</span>
+                    <span className="flex-1 text-[14px] text-[var(--color-text)]">
+                      Google Calendar
+                    </span>
+                    <span
+                      className="text-[14px] font-medium"
+                      style={{
+                        color: googleCalendarEnabled && googleCalendarConnected
+                          ? "var(--color-accent)"
+                          : "var(--color-text-tertiary)",
+                      }}
+                    >
+                      {!googleCalendarConnected ? "Not connected" : googleCalendarEnabled ? "On" : "Off"}
+                    </span>
+                  </button>
+
+                  {!googleCalendarConnected && (
+                    <div className="px-4 pb-3 text-[12px] text-[var(--color-text-tertiary)]">
+                      <a href="/settings?tab=integrations" className="text-[var(--color-accent)] no-underline hover:underline">
+                        Connect Google Calendar in Settings → Integrations
+                      </a>
+                    </div>
+                  )}
+
+                  {googleCalendarConnected && googleCalendarEnabled && (
+                    <div className="px-4 pb-3 border-t border-[var(--color-border)] pt-3">
+                      <div className="text-[12px] font-semibold text-[var(--color-text-tertiary)] mb-2">
+                        Assigned calendars
+                      </div>
+
+                      {googleCalendarIds.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mb-2">
+                          {googleCalendarIds.map((c) => (
+                            <span
+                              key={c.id}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-[var(--color-accent-soft)] border border-[var(--color-accent)] text-[12px] text-[var(--color-text)]"
+                            >
+                              {c.name}
+                              <button
+                                onClick={() => removeGoogleCalendar(c.id)}
+                                className="bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] cursor-pointer p-0 flex"
+                              >
+                                <XIcon />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {googleCalendarPickerOpen ? (
+                        <div className="border border-[var(--color-border)] rounded-xl bg-[var(--color-surface)] max-h-[200px] overflow-y-auto">
+                          {loadingGoogleCalendars ? (
+                            <div className="p-3 text-[13px] text-[var(--color-text-tertiary)]">Loading calendars...</div>
+                          ) : availableGoogleCalendars.length === 0 ? (
+                            <div className="p-3 text-[13px] text-[var(--color-text-tertiary)]">No calendars found</div>
+                          ) : (
+                            availableGoogleCalendars
+                              .filter((c) => !googleCalendarIds.some((gc) => gc.id === c.id))
+                              .map((c) => (
+                                <button
+                                  key={c.id}
+                                  onClick={() => addGoogleCalendar(c.id, c.name)}
+                                  className="w-full text-left px-3 py-2 bg-transparent border-none text-[13px] text-[var(--color-text)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors"
+                                >
+                                  {c.name} {c.primary ? "(primary)" : ""}
+                                </button>
+                              ))
+                          )}
+                          <button
+                            onClick={() => setGoogleCalendarPickerOpen(false)}
+                            className="w-full px-3 py-2 bg-transparent border-t border-[var(--color-border)] text-[12px] text-[var(--color-text-tertiary)] cursor-pointer hover:bg-[var(--color-hover)]"
+                          >
+                            Close
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setGoogleCalendarPickerOpen(true);
+                            loadAvailableGoogleCalendars();
+                          }}
+                          className="flex items-center gap-1.5 py-1.5 px-3 border border-dashed border-[var(--color-border)] rounded-xl bg-transparent cursor-pointer text-[var(--color-accent)] text-[12px] font-medium hover:bg-[var(--color-hover)] transition-colors"
+                        >
+                          <PlusIcon /> Add calendar
                         </button>
                       )}
                     </div>

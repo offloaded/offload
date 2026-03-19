@@ -11,6 +11,8 @@ export interface Agent {
   asana_projects: Array<{ gid: string; name: string; workspace: string }> | null;
   github_enabled: boolean;
   github_repositories: Array<{ full_name: string; name: string }> | null;
+  google_calendar_enabled: boolean;
+  google_calendar_ids: Array<{ id: string; name: string }> | null;
   // Working style tags
   working_style: string[] | null;
   // Communication style tags

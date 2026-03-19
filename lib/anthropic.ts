@@ -80,6 +80,7 @@ export function buildSystemPrompt(
     web_search_enabled?: boolean;
     asana_enabled?: boolean;
     github_enabled?: boolean;
+    google_calendar_enabled?: boolean;
     working_style?: string[] | null;
     communication_style?: string[] | null;
     voice_profile?: string | null;
@@ -102,6 +103,7 @@ export function buildSystemPrompt(
     recentReports?: Array<{ id: string; title: string; generated_title?: string; content: string; agent_name?: string; updated_at: string; is_mine?: boolean }>;
     asanaProjects?: Array<{ gid: string; name: string }>;
     githubRepos?: Array<{ full_name: string; name: string }>;
+    googleCalendars?: Array<{ id: string; name: string }>;
   }
 ): string {
   let prompt: string;
@@ -239,6 +241,39 @@ Lists available labels for a repository.
 Write your visible reply naturally, then include the block at the end. The system will execute the operation and provide results in a follow-up. Only access repositories listed above — if asked about other repos, say you don't have access.
 
 IMPORTANT: When the user asks you to check, pull, query, or refresh data from GitHub, you MUST make a fresh tool call every time. Never reference previous tool results from earlier in the conversation — the data may have changed. Always call the tool again.`;
+  }
+
+  if (options?.googleCalendars && options.googleCalendars.length > 0) {
+    const calendarList = options.googleCalendars.map((c) => `- ${c.name} (ID: ${c.id})`).join("\n");
+    prompt += `\n\nGOOGLE CALENDAR INTEGRATION:
+You have access to Google Calendar for viewing and managing events. You are connected to these calendars:
+${calendarList}
+
+To perform calendar operations, include one of these blocks at the END of your response (only one per response):
+
+\`\`\`gcal_list_events
+{"calendar_id": "...", "time_min": "2024-01-01T00:00:00Z", "time_max": "2024-01-07T23:59:59Z"}
+\`\`\`
+Lists events in a time range. Use ISO 8601 format for dates. To query ALL your calendars at once, omit "calendar_id". Optional: "query" for text search, "max_results" to limit results.
+
+\`\`\`gcal_get_event
+{"calendar_id": "...", "event_id": "..."}
+\`\`\`
+Gets full event details including attendees, description, and video call links.
+
+\`\`\`gcal_create_event
+{"calendar_id": "...", "summary": "Meeting title", "start": {"dateTime": "2024-01-15T10:00:00", "timeZone": "Pacific/Auckland"}, "end": {"dateTime": "2024-01-15T11:00:00", "timeZone": "Pacific/Auckland"}, "description": "Optional notes", "location": "Optional location", "attendees": [{"email": "person@example.com"}]}
+\`\`\`
+Creates a new event. For all-day events, use "date" instead of "dateTime" (e.g. {"date": "2024-01-15"}).
+
+\`\`\`gcal_update_event
+{"calendar_id": "...", "event_id": "...", "summary": "Updated title"}
+\`\`\`
+Updates an event. Include only the fields you want to change.
+
+Write your visible reply naturally (e.g. "Let me check your calendar..."), then include the tool block at the end. The system will execute the operation and provide results in a follow-up. Only access calendars listed above.
+
+IMPORTANT: When the user asks about their schedule, meetings, availability, or calendar, you MUST make a fresh tool call every time. Never reference previous calendar results from earlier in the conversation — events may have changed. Always call the tool again.`;
   }
 
   if (options?.enableScheduleDetection) {
@@ -475,6 +510,7 @@ export function cleanResponse(text: string, streaming = false): string {
   cleaned = cleaned.replace(/```update_report(?!_)\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```asana_\w+\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```github_\w+\s*\n?[\s\S]*?\n?```/g, "");
+  cleaned = cleaned.replace(/```gcal_\w+\s*\n?[\s\S]*?\n?```/g, "");
 
   if (streaming) {
     // Remove incomplete opening tags whose closing tag hasn't arrived yet.
@@ -492,6 +528,7 @@ export function cleanResponse(text: string, streaming = false): string {
     cleaned = cleaned.replace(/```update_report(?!_)[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```asana_\w+[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```github_\w+[\s\S]*$/g, "");
+    cleaned = cleaned.replace(/```gcal_\w+[\s\S]*$/g, "");
   }
 
   // Strip leading [AgentName] or [You] bracket prefix that agents sometimes generate

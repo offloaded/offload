@@ -442,15 +442,22 @@ function IntegrationsTab() {
     github_name?: string;
     github_username?: string;
   } | null>(null);
+  const [googleCalendarStatus, setGoogleCalendarStatus] = useState<{
+    connected: boolean;
+    google_email?: string;
+    google_name?: string;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchStatus = useCallback(() => {
     Promise.all([
       fetch("/api/integrations/asana/status").then((r) => (r.ok ? r.json() : { connected: false })).catch(() => ({ connected: false })),
       fetch("/api/integrations/github/status").then((r) => (r.ok ? r.json() : { connected: false })).catch(() => ({ connected: false })),
-    ]).then(([asana, github]) => {
+      fetch("/api/integrations/google-calendar/status").then((r) => (r.ok ? r.json() : { connected: false })).catch(() => ({ connected: false })),
+    ]).then(([asana, github, googleCalendar]) => {
       setAsanaStatus(asana);
       setGithubStatus(github);
+      setGoogleCalendarStatus(googleCalendar);
     }).finally(() => setLoading(false));
   }, []);
 
@@ -505,17 +512,24 @@ function IntegrationsTab() {
         )}
       </div>
 
-      {/* Placeholder for future integrations */}
-      <div className="border border-dashed border-[var(--color-border)] rounded-xl p-4 mt-3 opacity-50">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[var(--color-hover)] flex items-center justify-center text-lg">
-            📅
-          </div>
-          <div className="flex-1">
-            <div className="text-[14px] font-semibold text-[var(--color-text)]">Google Calendar</div>
-            <div className="text-[13px] text-[var(--color-text-tertiary)]">Coming soon</div>
-          </div>
-        </div>
+      {/* Google Calendar card */}
+      <div className="mt-3">
+        <IntegrationCard
+          icon="📅"
+          name="Google Calendar"
+          description="Events, scheduling, and availability"
+          connected={googleCalendarStatus?.connected || false}
+          connectedLabel={googleCalendarStatus?.google_name || googleCalendarStatus?.google_email}
+          connectUrl="/api/integrations/google-calendar/connect"
+          connectLabel="Connect Google Calendar"
+          disconnectUrl="/api/integrations/google-calendar/disconnect"
+          disconnectWarning="This will remove Google Calendar access from all agents. Continue?"
+        />
+        {!googleCalendarStatus?.connected && (
+          <p className="text-[11px] text-[var(--color-text-tertiary)] mt-1.5 px-1">
+            Offloaded will have read and write access to your calendar events.
+          </p>
+        )}
       </div>
 
       <div className="border border-dashed border-[var(--color-border)] rounded-xl p-4 mt-3 opacity-50">

@@ -10,6 +10,7 @@ import { estimateTokens, trimHistory, trimRagChunks, shouldArchive, calculateBud
 import { getWorkspaceContext } from "@/lib/workspace";
 import { listTasks, getTask, createTask, updateTask, addComment } from "@/lib/asana";
 import { listIssues, getIssue, createIssue, updateIssue, addIssueComment, listLabels } from "@/lib/github";
+import { listEvents as gcalListEvents } from "@/lib/google-calendar";
 import { shouldCompact, compactConversation, injectCompactionContext, type CompactableMessage } from "@/lib/compaction";
 import { effectiveDueDate } from "@/lib/tool-execution";
 
@@ -572,6 +573,34 @@ export async function POST(request: Request) {
     } catch { /* non-fatal */ }
   }
 
+  // Load Google Calendar IDs from agent record
+  let googleCalendars: Array<{ id: string; name: string }> = [];
+  if (agent.google_calendar_enabled && agent.google_calendar_ids) {
+    googleCalendars = (agent.google_calendar_ids as Array<{ id: string; name: string }>).map((c) => ({
+      id: c.id,
+      name: c.name,
+    }));
+  }
+
+  // Check if Google Calendar is available at workspace level but not enabled on this agent
+  if (!agent.google_calendar_enabled) {
+    try {
+      const { data: integration } = await serviceDb
+        .from("integrations")
+        .select("id")
+        .eq("workspace_id", ctx.workspaceId)
+        .eq("provider", "google_calendar")
+        .single();
+      if (integration) {
+        disabledFeatures.push({
+          feature: "google_calendar",
+          label: "Google Calendar",
+          description: "View meetings, check availability, and manage calendar events from chat",
+        });
+      }
+    } catch { /* non-fatal */ }
+  }
+
   // Stream response from Claude
   const anthropic = getAnthropicClient();
   let systemPrompt = buildSystemPrompt(
@@ -590,6 +619,7 @@ export async function POST(request: Request) {
       recentReports: recentReports.length > 0 ? recentReports : undefined,
       asanaProjects: asanaProjects.length > 0 ? asanaProjects : undefined,
       githubRepos: githubRepos.length > 0 ? githubRepos : undefined,
+      googleCalendars: googleCalendars.length > 0 ? googleCalendars : undefined,
     }
   );
 
@@ -623,7 +653,7 @@ export async function POST(request: Request) {
 
   // ── Conversation health check ──────────────────────────────────────────
   const preHealth = checkConversationHealth(systemPrompt, messages);
-  const hasToolIntegrations = agent.asana_enabled || agent.github_enabled;
+  const hasToolIntegrations = agent.asana_enabled || agent.github_enabled || agent.google_calendar_enabled;
   console.log(`[Chat] Health check: msgs=${preHealth.messageCount} tokens=${preHealth.estimatedTokens} budgetUsed=${(preHealth.contextBudgetUsed * 100).toFixed(1)}% consecutiveAssistant=${preHealth.consecutiveAssistantMessages} tools=${hasToolIntegrations}`);
 
   // ── Chat compaction ──────────────────────────────────────────────────
@@ -826,10 +856,76 @@ export async function POST(request: Request) {
     }
   }
 
+  // ── Google Calendar pre-fetch ──────────────────────────────────────
+  const GCAL_KEYWORDS = /\b(calendar|meeting|schedule|availability|free|busy|events?|agenda|week|today|tomorrow|upcoming meetings?|what'?s on|appointments?|calls?|syncs?|standup|1:1|one on one|check-in)\b/i;
+  let gcalPreFetchResult: string | null = null;
+  if (agent.google_calendar_enabled && googleCalendars.length > 0 && lastUserMessage?.role === "user" && GCAL_KEYWORDS.test(lastUserMessage.content)) {
+    try {
+      console.log(`[Chat] Google Calendar pre-fetch triggered for "${agent.name}" — user message matches calendar keywords`);
+      const calendarNameMap = new Map(googleCalendars.map((c) => [c.id, c.name]));
+      const allEvents: Array<{ summary: string; id: string; time: string; location: string | null; attendees: string | null; calendar: string }> = [];
+
+      // Default: fetch events for the next 7 days
+      const now = new Date();
+      const timeMin = now.toISOString();
+      const weekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const timeMax = weekFromNow.toISOString();
+
+      for (const cal of googleCalendars) {
+        const result = await gcalListEvents(ctx.workspaceId, cal.id, { timeMin, timeMax, maxResults: 50 });
+        if (result.ok && result.events) {
+          allEvents.push(...result.events.map((e) => {
+            let time = "";
+            if (e.start.dateTime) {
+              const start = new Date(e.start.dateTime);
+              const end = e.end.dateTime ? new Date(e.end.dateTime) : null;
+              const dateStr = start.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+              const startTime = start.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+              const endTime = end ? end.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
+              time = `${dateStr}, ${startTime}${endTime ? ` - ${endTime}` : ""}`;
+            } else {
+              time = `${e.start.date} (all day)`;
+            }
+            return {
+              summary: e.summary || "(No title)",
+              id: e.id,
+              time,
+              location: e.location || null,
+              attendees: e.attendees?.map((a) => a.displayName || a.email).join(", ") || null,
+              calendar: calendarNameMap.get(cal.id) || cal.id,
+            };
+          }));
+        }
+      }
+
+      if (allEvents.length > 0) {
+        let out = `[System: Live Google Calendar data — ${allEvents.length} event(s) in the next 7 days. Use ONLY this data to answer. Do NOT make up or guess any event information.]\n`;
+        for (const evt of allEvents) {
+          out += `\n- ${evt.summary} (ID: ${evt.id})\n  When: ${evt.time}`;
+          if (evt.location) out += `\n  Where: ${evt.location}`;
+          if (evt.attendees) out += `\n  With: ${evt.attendees}`;
+          if (googleCalendars.length > 1) out += `\n  Calendar: ${evt.calendar}`;
+        }
+        gcalPreFetchResult = out;
+        console.log(`[Chat] Google Calendar pre-fetch: ${allEvents.length} event(s) injected into context`);
+      } else {
+        gcalPreFetchResult = "[System: Live Google Calendar data — No events found in the next 7 days.]";
+        console.log(`[Chat] Google Calendar pre-fetch: no events found`);
+      }
+
+      if (gcalPreFetchResult) {
+        systemPrompt += `\n\n${gcalPreFetchResult}`;
+      }
+    } catch (e) {
+      console.error(`[Chat] Google Calendar pre-fetch failed (non-fatal):`, e);
+    }
+  }
+
   // Log system prompt summary for debugging tool availability
   const hasAsanaInPrompt = systemPrompt.includes("ASANA INTEGRATION");
   const hasGithubInPrompt = systemPrompt.includes("GITHUB INTEGRATION");
-  console.log(`[Chat] Agent "${agent.name}" system prompt: ${systemPrompt.length} chars, asana=${hasAsanaInPrompt}, github=${hasGithubInPrompt}, projects=${asanaProjects.length}, messages=${claudeMessages.length}, asanaPreFetch=${!!asanaPreFetchResult}`);
+  const hasGcalInPrompt = systemPrompt.includes("GOOGLE CALENDAR INTEGRATION");
+  console.log(`[Chat] Agent "${agent.name}" system prompt: ${systemPrompt.length} chars, asana=${hasAsanaInPrompt}, github=${hasGithubInPrompt}, gcal=${hasGcalInPrompt}, projects=${asanaProjects.length}, messages=${claudeMessages.length}, asanaPreFetch=${!!asanaPreFetchResult}, gcalPreFetch=${!!gcalPreFetchResult}`);
 
   const stream = anthropic.messages.stream({
     model: resolveModel(agent),
@@ -941,6 +1037,11 @@ export async function POST(request: Request) {
         // GitHub tool blocks
         const githubMatch = fullResponse.match(
           /```(github_list_issues|github_get_issue|github_create_issue|github_update_issue|github_add_comment|github_list_labels)\s*\n?([\s\S]*?)\n?```/
+        );
+
+        // Google Calendar tool blocks
+        const gcalMatch = fullResponse.match(
+          /```(gcal_list_events|gcal_get_event|gcal_create_event|gcal_update_event)\s*\n?([\s\S]*?)\n?```/
         );
 
         // Clean the response: strip <search> blocks, schedule_request blocks, feature_request blocks, etc.
@@ -1822,6 +1923,65 @@ export async function POST(request: Request) {
           }
         }
 
+        // Handle Google Calendar tool blocks — execute operation and stream follow-up
+        if (gcalMatch && agent.google_calendar_enabled && googleCalendars.length > 0) {
+          try {
+            const { executeGoogleCalendarTool } = await import("@/lib/tool-execution");
+            const gcalAction = gcalMatch[1];
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const gcalPayload = safeJsonParse(gcalMatch[2].trim()) as any;
+            if (!gcalPayload) throw new Error("Invalid JSON in Google Calendar tool block");
+
+            const gcalResult = await executeGoogleCalendarTool(
+              gcalAction,
+              gcalPayload,
+              googleCalendars,
+              { workspaceId: ctx.workspaceId, userId: user.id, agentId: agent_id, agentName: agent.name, conversationId: convId || "", supabase }
+            );
+
+            if (gcalResult) {
+              const followUpMessages = [
+                ...messages,
+                { role: "assistant" as const, content: cleaned || "" },
+                { role: "user" as const, content: `[System: Google Calendar operation result]\n${gcalResult}` },
+              ];
+
+              const followUpStream = anthropic.messages.stream({
+                model: resolveModel(agent),
+                max_tokens: 4096,
+                system: systemPrompt,
+                messages: followUpMessages,
+              });
+
+              let followUpText = "";
+              for await (const event of followUpStream) {
+                if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+                  followUpText += event.delta.text;
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify({ type: "text", text: event.delta.text })}\n\n`)
+                  );
+                }
+              }
+
+              const followUpCleaned = cleanResponse(followUpText);
+              if (followUpCleaned) {
+                if (savedAssistantMsgId) {
+                  await supabase.from("messages").update({ content: followUpCleaned }).eq("id", savedAssistantMsgId);
+                } else {
+                  const { data: newRow } = await supabase.from("messages").insert({ conversation_id: convId, role: "assistant", content: followUpCleaned }).select("id").single();
+                  savedAssistantMsgId = newRow?.id || null;
+                }
+                savedContent = followUpCleaned;
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ type: "replace", text: followUpCleaned })}\n\n`)
+                );
+              }
+            }
+          } catch (e) {
+            console.error("[Chat] Google Calendar operation failed:", e);
+          }
+        }
+
         // ── Hallucination detection ────────────────────────────────────
         // If we pre-fetched Asana data, check if the agent's response references
         // task names that don't exist in the real data. Log a warning if so.
@@ -1846,7 +2006,7 @@ export async function POST(request: Request) {
         }
 
         // If cleaning changed the text, send a replace event so the client shows clean text
-        if (cleaned !== fullResponse && !asanaMatch && !githubMatch) {
+        if (cleaned !== fullResponse && !asanaMatch && !githubMatch && !gcalMatch) {
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({ type: "replace", text: cleaned })}\n\n`

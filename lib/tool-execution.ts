@@ -1,6 +1,6 @@
 /**
- * Shared tool execution logic for Asana, GitHub, save_report, read_report,
- * and update_report tool blocks.
+ * Shared tool execution logic for Asana, GitHub, Google Calendar, save_report,
+ * read_report, and update_report tool blocks.
  *
  * Used by both the DM chat route (streaming) and team chat route (via
  * generateAgentResponse) to avoid hallucinated tool results.
@@ -8,6 +8,7 @@
 
 import { listTasks, getTask, createTask, updateTask, addComment, type AsanaTask } from "./asana";
 import { listIssues, getIssue, createIssue, updateIssue, addIssueComment, listLabels } from "./github";
+import { listEvents, getEvent, createEvent, updateEvent, type GoogleCalendarEvent } from "./google-calendar";
 
 /**
  * Resolve the effective due date for an Asana task.
@@ -243,6 +244,148 @@ export async function executeGithubTool(
   }
 
   return `Error: Unknown GitHub action: ${action}`;
+}
+
+// ── Google Calendar ────────────────────────────────────────────────────
+
+function formatEventTime(event: GoogleCalendarEvent): string {
+  if (event.start.dateTime) {
+    const start = new Date(event.start.dateTime);
+    const end = event.end.dateTime ? new Date(event.end.dateTime) : null;
+    const dateStr = start.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    const startTime = start.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    const endTime = end ? end.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
+    return `${dateStr}, ${startTime}${endTime ? ` - ${endTime}` : ""}`;
+  }
+  // All-day event
+  return `${event.start.date} (all day)`;
+}
+
+export async function executeGoogleCalendarTool(
+  action: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  payload: any,
+  allowedCalendars: Array<{ id: string; name: string }>,
+  ctx: ToolContext
+): Promise<string> {
+  const allowedIds = new Set(allowedCalendars.map((c) => c.id));
+  const calendarNameMap = new Map(allowedCalendars.map((c) => [c.id, c.name]));
+
+  if (action === "gcal_list_events") {
+    const targetIds = payload.calendar_id ? [payload.calendar_id] : [...allowedIds];
+    if (payload.calendar_id && !allowedIds.has(payload.calendar_id)) {
+      return "Error: You don't have access to that calendar.";
+    }
+
+    const allEvents: Array<{ summary: string; id: string; time: string; location: string | null; attendees: string | null; calendar: string }> = [];
+    for (const calId of targetIds) {
+      const calName = calendarNameMap.get(calId) || calId;
+      const result = await listEvents(ctx.workspaceId, calId, {
+        timeMin: payload.time_min,
+        timeMax: payload.time_max,
+        maxResults: payload.max_results,
+        query: payload.query,
+      });
+      if (result.ok && result.events) {
+        allEvents.push(...result.events.map((e) => ({
+          summary: e.summary || "(No title)",
+          id: e.id,
+          time: formatEventTime(e),
+          location: e.location || null,
+          attendees: e.attendees?.map((a) => a.displayName || a.email).join(", ") || null,
+          calendar: calName,
+        })));
+      } else if (!result.ok) {
+        return `Error: ${result.error}`;
+      }
+    }
+
+    if (allEvents.length === 0) return "No events found in the specified time range.";
+
+    // Sort by time string (events are already sorted per-calendar, but merge needs re-sort)
+    if (targetIds.length > 1) {
+      let out = `Found ${allEvents.length} event(s) across ${targetIds.length} calendar(s):\n`;
+      for (const evt of allEvents) {
+        out += `\n- ${evt.summary} (ID: ${evt.id})\n  When: ${evt.time}`;
+        if (evt.location) out += `\n  Where: ${evt.location}`;
+        if (evt.attendees) out += `\n  With: ${evt.attendees}`;
+        out += `\n  Calendar: ${evt.calendar}`;
+      }
+      return out;
+    }
+
+    return `Found ${allEvents.length} event(s):\n${allEvents.map((e) => {
+      let line = `- ${e.summary} (ID: ${e.id})\n  When: ${e.time}`;
+      if (e.location) line += `\n  Where: ${e.location}`;
+      if (e.attendees) line += `\n  With: ${e.attendees}`;
+      return line;
+    }).join("\n")}`;
+  }
+
+  if (action === "gcal_get_event") {
+    const calId = payload.calendar_id || allowedCalendars[0]?.id;
+    if (!calId || !allowedIds.has(calId)) {
+      return "Error: You don't have access to that calendar.";
+    }
+    const result = await getEvent(ctx.workspaceId, calId, payload.event_id);
+    if (result.ok && result.event) {
+      const e = result.event;
+      let out = `Event: ${e.summary || "(No title)"} (ID: ${e.id})\nWhen: ${formatEventTime(e)}\nStatus: ${e.status}`;
+      if (e.location) out += `\nLocation: ${e.location}`;
+      if (e.description) out += `\nDescription: ${e.description}`;
+      if (e.organizer) out += `\nOrganizer: ${e.organizer.displayName || e.organizer.email}`;
+      if (e.attendees && e.attendees.length > 0) {
+        out += `\nAttendees (${e.attendees.length}):\n${e.attendees.map((a) => `- ${a.displayName || a.email} (${a.responseStatus || "unknown"})`).join("\n")}`;
+      }
+      if (e.conferenceData?.entryPoints) {
+        const videoLink = e.conferenceData.entryPoints.find((ep) => ep.entryPointType === "video");
+        if (videoLink) out += `\nVideo call: ${videoLink.uri}`;
+      }
+      if (e.htmlLink) out += `\nURL: ${e.htmlLink}`;
+      return out;
+    }
+    return `Error: ${result.error}`;
+  }
+
+  if (action === "gcal_create_event") {
+    const calId = payload.calendar_id || allowedCalendars[0]?.id;
+    if (!calId || !allowedIds.has(calId)) {
+      return "Error: You don't have access to that calendar.";
+    }
+    const result = await createEvent(ctx.workspaceId, calId, {
+      summary: payload.summary,
+      description: payload.description,
+      location: payload.location,
+      start: payload.start,
+      end: payload.end,
+      attendees: payload.attendees,
+    });
+    if (result.ok && result.event) {
+      return `Event created: "${result.event.summary}" (ID: ${result.event.id})\nWhen: ${formatEventTime(result.event)}${result.event.htmlLink ? `\nURL: ${result.event.htmlLink}` : ""}`;
+    }
+    return `Error: ${result.error}`;
+  }
+
+  if (action === "gcal_update_event") {
+    const calId = payload.calendar_id || allowedCalendars[0]?.id;
+    if (!calId || !allowedIds.has(calId)) {
+      return "Error: You don't have access to that calendar.";
+    }
+    const result = await updateEvent(ctx.workspaceId, calId, payload.event_id, {
+      summary: payload.summary,
+      description: payload.description,
+      location: payload.location,
+      start: payload.start,
+      end: payload.end,
+      attendees: payload.attendees,
+    });
+    if (result.ok && result.event) {
+      return `Event updated: "${result.event.summary}" (ID: ${result.event.id})`;
+    }
+    return `Error: ${result.error}`;
+  }
+
+  return `Error: Unknown Google Calendar action: ${action}`;
 }
 
 // ── Report tools ──────────────────────────────────────────────────────
