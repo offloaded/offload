@@ -326,6 +326,7 @@ function IntegrationCard({
   name,
   description,
   connected,
+  configured = true,
   connectedLabel,
   connectUrl,
   connectLabel,
@@ -336,6 +337,7 @@ function IntegrationCard({
   name: string;
   description: string;
   connected: boolean;
+  configured?: boolean;
   connectedLabel?: string;
   connectUrl: string;
   connectLabel: string;
@@ -420,13 +422,17 @@ function IntegrationCard({
             </button>
           )}
         </>
-      ) : (
+      ) : configured ? (
         <a
           href={connectUrl}
           className="inline-flex items-center gap-2 py-2 px-4 bg-[var(--color-accent)] border-none rounded-xl text-[13px] text-white font-medium cursor-pointer no-underline hover:opacity-90 transition-opacity"
         >
           {connectLabel}
         </a>
+      ) : (
+        <span className="text-[13px] text-[var(--color-text-tertiary)]">
+          Not available — ask your administrator to configure this integration.
+        </span>
       )}
     </div>
   );
@@ -435,18 +441,23 @@ function IntegrationCard({
 function IntegrationsTab() {
   const [asanaStatus, setAsanaStatus] = useState<{
     connected: boolean;
+    configured?: boolean;
     asana_user_name?: string;
   } | null>(null);
   const [githubStatus, setGithubStatus] = useState<{
     connected: boolean;
+    configured?: boolean;
     github_name?: string;
     github_username?: string;
   } | null>(null);
   const [googleCalendarStatus, setGoogleCalendarStatus] = useState<{
     connected: boolean;
+    configured?: boolean;
     google_email?: string;
     google_name?: string;
   } | null>(null);
+  const searchParams = useSearchParams();
+  const integrationError = searchParams.get("error");
   const [loading, setLoading] = useState(true);
 
   const fetchStatus = useCallback(() => {
@@ -479,12 +490,19 @@ function IntegrationsTab() {
         Connect external services to give your agents new capabilities.
       </p>
 
+      {integrationError === "not_configured" && (
+        <div className="mb-4 p-3 rounded-xl bg-[var(--color-hover)] text-[13px] text-[var(--color-text-secondary)]">
+          This integration hasn&apos;t been configured yet. Please contact your administrator.
+        </div>
+      )}
+
       {/* Asana card */}
       <IntegrationCard
         icon="📋"
         name="Asana"
         description="Task management and project tracking"
         connected={asanaStatus?.connected || false}
+        configured={asanaStatus?.configured !== false}
         connectedLabel={asanaStatus?.asana_user_name}
         connectUrl="/api/integrations/asana/connect"
         connectLabel="Connect Asana"
@@ -499,13 +517,14 @@ function IntegrationsTab() {
           name="GitHub"
           description="Issues, repositories, and code collaboration"
           connected={githubStatus?.connected || false}
+          configured={githubStatus?.configured !== false}
           connectedLabel={githubStatus?.github_name || githubStatus?.github_username}
           connectUrl="/api/integrations/github/connect"
           connectLabel="Connect GitHub"
           disconnectUrl="/api/integrations/github/disconnect"
           disconnectWarning="This will remove GitHub access from all agents. Continue?"
         />
-        {!githubStatus?.connected && (
+        {!githubStatus?.connected && githubStatus?.configured !== false && (
           <p className="text-[11px] text-[var(--color-text-tertiary)] mt-1.5 px-1">
             Offloaded will have access to your public and private repositories.
           </p>
@@ -519,13 +538,14 @@ function IntegrationsTab() {
           name="Google Calendar"
           description="Events, scheduling, and availability"
           connected={googleCalendarStatus?.connected || false}
+          configured={googleCalendarStatus?.configured !== false}
           connectedLabel={googleCalendarStatus?.google_name || googleCalendarStatus?.google_email}
           connectUrl="/api/integrations/google-calendar/connect"
           connectLabel="Connect Google Calendar"
           disconnectUrl="/api/integrations/google-calendar/disconnect"
           disconnectWarning="This will remove Google Calendar access from all agents. Continue?"
         />
-        {!googleCalendarStatus?.connected && (
+        {!googleCalendarStatus?.connected && googleCalendarStatus?.configured !== false && (
           <p className="text-[11px] text-[var(--color-text-tertiary)] mt-1.5 px-1">
             Offloaded will have read and write access to your calendar events.
           </p>

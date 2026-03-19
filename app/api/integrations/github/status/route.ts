@@ -15,13 +15,16 @@ export async function GET() {
     .eq("provider", "github")
     .single();
 
+  const configured = !!process.env.GITHUB_CLIENT_ID;
+
   if (!data) {
-    return new Response(JSON.stringify({ connected: false }));
+    return new Response(JSON.stringify({ connected: false, configured }));
   }
 
   return new Response(
     JSON.stringify({
       connected: true,
+      configured,
       github_username: data.asana_user_gid,
       github_name: data.asana_user_name,
       connected_at: data.created_at,

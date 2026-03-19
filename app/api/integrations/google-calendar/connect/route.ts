@@ -9,7 +9,8 @@ export async function GET() {
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
   if (!clientId) {
-    return new Response("Google Calendar not configured", { status: 500 });
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    return Response.redirect(`${appUrl}/settings?tab=integrations&error=not_configured`);
   }
 
   // Build CSRF-safe state: workspaceId + HMAC signature

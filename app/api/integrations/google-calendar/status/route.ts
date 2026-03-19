@@ -15,13 +15,16 @@ export async function GET() {
     .eq("provider", "google_calendar")
     .single();
 
+  const configured = !!process.env.GOOGLE_CLIENT_ID;
+
   if (!data) {
-    return new Response(JSON.stringify({ connected: false }));
+    return new Response(JSON.stringify({ connected: false, configured }));
   }
 
   return new Response(
     JSON.stringify({
       connected: true,
+      configured,
       google_email: data.asana_user_gid,
       google_name: data.asana_user_name,
       connected_at: data.created_at,
