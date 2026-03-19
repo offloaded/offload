@@ -232,10 +232,11 @@ export async function POST(request: Request) {
   }
 
   // Unhide conversation if it was hidden from sidebar
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (supabase as any).from("conversations").update({ sidebar_hidden: false }).eq("id", convId).eq("sidebar_hidden", true).catch((err: unknown) => {
+  try {
+    await supabase.from("conversations").update({ sidebar_hidden: false }).eq("id", convId).eq("sidebar_hidden", true);
+  } catch (err) {
     console.warn("[Chat] Failed to unhide conversation:", err);
-  });
+  }
 
   // ─── Explicit channel routing: extract #channel-name before LLM ───
   // This replaces the unreliable LLM-based group_message_request detection.
