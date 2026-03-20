@@ -938,39 +938,13 @@ function IntegrationsTab() {
 }
 
 function EmailIngestionCard() {
-  const [inboundEmail, setInboundEmail] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [setting, setSetting] = useState(false);
   const [copied, setCopied] = useState(false);
-  const { workspaceRole } = useApp();
-  const canManage = workspaceRole === "owner" || workspaceRole === "admin";
-
-  useEffect(() => {
-    fetch("/api/integrations/email/status")
-      .then((r) => (r.ok ? r.json() : { configured: false }))
-      .then((d) => setInboundEmail(d.inbound_email || null))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  const handleSetup = async () => {
-    setSetting(true);
-    try {
-      const res = await fetch("/api/integrations/email/setup", { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        setInboundEmail(data.inbound_email);
-      }
-    } catch { /* ignore */ }
-    finally { setSetting(false); }
-  };
+  const inboundAddress = `messages@${process.env.NEXT_PUBLIC_INBOUND_EMAIL_DOMAIN || "offloaded.life"}`;
 
   const handleCopy = () => {
-    if (inboundEmail) {
-      navigator.clipboard.writeText(inboundEmail);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+    navigator.clipboard.writeText(inboundAddress);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -989,45 +963,31 @@ function EmailIngestionCard() {
         <span
           className="text-[12px] font-medium px-2 py-0.5 rounded-full"
           style={{
-            color: inboundEmail ? "var(--color-green, #16a34a)" : "var(--color-text-tertiary)",
-            background: inboundEmail ? "var(--color-green-bg, rgba(22,163,74,0.1))" : "var(--color-hover)",
+            color: "var(--color-green, #16a34a)",
+            background: "var(--color-green-bg, rgba(22,163,74,0.1))",
           }}
         >
-          {loading ? "..." : inboundEmail ? "Active" : "Not set up"}
+          Active
         </span>
       </div>
 
-      {inboundEmail ? (
-        <div>
-          <div className="text-[12px] font-medium text-[var(--color-text-tertiary)] mb-1.5">Forward emails to:</div>
-          <div className="flex items-center gap-2">
-            <div className="flex-1 px-3 py-2 rounded-lg bg-[var(--color-input-bg)] border border-[var(--color-border)] text-[13px] text-[var(--color-text)] font-mono truncate">
-              {inboundEmail}
-            </div>
-            <button
-              onClick={handleCopy}
-              className="px-3 py-2 rounded-lg text-[12px] font-medium border border-[var(--color-border)] bg-transparent text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors shrink-0"
-            >
-              {copied ? "Copied" : "Copy"}
-            </button>
+      <div>
+        <div className="text-[12px] font-medium text-[var(--color-text-tertiary)] mb-1.5">Forward emails to:</div>
+        <div className="flex items-center gap-2">
+          <div className="flex-1 px-3 py-2 rounded-lg bg-[var(--color-input-bg)] border border-[var(--color-border)] text-[13px] text-[var(--color-text)] font-mono truncate">
+            {inboundAddress}
           </div>
-          <p className="text-[11px] text-[var(--color-text-tertiary)] mt-2">
-            Emails sent to this address will be automatically routed to the best-fit agent and create a work item.
-          </p>
+          <button
+            onClick={handleCopy}
+            className="px-3 py-2 rounded-lg text-[12px] font-medium border border-[var(--color-border)] bg-transparent text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)] transition-colors shrink-0"
+          >
+            {copied ? "Copied" : "Copy"}
+          </button>
         </div>
-      ) : canManage ? (
-        <button
-          onClick={handleSetup}
-          disabled={setting || loading}
-          className="inline-flex items-center gap-2 py-2 px-4 bg-[var(--color-accent)] border-none rounded-xl text-[13px] text-white font-medium cursor-pointer no-underline hover:opacity-90 transition-opacity disabled:opacity-50"
-        >
-          {setting ? "Setting up..." : "Enable Email Ingestion"}
-        </button>
-      ) : (
-        <span className="text-[13px] text-[var(--color-text-tertiary)]">
-          Ask your administrator to enable email ingestion.
-        </span>
-      )}
+        <p className="text-[11px] text-[var(--color-text-tertiary)] mt-2">
+          Forward or send emails from your registered email address. They&apos;ll be automatically routed to the best-fit agent and create a work item.
+        </p>
+      </div>
     </div>
   );
 }

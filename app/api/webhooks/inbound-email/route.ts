@@ -127,28 +127,55 @@ export async function POST(request: Request): Promise<Response> {
   const body_html = email.parsedData?.htmlBody || "";
   const attachments = email.parsedData?.attachments || [];
 
-  if (!to_address) {
-    return NextResponse.json({ error: "Missing recipient address" }, { status: 400 });
+  if (!from_address) {
+    return NextResponse.json({ error: "Missing sender address" }, { status: 400 });
   }
 
   console.log(`[Inbound Email] Received from ${from_address} to ${to_address}: "${subject}"`);
 
   const service = createServiceSupabase();
 
-  // 4. Resolve workspace by inbound_email
-  const { data: workspace, error: wsError } = await service
-    .from("workspaces")
-    .select("id, owner_id")
-    .eq("inbound_email", to_address)
-    .single();
+  // 4. Resolve workspace by sender email — find which workspace the sender belongs to
+  //    All inbound emails go to a shared address (e.g. messages@offloaded.life).
+  //    We match the sender's email to a user via auth.admin, then find their workspace.
+  let workspace: { id: string; owner_id: string } | null = null;
 
-  if (wsError || !workspace) {
-    console.error(`[Inbound Email] No workspace found for ${to_address}`);
+  const { data: { users: allUsers } } = await service.auth.admin.listUsers();
+  const senderUser = allUsers?.find((u) => u.email?.toLowerCase() === from_address.toLowerCase());
+
+  if (senderUser) {
+    const { data: membership } = await service
+      .from("workspace_members")
+      .select("workspace_id, workspaces(id, owner_id)")
+      .eq("user_id", senderUser.id)
+      .limit(1)
+      .single();
+
+    if (membership?.workspaces) {
+      const ws = membership.workspaces as unknown as { id: string; owner_id: string };
+      workspace = { id: ws.id, owner_id: ws.owner_id };
+    }
+  }
+
+  // Fallback: try matching by inbound_email column (for dedicated addresses)
+  if (!workspace) {
+    const { data: wsMatch } = await service
+      .from("workspaces")
+      .select("id, owner_id")
+      .eq("inbound_email", to_address)
+      .single();
+    workspace = wsMatch;
+  }
+
+  if (!workspace) {
+    console.error(`[Inbound Email] No workspace found for sender ${from_address} or recipient ${to_address}`);
     return NextResponse.json(
-      { error: "No workspace found for this inbound address" },
+      { error: "No workspace found for this email" },
       { status: 404 }
     );
   }
+
+  console.log(`[Inbound Email] Matched to workspace ${workspace.id}`);
 
   // 5. Store the raw email in inbound_emails (audit trail — before any processing)
   const { data: emailRecord, error: insertError } = await service
