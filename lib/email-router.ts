@@ -10,7 +10,12 @@ export interface EmailRoutingResult {
 
 const ROUTING_SYSTEM_PROMPT = `You are an email routing system for a workspace. Given a list of AI agents and an inbound email, determine which agent is best suited to handle this email as a work item.
 
-Consider each agent's name, role, and purpose carefully. Match the email's subject matter to the agent whose expertise and responsibilities are most relevant.
+Consider:
+1. Each agent's name, role, and purpose — match the email's subject matter to the most relevant agent
+2. Each agent's capabilities — agents with project management tools (Asana, GitHub) can look up tasks and project status; agents without these tools cannot
+3. Each agent's knowledge base — agents with uploaded documents can reference that knowledge
+
+An agent WITHOUT project management tools cannot produce project status reports, task lists, or progress updates — even if their role sounds relevant. Prefer agents that have the tools needed to fulfill the request.
 
 Respond with ONLY a valid JSON object, no other text:
 {"agent_id": "the-uuid", "agent_name": "Agent Name", "reason": "Brief explanation of why this agent is the best fit", "suggested_title": "A clear, concise work item title (not just the email subject)"}`;
@@ -26,10 +31,10 @@ export async function routeEmailToAgent(
 ): Promise<EmailRoutingResult> {
   const service = createServiceSupabase();
 
-  // 1. Query all non-deleted agents in the workspace
+  // 1. Query all non-deleted agents with their capabilities
   const { data: agents, error } = await service
     .from("agents")
-    .select("id, name, role, purpose")
+    .select("id, name, role, purpose, web_search_enabled, asana_enabled, github_enabled, google_calendar_enabled")
     .eq("workspace_id", workspaceId)
     .is("deleted_at", null);
 
@@ -41,12 +46,32 @@ export async function routeEmailToAgent(
     throw new Error("No agents found in workspace");
   }
 
-  // 2. Build the routing prompt
+  // Also check which agents have knowledge base documents
+  const agentIds = agents.map((a) => a.id);
+  const { data: docCounts } = await service
+    .from("documents")
+    .select("agent_id")
+    .in("agent_id", agentIds)
+    .eq("status", "ready");
+
+  const agentsWithDocs = new Set((docCounts || []).map((d: { agent_id: string }) => d.agent_id));
+
+  // 2. Build the routing prompt with capabilities
   const agentList = agents
-    .map((a) => `- ID: ${a.id} | Name: ${a.name} | Role: ${a.role || "N/A"} | Purpose: ${a.purpose || "N/A"}`)
+    .map((a) => {
+      const capabilities: string[] = [];
+      if (a.asana_enabled) capabilities.push("Asana (project/task management)");
+      if (a.github_enabled) capabilities.push("GitHub (code/issues)");
+      if (a.google_calendar_enabled) capabilities.push("Google Calendar");
+      if (a.web_search_enabled) capabilities.push("Web search");
+      if (agentsWithDocs.has(a.id)) capabilities.push("Knowledge base documents");
+
+      const capsStr = capabilities.length > 0 ? capabilities.join(", ") : "No integrations";
+      return `- ID: ${a.id} | Name: ${a.name} | Role: ${a.role || "N/A"} | Purpose: ${a.purpose || "N/A"} | Capabilities: ${capsStr}`;
+    })
     .join("\n");
 
-  const userPrompt = `Available agents:\n${agentList}\n\nInbound email:\nFrom: ${email.from_name ? `${email.from_name} <${email.from_address}>` : email.from_address}\nSubject: ${email.subject || "(no subject)"}\nBody:\n${email.body_plain || "(empty)"}`;
+  const userPrompt = `Available agents:\n${agentList}\n\nInbound email:\nFrom: ${email.from_name ? `${email.from_name} <${email.from_address}>` : email.from_address}\nSubject: ${email.subject || "(no subject)"}\nBody:\n${(email.body_plain || "(empty)").slice(0, 2000)}`;
 
   // 3. Call Claude for routing decision
   const client = getAnthropicClient();
