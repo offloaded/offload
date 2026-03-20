@@ -6,6 +6,7 @@ import { SidebarContent, Drawer } from "@/components/Sidebar";
 import { ReportPanel } from "@/components/ReportPanel";
 import IconRail from "@/components/IconRail";
 import WorkSidebar from "@/components/WorkSidebar";
+import MobileTabBar from "@/components/MobileTabBar";
 import { useRouter, usePathname } from "next/navigation";
 import type { Agent, Team, Workspace, WorkItem } from "@/lib/types";
 import { preloadAllChats } from "@/lib/chat-cache";
@@ -229,8 +230,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       router.push("/tasks");
       return;
     }
-    // If we're on a page that doesn't show the sidebar (settings, tasks, dashboard, etc.),
-    // navigate to the appropriate section's default page
+
+    // On mobile, tapping Chat or Work opens the drawer for navigation
+    if (mobile) {
+      setActiveSection(section);
+      if (section === "chat") {
+        setDrawerOpen(true);
+      } else if (section === "work") {
+        router.push("/work");
+      }
+      return;
+    }
+
+    // Desktop: If we're on a page that doesn't show the sidebar, navigate away
     const isOnSidebarlessPage = pathname.startsWith("/settings") || pathname.startsWith("/tasks") || pathname.startsWith("/dashboard");
     if (isOnSidebarlessPage) {
       setActiveSection(section);
@@ -570,8 +582,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <AppContext value={{ agents, allAgents, refreshAgents, teams, refreshTeams, activeDmAgentIds, refreshActiveDms, ensureActiveDm, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, switchWorkspace, refreshWorkspace, reportCount, refreshReportCount, openReportId, openReport, closeReport, reportEditCallback, reportLiveUpdate, setReportLiveUpdate, activeSection, sidebarOpen, workItems, refreshWorkItems, workNotificationCount, markWorkNotificationsRead }}>
-      <div className="flex h-screen w-full bg-[var(--color-page-bg)] overflow-hidden">
-        {/* Icon Rail — always visible on desktop */}
+      <div className="flex flex-col md:flex-row h-screen w-full bg-[var(--color-page-bg)] overflow-hidden">
+        {/* Icon Rail — desktop only */}
         <div className="hidden md:flex">
           <IconRail
             activeSection={railActiveSection}
@@ -628,8 +640,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           onHideDm={hideDm}
         />
 
-        <div className="flex-1 flex flex-row overflow-hidden">
-          <div className="flex-1 min-w-[300px] flex flex-col overflow-hidden">
+        {/* Main content area — fills between top and bottom tab bar on mobile */}
+        <div className="flex-1 flex flex-row overflow-hidden min-w-0">
+          <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
             {children}
           </div>
           {openReportId && (
@@ -654,9 +667,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </>
           )}
         </div>
+
+        {/* Mobile bottom tab bar */}
+        <MobileTabBar
+          activeSection={railActiveSection}
+          onNavClick={handleNavClick}
+          workNotificationCount={workNotificationCount}
+        />
       </div>
       {sidebarError && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[999] bg-red-600 text-white text-sm px-4 py-2 rounded-lg shadow-lg animate-fade-in">
+        <div className="fixed bottom-20 md:bottom-4 left-1/2 -translate-x-1/2 z-[999] bg-red-600 text-white text-sm px-4 py-2 rounded-lg shadow-lg animate-fade-in">
           {sidebarError}
         </div>
       )}

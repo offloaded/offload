@@ -31,6 +31,8 @@ export default function WorkItemPage() {
   // Execution context state
   const [execCtx, setExecCtx] = useState<WorkExecutionContext | null>(null);
   const [startingRun, setStartingRun] = useState(false);
+  // Mobile: toggle between report and chat views
+  const [mobileView, setMobileView] = useState<"report" | "chat">("chat");
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -182,19 +184,35 @@ export default function WorkItemPage() {
 
   return (
     <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-[var(--color-surface)]">
-      {/* Report panel (primary) */}
-      <div className="flex-1 flex flex-col min-w-0 border-r border-[var(--color-border)]">
+      {/* Mobile view toggle */}
+      <div className="flex md:hidden items-center border-b border-[var(--color-border)] bg-[var(--color-surface)] shrink-0">
+        <button
+          onClick={() => setMobileView("chat")}
+          className="flex-1 py-2.5 text-[13px] font-medium bg-transparent border-none cursor-pointer transition-colors relative"
+          style={{ color: mobileView === "chat" ? "var(--color-accent)" : "var(--color-text-secondary)" }}
+        >
+          Chat
+          {mobileView === "chat" && (
+            <div className="absolute bottom-0 left-4 right-4 h-[2px] rounded-full" style={{ background: "var(--color-accent)" }} />
+          )}
+        </button>
+        <button
+          onClick={() => setMobileView("report")}
+          className="flex-1 py-2.5 text-[13px] font-medium bg-transparent border-none cursor-pointer transition-colors relative"
+          style={{ color: mobileView === "report" ? "var(--color-accent)" : "var(--color-text-secondary)" }}
+        >
+          Report
+          {mobileView === "report" && (
+            <div className="absolute bottom-0 left-4 right-4 h-[2px] rounded-full" style={{ background: "var(--color-accent)" }} />
+          )}
+        </button>
+      </div>
+
+      {/* Report panel (primary) — hidden on mobile when chat is active */}
+      <div className={`flex-1 flex-col min-w-0 border-r border-[var(--color-border)] ${mobileView === "report" ? "flex" : "hidden md:flex"}`}>
         {/* Report header */}
         <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-[var(--color-border)] shrink-0">
           <div className="flex items-center gap-3 min-w-0 flex-1">
-            {mobile && (
-              <button
-                onClick={openDrawer}
-                className="bg-transparent border-none text-[var(--color-text-secondary)] cursor-pointer p-1 flex md:hidden rounded-lg hover:bg-[var(--color-hover)]"
-              >
-                <MenuIcon />
-              </button>
-            )}
             <h1 className="text-[15px] font-semibold text-[var(--color-text)] truncate">
               {workItem.title}
             </h1>
@@ -264,7 +282,7 @@ export default function WorkItemPage() {
       </div>
 
       {/* Chat panel (secondary) — shows execution context messages */}
-      <div className="flex flex-col shrink-0 w-full md:w-[380px] bg-[var(--color-bg)]">
+      <div className={`flex-col shrink-0 w-full md:w-[380px] bg-[var(--color-bg)] ${mobileView === "chat" ? "flex" : "hidden md:flex"}`}>
         {/* Chat header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--color-border)] shrink-0">
           {agent ? (
