@@ -94,7 +94,7 @@ export async function createWorkItem(
       return result;
     }
 
-    // Insert the instructions as the first user message
+    // Insert the instructions as the first user message in the conversation
     await service.from("messages").insert({
       conversation_id: conversation.id,
       role: "user",

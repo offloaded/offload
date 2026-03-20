@@ -10,8 +10,10 @@ export interface EmailRoutingResult {
 
 const ROUTING_SYSTEM_PROMPT = `You are an email routing system for a workspace. Given a list of AI agents and an inbound email, determine which agent is best suited to handle this email as a work item.
 
+Consider each agent's name, role, and purpose carefully. Match the email's subject matter to the agent whose expertise and responsibilities are most relevant.
+
 Respond with ONLY a valid JSON object, no other text:
-{"agent_id": "the-uuid", "agent_name": "Agent Name", "reason": "Brief explanation", "suggested_title": "Work item title based on email"}`;
+{"agent_id": "the-uuid", "agent_name": "Agent Name", "reason": "Brief explanation of why this agent is the best fit", "suggested_title": "A clear, concise work item title (not just the email subject)"}`;
 
 export async function routeEmailToAgent(
   workspaceId: string,

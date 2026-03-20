@@ -28,6 +28,8 @@
 import { createServiceSupabase } from "@/lib/supabase-server";
 import { routeEmailToAgent } from "@/lib/email-router";
 import { createWorkItem } from "@/lib/work-item-service";
+import { getAnthropicClient, buildSystemPrompt, cleanResponse, resolveModel } from "@/lib/anthropic";
+import { retrieveContext, type RetrievedChunk } from "@/lib/rag";
 import { NextResponse } from "next/server";
 
 // ---------------------------------------------------------------------------
@@ -230,6 +232,78 @@ export async function POST(request: Request): Promise<Response> {
     });
 
     const workItemId = workItem.work_item.id as string;
+    const conversationId = workItem.conversation_id || null;
+
+    // 7b. Trigger the agent to process the email — call Claude directly
+    // (Same pattern as cron/run-tasks — no user session needed)
+    if (routingResult.agent_id && conversationId) {
+      try {
+        // Load the agent record for system prompt
+        const { data: agent } = await service
+          .from("agents")
+          .select("*")
+          .eq("id", routingResult.agent_id)
+          .single();
+
+        if (agent) {
+          // Build RAG context from agent's knowledge base
+          let ragContext: RetrievedChunk[] = [];
+          let documentNames: string[] = [];
+          const { data: agentDocs } = await service
+            .from("documents")
+            .select("file_name")
+            .eq("agent_id", agent.id)
+            .eq("status", "ready");
+
+          if (agentDocs && agentDocs.length > 0) {
+            documentNames = agentDocs.map((d: { file_name: string }) => d.file_name);
+            const emailContent = `${subject || ""} ${body_plain || ""}`;
+            try {
+              ragContext = await retrieveContext(service, agent.id, emailContent, 5);
+            } catch { /* non-fatal */ }
+          }
+
+          // Build system prompt with agent context
+          let systemPrompt = buildSystemPrompt(
+            agent,
+            ragContext.length > 0 ? ragContext : undefined,
+            documentNames.length > 0 ? documentNames : undefined
+          );
+          systemPrompt += `\n\nThis is a work item created from an inbound email. Process the email content and provide a helpful response. The current date is ${new Date().toISOString().slice(0, 10)}.`;
+
+          const chatMessage = subject
+            ? `From: ${from_name || from_address}\nSubject: ${subject}\n\n${body_plain}`
+            : body_plain || "Please review the forwarded email.";
+
+          // Call Claude
+          const anthropic = getAnthropicClient();
+          const response = await anthropic.messages.create({
+            model: resolveModel(agent),
+            max_tokens: 4096,
+            system: systemPrompt,
+            messages: [{ role: "user", content: chatMessage }],
+          });
+
+          const rawText = response.content
+            .filter((b) => b.type === "text")
+            .map((b) => b.text)
+            .join("");
+          const responseText = cleanResponse(rawText);
+
+          // Save the agent's response
+          if (responseText) {
+            await service.from("messages").insert({
+              conversation_id: conversationId,
+              role: "assistant",
+              content: responseText,
+            });
+            console.log(`[Inbound Email] Agent responded (${responseText.length} chars)`);
+          }
+        }
+      } catch (chatErr) {
+        console.error("[Inbound Email] Agent processing failed (non-fatal):", chatErr);
+      }
+    }
 
     // 8. Update inbound email with routing result
     await service
