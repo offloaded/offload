@@ -1,19 +1,28 @@
 /**
- * Inbound Email Webhook
+ * Inbound Email Webhook — powered by inbound.new
  *
- * Receives inbound emails from a provider (Postmark, SendGrid, etc.) and routes
- * them to the appropriate agent in the matching workspace.
+ * Receives parsed inbound emails and routes them to the appropriate agent.
  *
  * Setup steps:
- *   1. Set INBOUND_EMAIL_WEBHOOK_SECRET in your environment variables.
- *   2. Configure your email provider to forward inbound emails to:
- *        POST https://<your-domain>/api/webhooks/inbound-email
- *      with the header X-Webhook-Secret set to the same secret.
- *   3. In Postmark: Settings → Inbound → set the webhook URL and add the header.
- *      In SendGrid: Settings → Inbound Parse → add host/URL, then use a
- *      middleware or proxy to attach the X-Webhook-Secret header.
- *   4. Ensure the workspace's `inbound_email` column in the `workspaces` table
- *      matches the "to" address the provider will deliver to.
+ *   1. Create an endpoint at https://inbound.new
+ *   2. Set the webhook URL to: POST https://<your-domain>/api/webhooks/inbound-email
+ *   3. Copy the Verification Token from your inbound.new endpoint settings
+ *   4. Set INBOUND_EMAIL_WEBHOOK_SECRET in your environment to that token
+ *   5. Configure your MX records to point to inbound.new's servers
+ *   6. Generate an inbound email address in Offloaded Settings > Integrations
+ *
+ * Payload format (inbound.new):
+ *   {
+ *     event: "email.received",
+ *     timestamp: "ISO 8601",
+ *     email: {
+ *       id, messageId, recipient, subject, receivedAt,
+ *       from: { text, addresses: [{ name, address }] },
+ *       to: { text, addresses: [{ name, address }] },
+ *       parsedData: { textBody, htmlBody, attachments: [{ filename, contentType, size, downloadUrl }] }
+ *     },
+ *     endpoint: { id, name, type }
+ *   }
  */
 
 import { createServiceSupabase } from "@/lib/supabase-server";
@@ -22,33 +31,47 @@ import { createWorkItem } from "@/lib/work-item-service";
 import { NextResponse } from "next/server";
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Types for inbound.new payload
 // ---------------------------------------------------------------------------
 
-/** Parse "Display Name <email@example.com>" into name + address */
-function parseFromField(raw: string): { name: string; address: string } {
-  const match = raw.match(/^(.+?)\s*<([^>]+)>$/);
-  if (match) {
-    return { name: match[1].trim(), address: match[2].trim() };
-  }
-  return { name: "", address: raw.trim() };
-}
-
-/** Attempt to read the body as JSON, falling back to FormData. */
-async function parsePayload(request: Request): Promise<Record<string, unknown>> {
-  const contentType = request.headers.get("content-type") || "";
-
-  if (contentType.includes("application/json")) {
-    return (await request.json()) as Record<string, unknown>;
-  }
-
-  // FormData (multipart/form-data or application/x-www-form-urlencoded)
-  const formData = await request.formData();
-  const obj: Record<string, unknown> = {};
-  formData.forEach((value, key) => {
-    obj[key] = value;
-  });
-  return obj;
+interface InboundEmailPayload {
+  event: string;
+  timestamp: string;
+  email: {
+    id: string;
+    messageId: string;
+    recipient: string;
+    subject: string;
+    receivedAt: string;
+    from: {
+      text: string;
+      addresses: Array<{ name: string | null; address: string }>;
+    };
+    to: {
+      text: string;
+      addresses: Array<{ name: string | null; address: string }>;
+    };
+    parsedData: {
+      messageId: string;
+      date: string;
+      subject: string;
+      textBody: string;
+      htmlBody: string;
+      attachments: Array<{
+        filename: string;
+        contentType: string;
+        size: number;
+        contentId?: string;
+        contentDisposition?: string;
+        downloadUrl: string;
+      }>;
+    };
+  };
+  endpoint: {
+    id: string;
+    name: string;
+    type: string;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -56,45 +79,59 @@ async function parsePayload(request: Request): Promise<Record<string, unknown>> 
 // ---------------------------------------------------------------------------
 
 export async function POST(request: Request): Promise<Response> {
-  // 1. Verify webhook secret
-  const secret = request.headers.get("X-Webhook-Secret");
-  if (!secret || secret !== process.env.INBOUND_EMAIL_WEBHOOK_SECRET) {
+  // Log all headers for debugging
+  const hdrs: Record<string, string> = {};
+  request.headers.forEach((v, k) => { hdrs[k] = v; });
+  console.log("[Inbound Email] Headers:", JSON.stringify(hdrs));
+
+  // 1. Verify webhook — check multiple possible header names
+  const token =
+    request.headers.get("X-Webhook-Verification-Token") ||
+    request.headers.get("X-Webhook-Secret") ||
+    request.headers.get("x-webhook-verification-token") ||
+    request.headers.get("x-webhook-secret") ||
+    request.headers.get("authorization")?.replace("Bearer ", "");
+
+  console.log("[Inbound Email] Token found:", token ? `${token.slice(0, 10)}...` : "NONE");
+
+  if (!token || token !== process.env.INBOUND_EMAIL_WEBHOOK_SECRET) {
+    console.log("[Inbound Email] Auth failed. Expected:", process.env.INBOUND_EMAIL_WEBHOOK_SECRET?.slice(0, 10) + "...");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   // 2. Parse payload
-  let payload: Record<string, unknown>;
+  let payload: InboundEmailPayload;
   try {
-    payload = await parsePayload(request);
+    payload = (await request.json()) as InboundEmailPayload;
   } catch {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  // 3. Extract fields
-  const fromRaw = (payload.from ?? payload.From ?? payload.from_address ?? "") as string;
-  const { name: from_name, address: from_address } = parseFromField(fromRaw);
+  // Only process email.received events
+  if (payload.event !== "email.received") {
+    return NextResponse.json({ success: true, skipped: true });
+  }
 
-  const to_address = (
-    (payload.to ?? payload.To ?? payload.to_address ?? "") as string
-  ).trim();
+  // 3. Extract fields from inbound.new structure
+  const email = payload.email;
+  if (!email) {
+    return NextResponse.json({ error: "Missing email data" }, { status: 400 });
+  }
 
-  const subject = (
-    (payload.subject ?? payload.Subject ?? "") as string
-  ).trim();
-
-  const body_plain = (
-    (payload.text ?? payload.TextBody ?? payload.body_plain ?? "") as string
-  ).trim();
-
-  const body_html = (
-    (payload.html ?? payload.HtmlBody ?? payload.body_html ?? "") as string
-  ).trim();
-
-  const attachments = (payload.attachments ?? payload.Attachments ?? []) as unknown[];
+  const fromAddr = email.from?.addresses?.[0];
+  const from_address = fromAddr?.address || email.from?.text || "";
+  const from_name = fromAddr?.name || "";
+  const to_address = email.recipient || email.to?.addresses?.[0]?.address || "";
+  const subject = email.subject || email.parsedData?.subject || "";
+  const body_plain = email.parsedData?.textBody || "";
+  const body_html = email.parsedData?.htmlBody || "";
+  const attachments = email.parsedData?.attachments || [];
 
   if (!to_address) {
-    return NextResponse.json({ error: "Missing to address" }, { status: 400 });
+    return NextResponse.json({ error: "Missing recipient address" }, { status: 400 });
   }
+
+  console.log(`[Inbound Email] Received from ${from_address} to ${to_address}: "${subject}"`);
 
   const service = createServiceSupabase();
 
@@ -106,23 +143,24 @@ export async function POST(request: Request): Promise<Response> {
     .single();
 
   if (wsError || !workspace) {
+    console.error(`[Inbound Email] No workspace found for ${to_address}`);
     return NextResponse.json(
       { error: "No workspace found for this inbound address" },
       { status: 404 }
     );
   }
 
-  // 5. Insert inbound_emails row with status 'pending'
+  // 5. Store the raw email in inbound_emails (audit trail — before any processing)
   const { data: emailRecord, error: insertError } = await service
     .from("inbound_emails")
     .insert({
       workspace_id: workspace.id,
       from_address,
-      from_name,
+      from_name: from_name || null,
       to_address,
-      subject,
-      body_plain,
-      body_html,
+      subject: subject || null,
+      body_plain: body_plain || null,
+      body_html: body_html || null,
       attachments: attachments.length > 0 ? attachments : null,
       status: "pending",
     })
@@ -130,36 +168,43 @@ export async function POST(request: Request): Promise<Response> {
     .single();
 
   if (insertError || !emailRecord) {
+    console.error("[Inbound Email] Failed to save:", insertError?.message);
     return NextResponse.json(
       { error: insertError?.message ?? "Failed to save email" },
       { status: 500 }
     );
   }
 
-  // Steps 6-9 wrapped in try/catch
+  console.log(`[Inbound Email] Saved as ${emailRecord.id}, routing...`);
+
+  // Steps 6-9 wrapped in try/catch — failures don't lose the stored email
   try {
-    // 6. Route email to an agent
+    // 6. Route email to the best-fit agent
     const routingResult = await routeEmailToAgent(workspace.id, {
       from_address,
-      from_name,
-      subject,
-      body_plain,
+      from_name: from_name || null,
+      subject: subject || null,
+      body_plain: body_plain || null,
     });
 
-    // 7. Create a work item from the routed email
+    console.log(`[Inbound Email] Routed to ${routingResult.agent_name} (${routingResult.agent_id}): ${routingResult.reason}`);
+
+    // 7. Create a work item with execution context
     const workItem = await createWorkItem({
       workspace_id: workspace.id,
       user_id: workspace.owner_id,
-      title: routingResult.suggested_title,
+      title: routingResult.suggested_title || subject || "Email work item",
       agent_id: routingResult.agent_id,
-      instructions: `${subject}\n\n${body_plain}`,
+      instructions: subject
+        ? `From: ${from_name || from_address}\nSubject: ${subject}\n\n${body_plain}`
+        : body_plain,
       source: "email",
       inbound_email_id: emailRecord.id,
     });
 
     const workItemId = workItem.work_item.id as string;
 
-    // 8. Update inbound_emails row with routing outcome
+    // 8. Update inbound email with routing result
     await service
       .from("inbound_emails")
       .update({
@@ -170,7 +215,7 @@ export async function POST(request: Request): Promise<Response> {
       })
       .eq("id", emailRecord.id);
 
-    // 9. Create notifications for all workspace members
+    // 9. Notify all workspace members
     const { data: members } = await service
       .from("workspace_members")
       .select("user_id")
@@ -181,17 +226,21 @@ export async function POST(request: Request): Promise<Response> {
         workspace_id: workspace.id,
         user_id: m.user_id,
         work_item_id: workItemId,
+        inbound_email_id: emailRecord.id,
         type: "email_received",
-        title: `New email from ${from_name || from_address}: ${subject}`,
+        title: `New email from ${from_name || from_address}`,
+        body: subject || "(no subject)",
         read: false,
       }));
 
       await service.from("work_notifications").insert(notifications);
     }
+
+    console.log(`[Inbound Email] Work item ${workItemId} created successfully`);
   } catch (err) {
-    // On failure, mark the email as failed but still return 200 to the provider
-    // so it doesn't retry indefinitely.
+    // Mark as failed but return 200 so the provider doesn't retry
     const message = err instanceof Error ? err.message : "Unknown error";
+    console.error(`[Inbound Email] Processing failed:`, message);
     await service
       .from("inbound_emails")
       .update({ status: "failed", routing_reason: message })
@@ -200,6 +249,5 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ success: true, warning: "Routing failed", detail: message });
   }
 
-  // 10. Success
   return NextResponse.json({ success: true });
 }
