@@ -476,8 +476,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       if (res.ok) {
         const data = await res.json();
         setWorkItems(data);
+      } else {
+        console.error("[WorkItems] Fetch failed:", res.status, await res.text().catch(() => ""));
       }
-    } catch { /* non-fatal */ }
+    } catch (err) {
+      console.error("[WorkItems] Fetch error:", err);
+    }
   }, []);
 
   const refreshWorkNotifications = useCallback(() => {

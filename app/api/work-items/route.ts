@@ -13,6 +13,8 @@ export async function GET(request: Request) {
   const status = searchParams.get("status");
 
   const service = createServiceSupabase();
+
+  // Try with inbound_emails join first, fall back without it if the table/column doesn't exist
   let query = service
     .from("work_items")
     .select("*, agents(name, color), inbound_emails(from_address, from_name, subject)")
@@ -22,7 +24,24 @@ export async function GET(request: Request) {
     query = query.eq("status", status);
   }
 
-  const { data, error } = await query.order("updated_at", { ascending: false });
+  let { data, error } = await query.order("updated_at", { ascending: false });
+
+  // Fallback: if the inbound_emails join fails (column/table may not exist yet)
+  if (error) {
+    console.warn("[WorkItems] Query with inbound_emails join failed, falling back:", error.message);
+    let fallbackQuery = service
+      .from("work_items")
+      .select("*, agents(name, color)")
+      .eq("workspace_id", ctx.workspaceId);
+
+    if (status) {
+      fallbackQuery = fallbackQuery.eq("status", status);
+    }
+
+    const fallback = await fallbackQuery.order("updated_at", { ascending: false });
+    data = fallback.data;
+    error = fallback.error;
+  }
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
