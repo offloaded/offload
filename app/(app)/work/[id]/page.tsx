@@ -6,7 +6,7 @@ import { useApp } from "../../layout";
 import { Avatar } from "@/components/Avatar";
 import { MenuIcon, SendIcon, PaperclipIcon } from "@/components/Icons";
 import { sendDM } from "@/lib/inflight";
-import type { WorkItem, Message } from "@/lib/types";
+import type { WorkItem, WorkExecutionContext, Message } from "@/lib/types";
 
 const STATUS_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
   draft: { bg: "var(--color-hover)", text: "var(--color-text-secondary)", label: "Draft" },
@@ -28,6 +28,9 @@ export default function WorkItemPage() {
   const [chatInput, setChatInput] = useState("");
   const [sending, setSending] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
+  // Execution context state
+  const [execCtx, setExecCtx] = useState<WorkExecutionContext | null>(null);
+  const [startingRun, setStartingRun] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -56,17 +59,35 @@ export default function WorkItemPage() {
     loadWorkItem();
   }, [loadWorkItem]);
 
-  // Fetch conversation messages
-  const loadMessages = useCallback(async () => {
-    if (!workItem?.conversation_id) return;
+  // Load the most recent execution context for this work item
+  const loadExecution = useCallback(async () => {
     try {
-      const res = await fetch(`/api/conversations?conversation_id=${workItem.conversation_id}`);
+      const res = await fetch(`/api/work-items/${workItemId}/executions`);
+      if (res.ok) {
+        const executions: WorkExecutionContext[] = await res.json();
+        if (executions.length > 0) {
+          setExecCtx(executions[0]); // Most recent (ordered by created_at desc)
+        }
+      }
+    } catch { /* non-fatal */ }
+  }, [workItemId]);
+
+  useEffect(() => {
+    loadExecution();
+  }, [loadExecution]);
+
+  // Fetch messages from the execution context's conversation (NOT the work item's original conversation)
+  const loadMessages = useCallback(async () => {
+    const convId = execCtx?.conversation_id;
+    if (!convId) return;
+    try {
+      const res = await fetch(`/api/conversations?conversation_id=${convId}`);
       if (res.ok) {
         const data = await res.json();
         setMessages(data.messages || []);
       }
     } catch { /* non-fatal */ }
-  }, [workItem?.conversation_id]);
+  }, [execCtx?.conversation_id]);
 
   useEffect(() => {
     loadMessages();
@@ -74,29 +95,50 @@ export default function WorkItemPage() {
 
   // Poll for new messages every 5 seconds
   useEffect(() => {
-    if (!workItem?.conversation_id) return;
+    if (!execCtx?.conversation_id) return;
     const interval = setInterval(loadMessages, 5000);
     return () => clearInterval(interval);
-  }, [workItem?.conversation_id, loadMessages]);
+  }, [execCtx?.conversation_id, loadMessages]);
 
   // Scroll chat to bottom on new messages
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Start a new execution run
+  const startNewRun = useCallback(async () => {
+    if (startingRun) return;
+    setStartingRun(true);
+    try {
+      const res = await fetch(`/api/work-items/${workItemId}/executions`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        const newExec: WorkExecutionContext = await res.json();
+        setExecCtx(newExec);
+        setMessages([]); // Fresh conversation
+        loadWorkItem(); // Reload to get updated status/conversation_id
+        refreshWorkItems();
+      }
+    } finally {
+      setStartingRun(false);
+    }
+  }, [workItemId, startingRun, loadWorkItem, refreshWorkItems]);
+
   const handleSend = useCallback(async () => {
-    if (!chatInput.trim() || !workItem?.agent_id || !workItem?.conversation_id || sending) return;
+    if (!chatInput.trim() || !workItem?.agent_id || !execCtx?.conversation_id || sending) return;
     const msg = chatInput.trim();
     setChatInput("");
     setSending(true);
     try {
-      await sendDM(`work:${workItem.id}`, workItem.agent_id, msg, workItem.conversation_id);
+      // Send to the execution context's conversation, NOT the work item's original conversation
+      await sendDM(`work:${workItem.id}`, workItem.agent_id, msg, execCtx.conversation_id);
       // Reload messages and work item after agent responds
       setTimeout(() => { loadMessages(); loadWorkItem(); }, 1000);
     } finally {
       setSending(false);
     }
-  }, [chatInput, workItem, sending, loadMessages, loadWorkItem]);
+  }, [chatInput, workItem, execCtx, sending, loadMessages, loadWorkItem]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -107,6 +149,14 @@ export default function WorkItemPage() {
 
   const updateStatus = async (status: string) => {
     if (!workItem) return;
+    // If marking complete, also mark the execution context as complete
+    if (status === "complete" && execCtx && execCtx.status === "running") {
+      await fetch(`/api/work-items/${workItem.id}/executions`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ execution_id: execCtx.id, status: "complete" }),
+      }).catch(() => {});
+    }
     await fetch(`/api/work-items/${workItem.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -127,6 +177,8 @@ export default function WorkItemPage() {
   if (!workItem) return null;
 
   const statusConfig = STATUS_CONFIG[workItem.status] || STATUS_CONFIG.draft;
+  const hasExecution = !!execCtx;
+  const canChat = hasExecution && !!workItem.agent_id;
 
   return (
     <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-[var(--color-surface)]">
@@ -196,7 +248,9 @@ export default function WorkItemPage() {
                   <polyline points="14 2 14 8 20 8" />
                 </svg>
                 <p className="text-[14px] text-[var(--color-text-secondary)] mb-1">
-                  {workItem.status === "draft" || workItem.status === "in_progress"
+                  {workItem.status === "draft"
+                    ? "Ready to start. Click \"Run\" in the chat panel to begin."
+                    : workItem.status === "in_progress"
                     ? "Your agent is working on this."
                     : "No report content yet."}
                 </p>
@@ -209,7 +263,7 @@ export default function WorkItemPage() {
         </div>
       </div>
 
-      {/* Chat panel (secondary) */}
+      {/* Chat panel (secondary) — shows execution context messages */}
       <div className="flex flex-col shrink-0 w-full md:w-[380px] bg-[var(--color-bg)]">
         {/* Chat header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--color-border)] shrink-0">
@@ -226,84 +280,119 @@ export default function WorkItemPage() {
           ) : (
             <span className="text-[13px] font-medium text-[var(--color-text-secondary)]">Chat</span>
           )}
-        </div>
-
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-          {messages.map((msg, i) => (
-            <div key={msg.id || i}>
-              {msg.role === "user" ? (
-                <div className="flex flex-col items-end">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <span className="text-[11px] text-[var(--color-text-tertiary)]">You</span>
-                  </div>
-                  <div className="rounded-2xl rounded-tr-sm px-3.5 py-2.5 max-w-[90%] bg-[var(--color-hover)]">
-                    <p className="text-[13px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap">
-                      {msg.content}
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col items-start">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    {agent && <Avatar name={agent.name} color={agent.color} size={20} />}
-                    <span className="text-[11px] text-[var(--color-accent)]">{agent?.name || "Assistant"}</span>
-                  </div>
-                  <div className="rounded-2xl rounded-tl-sm px-3.5 py-2.5 max-w-[90%] bg-[var(--color-surface-raised)]">
-                    <p className="text-[13px] leading-relaxed text-[var(--color-text-secondary)] whitespace-pre-wrap">
-                      {msg.content}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-          <div ref={chatEndRef} />
-        </div>
-
-        {/* Chat input */}
-        <div className="px-4 py-3 border-t border-[var(--color-border)]">
-          <div className="flex items-center rounded-xl px-3.5 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]">
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="hidden"
-              onChange={(e) => {
-                // Handle file upload via chat
-                if (e.target.files?.[0] && workItem.agent_id && workItem.conversation_id) {
-                  const file = e.target.files[0];
-                  const formData = new FormData();
-                  formData.append("agent_id", workItem.agent_id);
-                  formData.append("conversation_id", workItem.conversation_id);
-                  formData.append("message", `Please review the attached file: ${file.name}`);
-                  formData.append("file", file);
-                  fetch("/api/chat", { method: "POST", body: formData });
-                }
+          <div className="flex-1" />
+          {/* Run / Re-run button */}
+          {workItem.agent_id && workItem.status !== "complete" && (
+            <button
+              onClick={startNewRun}
+              disabled={startingRun}
+              className="px-3 py-1 rounded-lg text-[11px] font-medium transition-all border-none cursor-pointer disabled:opacity-40"
+              style={{
+                background: hasExecution ? "var(--color-hover)" : "var(--color-accent)",
+                color: hasExecution ? "var(--color-text-secondary)" : "#fff",
               }}
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="mr-2 bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0 flex hover:text-[var(--color-text-secondary)]"
             >
-              <PaperclipIcon />
+              {startingRun ? "Starting..." : hasExecution ? "Re-run" : "Run"}
             </button>
-            <input
-              type="text"
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Refine the draft..."
-              className="flex-1 bg-transparent text-[13px] outline-none text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] border-none"
-            />
-            <button
-              onClick={handleSend}
-              disabled={!chatInput.trim() || sending}
-              className="bg-transparent border-none text-[var(--color-accent)] cursor-pointer p-0 flex disabled:opacity-30"
-            >
-              <SendIcon />
-            </button>
-          </div>
+          )}
         </div>
+
+        {/* Messages — from execution context conversation */}
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+          {!hasExecution ? (
+            <div className="flex flex-col items-center justify-center h-full text-center px-6">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-tertiary)" strokeWidth="1.5" className="mb-3">
+                <circle cx="12" cy="12" r="10" />
+                <polygon points="10 8 16 12 10 16 10 8" />
+              </svg>
+              <p className="text-[13px] text-[var(--color-text-secondary)] mb-1">
+                No execution yet
+              </p>
+              <p className="text-[12px] text-[var(--color-text-tertiary)]">
+                {workItem.agent_id
+                  ? "Click \"Run\" to start the agent on this work item."
+                  : "Assign an agent to run this work item."}
+              </p>
+            </div>
+          ) : (
+            <>
+              {messages.map((msg, i) => (
+                <div key={msg.id || i}>
+                  {msg.role === "user" ? (
+                    <div className="flex flex-col items-end">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className="text-[11px] text-[var(--color-text-tertiary)]">You</span>
+                      </div>
+                      <div className="rounded-2xl rounded-tr-sm px-3.5 py-2.5 max-w-[90%] bg-[var(--color-hover)]">
+                        <p className="text-[13px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap">
+                          {msg.content}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-start">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        {agent && <Avatar name={agent.name} color={agent.color} size={20} />}
+                        <span className="text-[11px] text-[var(--color-accent)]">{agent?.name || "Assistant"}</span>
+                      </div>
+                      <div className="rounded-2xl rounded-tl-sm px-3.5 py-2.5 max-w-[90%] bg-[var(--color-surface-raised)]">
+                        <p className="text-[13px] leading-relaxed text-[var(--color-text-secondary)] whitespace-pre-wrap">
+                          {msg.content}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div ref={chatEndRef} />
+            </>
+          )}
+        </div>
+
+        {/* Chat input — only shown when there's an active execution */}
+        {canChat && (
+          <div className="px-4 py-3 border-t border-[var(--color-border)]">
+            <div className="flex items-center rounded-xl px-3.5 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]">
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files?.[0] && workItem.agent_id && execCtx?.conversation_id) {
+                    const file = e.target.files[0];
+                    const formData = new FormData();
+                    formData.append("agent_id", workItem.agent_id);
+                    formData.append("conversation_id", execCtx.conversation_id);
+                    formData.append("message", `Please review the attached file: ${file.name}`);
+                    formData.append("file", file);
+                    fetch("/api/chat", { method: "POST", body: formData });
+                  }
+                }}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="mr-2 bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0 flex hover:text-[var(--color-text-secondary)]"
+              >
+                <PaperclipIcon />
+              </button>
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Refine the draft..."
+                className="flex-1 bg-transparent text-[13px] outline-none text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] border-none"
+              />
+              <button
+                onClick={handleSend}
+                disabled={!chatInput.trim() || sending}
+                className="bg-transparent border-none text-[var(--color-accent)] cursor-pointer p-0 flex disabled:opacity-30"
+              >
+                <SendIcon />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -43,6 +43,8 @@ export async function GET(request: Request) {
 }
 
 // POST /api/work-items — create a new work item
+// Creates the work item and an empty report. Does NOT create a conversation —
+// that happens when an execution context is created (first run).
 export async function POST(request: Request) {
   const ctx = await getWorkspaceContext();
   if (!ctx) {
@@ -62,23 +64,7 @@ export async function POST(request: Request) {
 
   const service = createServiceSupabase();
 
-  // 1. Create a conversation for this work item
-  const { data: conversation, error: convError } = await service
-    .from("conversations")
-    .insert({
-      user_id: ctx.user.id,
-      workspace_id: ctx.workspaceId,
-      agent_id: agent_id || null,
-      archived: false,
-    })
-    .select("id")
-    .single();
-
-  if (convError) {
-    return NextResponse.json({ error: convError.message }, { status: 500 });
-  }
-
-  // 2. Create an empty report
+  // 1. Create an empty report for this work item
   const { data: report, error: reportError } = await service
     .from("reports")
     .insert({
@@ -87,7 +73,6 @@ export async function POST(request: Request) {
       title: title.trim(),
       content: "",
       agent_id: agent_id || null,
-      conversation_id: conversation.id,
     })
     .select("id")
     .single();
@@ -96,31 +81,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: reportError.message }, { status: 500 });
   }
 
-  // 3. Create the work_item row
+  // 2. Create the work_item row — conversation_id is null until first execution
   const { data: workItem, error: wiError } = await service
     .from("work_items")
     .insert({
       workspace_id: ctx.workspaceId,
       user_id: ctx.user.id,
       title: title.trim(),
+      instructions: instructions?.trim() || null,
       agent_id: agent_id || null,
       report_id: report.id,
-      conversation_id: conversation.id,
+      conversation_id: null, // Set when execution context is created
     })
     .select()
     .single();
 
   if (wiError) {
     return NextResponse.json({ error: wiError.message }, { status: 500 });
-  }
-
-  // 4. If instructions are provided and agent_id is set, send the initial message
-  if (instructions?.trim() && agent_id) {
-    await service.from("messages").insert({
-      conversation_id: conversation.id,
-      role: "user",
-      content: instructions.trim(),
-    });
   }
 
   return NextResponse.json(workItem, { status: 201 });

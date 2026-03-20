@@ -154,6 +154,17 @@ export interface WorkItem {
   agent_color?: string;
 }
 
+export interface WorkExecutionContext {
+  id: string;
+  work_item_id: string;
+  agent_id: string | null;
+  conversation_id: string | null;
+  status: 'running' | 'complete' | 'failed';
+  created_at: string;
+  completed_at: string | null;
+  context_summary: Record<string, unknown> | null;
+}
+
 export interface ReportTemplate {
   id: string;
   workspace_id: string;
