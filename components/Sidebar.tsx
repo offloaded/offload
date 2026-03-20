@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { HashIcon, GearIcon, XIcon, ClockIcon, PlusIcon, RepeatClockIcon, ActivityIcon, SunIcon, MoonIcon, PeopleIcon, LockIcon, StorefrontIcon, SearchIcon, ReportIcon, ChevronDownIcon } from "./Icons";
+import { HashIcon, XIcon, ClockIcon, PlusIcon, ActivityIcon, SunIcon, MoonIcon, PeopleIcon, LockIcon, StorefrontIcon, SearchIcon, ReportIcon, ChevronDownIcon } from "./Icons";
 import { createClient } from "@/lib/supabase";
 import type { Agent, Team, Workspace, WorkspaceMember } from "@/lib/types";
 import { useApp } from "@/app/(app)/layout";
@@ -684,23 +684,6 @@ export function SidebarContent({
               <span>Create agent</span>
             </Link>
           )}
-          <NavItem href="/tasks" isActive={pathname === "/tasks"}>
-            <span className="w-4 flex items-center justify-center opacity-50"><RepeatClockIcon /></span>
-            <span className="flex-1">Scheduled</span>
-            {activeTaskCount > 0 && (
-              <span className="text-[10px] font-medium text-[var(--color-accent)] bg-[var(--color-accent-soft)] rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">{activeTaskCount}</span>
-            )}
-          </NavItem>
-          <NavItem href="/settings" isActive={pathname === "/settings" || (pathname.startsWith("/settings/") && !pathname.startsWith("/settings/members"))}>
-            <span className="w-4 flex items-center justify-center opacity-50"><GearIcon /></span>
-            <span>Settings</span>
-          </NavItem>
-          <NavItem href="/settings/members" isActive={pathname === "/settings/members"}>
-            <span className="w-4 flex items-center justify-center opacity-50">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
-            </span>
-            <span>Members</span>
-          </NavItem>
           {isAdmin && (
             <NavItem href="/admin" isActive={false}>
               <span className="w-4 flex items-center justify-center opacity-50">
@@ -713,9 +696,8 @@ export function SidebarContent({
         </div>
       </div>
 
-      {/* Workspace switcher + logout */}
+      {/* Logout */}
       <div className="px-3 pt-2 pb-3">
-        <WorkspaceSwitcher workspace={workspace} workspaces={workspaces} onSwitch={onSwitchWorkspace || (() => {})} />
         <LogOutButton />
       </div>
 

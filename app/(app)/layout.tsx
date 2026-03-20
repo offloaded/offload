@@ -14,7 +14,7 @@ interface TeamWithAgents extends Team {
   agent_ids: string[];
 }
 
-type NavSection = "chat" | "work" | "settings";
+type NavSection = "chat" | "work" | "scheduled" | "settings";
 
 interface AppContextValue {
   agents: Agent[];
@@ -215,13 +215,32 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       router.push("/settings");
       return;
     }
+    if (section === "scheduled") {
+      router.push("/tasks");
+      return;
+    }
+    // If we're on a page that doesn't show the sidebar (settings, tasks, etc.),
+    // navigate to the appropriate section's default page
+    const isOnSidebarlessPage = pathname.startsWith("/settings") || pathname.startsWith("/tasks");
+    if (isOnSidebarlessPage) {
+      setActiveSection(section);
+      setSidebarOpen(true);
+      router.push(section === "work" ? "/work" : "/chat");
+      return;
+    }
     if (section === activeSection) {
       setSidebarOpen(!sidebarOpen);
     } else {
       setActiveSection(section);
       setSidebarOpen(true);
+      // Navigate to the section's default page if not already there
+      if (section === "work" && !pathname.startsWith("/work")) {
+        router.push("/work");
+      } else if (section === "chat" && pathname.startsWith("/work")) {
+        router.push("/chat");
+      }
     }
-  }, [activeSection, sidebarOpen, setActiveSection, setSidebarOpen, router]);
+  }, [activeSection, sidebarOpen, setActiveSection, setSidebarOpen, router, pathname]);
 
   // Cmd/Ctrl+B keyboard shortcut to toggle sidebar
   useEffect(() => {
@@ -239,10 +258,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (pathname.startsWith("/work")) {
       if (activeSection !== "work") setActiveSection("work");
-    } else if (pathname.startsWith("/settings")) {
-      // Don't change section for settings — it's accessed via icon rail
+    } else if (pathname.startsWith("/settings") || pathname.startsWith("/tasks")) {
+      // Don't change section for settings or tasks — accessed via icon rail
     } else {
-      if (activeSection === "work") setActiveSection("chat");
+      if (activeSection !== "chat") setActiveSection("chat");
     }
   }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -495,6 +514,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const workspaceInitial = workspace?.name?.charAt(0)?.toUpperCase() || "O";
   const isSettingsPage = pathname.startsWith("/settings");
+  const isTasksPage = pathname.startsWith("/tasks");
+  const isSidebarlessPage = isSettingsPage || isTasksPage;
+
+  // Determine which icon should be highlighted in the rail
+  const railActiveSection: "chat" | "work" | "scheduled" | "settings" = isSettingsPage
+    ? "settings"
+    : isTasksPage
+    ? "scheduled"
+    : activeSection;
 
   return (
     <AppContext value={{ agents, allAgents, refreshAgents, teams, refreshTeams, activeDmAgentIds, refreshActiveDms, ensureActiveDm, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, switchWorkspace, refreshWorkspace, reportCount, refreshReportCount, openReportId, openReport, closeReport, reportEditCallback, reportLiveUpdate, setReportLiveUpdate, activeSection, sidebarOpen, workItems, refreshWorkItems }}>
@@ -502,14 +530,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {/* Icon Rail — always visible on desktop */}
         <div className="hidden md:flex">
           <IconRail
-            activeSection={isSettingsPage ? "settings" : activeSection}
+            activeSection={railActiveSection}
             onNavClick={handleNavClick}
             workspaceInitial={workspaceInitial}
+            workspace={workspace}
+            workspaces={workspaces}
+            onSwitchWorkspace={switchWorkspace}
           />
         </div>
 
-        {/* Collapsible sidebar — desktop only, hidden on settings pages */}
-        {!isSettingsPage && (
+        {/* Collapsible sidebar — desktop only, hidden on settings/tasks pages */}
+        {!isSidebarlessPage && (
           <div
             className="hidden md:flex flex-shrink-0 overflow-hidden bg-[var(--color-sidebar-bg)] border-r border-[var(--color-border)] flex-col"
             style={{
