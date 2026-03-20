@@ -5,7 +5,8 @@ import { useApp } from "../layout";
 import { Avatar } from "@/components/Avatar";
 import { PlusIcon, ArrowIcon, MenuIcon, ChevronDownIcon, GlobeIcon, PeopleIcon } from "@/components/Icons";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase";
 import type { WorkspaceMember, WorkspaceInvite } from "@/lib/types";
 
 const COMMON_TIMEZONES = [
@@ -188,12 +189,17 @@ export default function SettingsPage() {
             {canManage && (
               <Link
                 href="/settings/new"
-                className="w-full text-left flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg text-[13px] border-none cursor-pointer transition-colors bg-transparent font-normal text-[var(--color-text-secondary)] hover:bg-[var(--color-hover)] no-underline mb-3"
+                className="w-full text-left flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg text-[13px] border-none cursor-pointer transition-colors bg-transparent font-normal text-[var(--color-text-secondary)] hover:bg-[var(--color-hover)] no-underline"
               >
                 <PlusIcon />
                 Create Agent
               </Link>
             )}
+
+            {/* Logout */}
+            <div className="border-t border-[var(--color-border)] mt-2 pt-2">
+              <LogoutButton />
+            </div>
           </div>
         </div>
 
@@ -215,6 +221,28 @@ export default function SettingsPage() {
 }
 
 // ─── Profile Tab ───
+
+function LogoutButton() {
+  const router = useRouter();
+  const handleLogout = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/");
+  };
+  return (
+    <button
+      onClick={handleLogout}
+      className="w-full text-left flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg text-[13px] bg-transparent border-none cursor-pointer transition-colors font-normal text-[var(--color-text-tertiary)] hover:bg-[var(--color-hover)] hover:text-[var(--color-red)]"
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+        <polyline points="16 17 21 12 16 7" />
+        <line x1="21" y1="12" x2="9" y2="12" />
+      </svg>
+      Log out
+    </button>
+  );
+}
 
 function ProfileTab() {
   const [displayName, setDisplayName] = useState("");

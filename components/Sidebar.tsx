@@ -692,13 +692,7 @@ export function SidebarContent({
               <span>Admin</span>
             </NavItem>
           )}
-          <ThemeToggle />
         </div>
-      </div>
-
-      {/* Logout */}
-      <div className="px-3 pt-2 pb-3">
-        <LogOutButton />
       </div>
 
       <ComposeModal open={composeOpen} onClose={() => setComposeOpen(false)} agents={agents} workspaceId={workspace?.id || null} canCreateTeam={canManage} />
