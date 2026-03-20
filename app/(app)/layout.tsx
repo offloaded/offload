@@ -4,13 +4,17 @@ import { useEffect, useState, useCallback, useMemo, useRef, createContext, useCo
 import { createClient } from "@/lib/supabase";
 import { SidebarContent, Drawer } from "@/components/Sidebar";
 import { ReportPanel } from "@/components/ReportPanel";
-import { useRouter } from "next/navigation";
-import type { Agent, Team, Workspace } from "@/lib/types";
+import IconRail from "@/components/IconRail";
+import WorkSidebar from "@/components/WorkSidebar";
+import { useRouter, usePathname } from "next/navigation";
+import type { Agent, Team, Workspace, WorkItem } from "@/lib/types";
 import { preloadAllChats } from "@/lib/chat-cache";
 
 interface TeamWithAgents extends Team {
   agent_ids: string[];
 }
+
+type NavSection = "chat" | "work" | "settings";
 
 interface AppContextValue {
   agents: Agent[];
@@ -49,6 +53,12 @@ interface AppContextValue {
   // Live update for report panel
   reportLiveUpdate: { report_id: string; title: string; content: string } | null;
   setReportLiveUpdate: (update: { report_id: string; title: string; content: string } | null) => void;
+  // Navigation
+  activeSection: NavSection;
+  sidebarOpen: boolean;
+  // Work items
+  workItems: WorkItem[];
+  refreshWorkItems: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue>({
@@ -83,6 +93,10 @@ const AppContext = createContext<AppContextValue>({
   reportEditCallback: { current: null },
   reportLiveUpdate: null,
   setReportLiveUpdate: () => {},
+  activeSection: "chat",
+  sidebarOpen: true,
+  workItems: [],
+  refreshWorkItems: async () => {},
 });
 
 export function useApp() {
@@ -169,7 +183,68 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const reportEditCallback = useRef<((reportId: string, reportTitle: string, original: string, edited: string) => void) | null>(null);
   const mobile = useIsMobile();
   const router = useRouter();
+  const pathname = usePathname();
   const supabase = useMemo(() => createClient(), []);
+
+  // Navigation state — persisted in localStorage
+  const [activeSection, setActiveSectionState] = useState<NavSection>(() => {
+    if (typeof window === "undefined") return "chat";
+    return (localStorage.getItem("nav_section") as NavSection) || "chat";
+  });
+  const [sidebarOpen, setSidebarOpenState] = useState(() => {
+    if (typeof window === "undefined") return true;
+    const stored = localStorage.getItem("sidebar_open");
+    return stored === null ? true : stored === "true";
+  });
+
+  // Work items state
+  const [workItems, setWorkItems] = useState<WorkItem[]>([]);
+
+  const setActiveSection = useCallback((section: NavSection) => {
+    setActiveSectionState(section);
+    localStorage.setItem("nav_section", section);
+  }, []);
+
+  const setSidebarOpen = useCallback((open: boolean) => {
+    setSidebarOpenState(open);
+    localStorage.setItem("sidebar_open", String(open));
+  }, []);
+
+  const handleNavClick = useCallback((section: NavSection) => {
+    if (section === "settings") {
+      router.push("/settings");
+      return;
+    }
+    if (section === activeSection) {
+      setSidebarOpen(!sidebarOpen);
+    } else {
+      setActiveSection(section);
+      setSidebarOpen(true);
+    }
+  }, [activeSection, sidebarOpen, setActiveSection, setSidebarOpen, router]);
+
+  // Cmd/Ctrl+B keyboard shortcut to toggle sidebar
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "b") {
+        e.preventDefault();
+        setSidebarOpen(!sidebarOpen);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [sidebarOpen, setSidebarOpen]);
+
+  // Sync activeSection with current route
+  useEffect(() => {
+    if (pathname.startsWith("/work")) {
+      if (activeSection !== "work") setActiveSection("work");
+    } else if (pathname.startsWith("/settings")) {
+      // Don't change section for settings — it's accessed via icon rail
+    } else {
+      if (activeSection === "work") setActiveSection("chat");
+    }
+  }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshAgents = useCallback(async () => {
     const [res, resAll] = await Promise.all([
@@ -340,6 +415,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }).then(() => refreshUnreadCounts()).catch(() => {});
   }, [refreshUnreadCounts]);
 
+  const refreshWorkItems = useCallback(async () => {
+    try {
+      const res = await fetch("/api/work-items");
+      if (res.ok) {
+        const data = await res.json();
+        setWorkItems(data);
+      }
+    } catch { /* non-fatal */ }
+  }, []);
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) {
@@ -354,10 +439,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         refreshUnreadCounts();
         checkNewActivity();
         refreshReportCount();
+        refreshWorkItems();
         fetch("/api/admin/check").then(r => r.ok ? r.json() : { isAdmin: false }).then(d => setIsAdmin(d.isAdmin)).catch(() => {});
       }
     });
-  }, [supabase, router, refreshAgents, refreshTeams, refreshActiveDms, refreshTaskCount, refreshUnreadCounts, checkNewActivity, refreshWorkspace, refreshReportCount]);
+  }, [supabase, router, refreshAgents, refreshTeams, refreshActiveDms, refreshTaskCount, refreshUnreadCounts, checkNewActivity, refreshWorkspace, refreshReportCount, refreshWorkItems]);
 
   // Poll for unread counts and new activity every 20 seconds
   useEffect(() => {
@@ -407,13 +493,45 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
+  const workspaceInitial = workspace?.name?.charAt(0)?.toUpperCase() || "O";
+  const isSettingsPage = pathname.startsWith("/settings");
+
   return (
-    <AppContext value={{ agents, allAgents, refreshAgents, teams, refreshTeams, activeDmAgentIds, refreshActiveDms, ensureActiveDm, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, switchWorkspace, refreshWorkspace, reportCount, refreshReportCount, openReportId, openReport, closeReport, reportEditCallback, reportLiveUpdate, setReportLiveUpdate }}>
+    <AppContext value={{ agents, allAgents, refreshAgents, teams, refreshTeams, activeDmAgentIds, refreshActiveDms, ensureActiveDm, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, switchWorkspace, refreshWorkspace, reportCount, refreshReportCount, openReportId, openReport, closeReport, reportEditCallback, reportLiveUpdate, setReportLiveUpdate, activeSection, sidebarOpen, workItems, refreshWorkItems }}>
       <div className="flex h-screen w-full bg-[var(--color-page-bg)] overflow-hidden">
-        {/* Desktop sidebar */}
-        <div className="hidden md:flex w-[260px] min-w-[260px] bg-[var(--color-sidebar-bg)] border-r border-[var(--color-border)] flex-col">
-          <SidebarContent agents={agents} teams={teams} activeDmAgentIds={activeDmAgentIds} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} isAdmin={isAdmin} workspace={workspace} workspaces={workspaces} workspaceRole={workspaceRole} onSwitchWorkspace={switchWorkspace} reportCount={reportCount} onHideDm={hideDm} />
+        {/* Icon Rail — always visible on desktop */}
+        <div className="hidden md:flex">
+          <IconRail
+            activeSection={isSettingsPage ? "settings" : activeSection}
+            onNavClick={handleNavClick}
+            workspaceInitial={workspaceInitial}
+          />
         </div>
+
+        {/* Collapsible sidebar — desktop only, hidden on settings pages */}
+        {!isSettingsPage && (
+          <div
+            className="hidden md:flex flex-shrink-0 overflow-hidden bg-[var(--color-sidebar-bg)] border-r border-[var(--color-border)] flex-col"
+            style={{
+              width: sidebarOpen ? "280px" : "0px",
+              transition: "width 200ms ease-in-out",
+            }}
+          >
+            <div className="w-[280px] h-full flex flex-col min-w-[280px]">
+              {activeSection === "chat" && (
+                <SidebarContent agents={agents} teams={teams} activeDmAgentIds={activeDmAgentIds} activeTaskCount={activeTaskCount} unreadCounts={unreadCounts} hasNewActivity={hasNewActivity} isAdmin={isAdmin} workspace={workspace} workspaces={workspaces} workspaceRole={workspaceRole} onSwitchWorkspace={switchWorkspace} reportCount={reportCount} onHideDm={hideDm} />
+              )}
+              {activeSection === "work" && (
+                <WorkSidebar
+                  workItems={workItems}
+                  selectedId={pathname.startsWith("/work/") ? pathname.split("/work/")[1] : null}
+                  onSelect={(id) => router.push(`/work/${id}`)}
+                  onNew={() => router.push("/work/new")}
+                />
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Mobile drawer — always mounted, visibility controlled by open state */}
         <Drawer

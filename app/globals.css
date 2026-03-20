@@ -26,6 +26,7 @@
   --color-orange-soft: rgba(245, 158, 11, 0.08);
   --color-page-bg: #FAFAFA;
   --color-sidebar-bg: #F2F2F5;
+  --color-icon-rail-bg: #E8E8EC;
   --color-code-bg: #1E1E2E;
 }
 
@@ -53,6 +54,7 @@
   --color-orange-soft: rgba(251, 191, 36, 0.1);
   --color-page-bg: #111113;
   --color-sidebar-bg: #18181B;
+  --color-icon-rail-bg: #111113;
   --color-code-bg: #0D0D14;
 }
 

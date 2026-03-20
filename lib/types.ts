@@ -137,6 +137,23 @@ export interface ScheduledTask {
   updated_at: string;
 }
 
+export interface WorkItem {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  agent_id: string | null;
+  title: string;
+  status: 'draft' | 'in_progress' | 'review' | 'complete';
+  instructions: string | null;
+  report_id: string | null;
+  conversation_id: string | null;
+  created_at: string;
+  updated_at: string;
+  // Enriched from joins
+  agent_name?: string;
+  agent_color?: string;
+}
+
 export interface ReportTemplate {
   id: string;
   workspace_id: string;
