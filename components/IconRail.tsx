@@ -4,12 +4,13 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import type { Workspace } from "@/lib/types";
 
 interface IconRailProps {
-  activeSection: "chat" | "work" | "scheduled" | "settings";
-  onNavClick: (section: "chat" | "work" | "scheduled" | "settings") => void;
+  activeSection: "dashboard" | "chat" | "work" | "scheduled" | "settings";
+  onNavClick: (section: "dashboard" | "chat" | "work" | "scheduled" | "settings") => void;
   workspaceInitial: string;
   workspace: Workspace | null;
   workspaces: Workspace[];
   onSwitchWorkspace: (id: string) => void;
+  workNotificationCount?: number;
 }
 
 export default function IconRail({
@@ -19,6 +20,7 @@ export default function IconRail({
   workspace,
   workspaces,
   onSwitchWorkspace,
+  workNotificationCount = 0,
 }: IconRailProps) {
   return (
     <div
@@ -37,6 +39,20 @@ export default function IconRail({
         <span className="text-white text-sm font-bold">{workspaceInitial}</span>
       </div>
 
+      {/* Dashboard */}
+      <NavButton
+        active={activeSection === "dashboard"}
+        onClick={() => onNavClick("dashboard")}
+        title="Dashboard"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="3" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="3" width="7" height="4" rx="1" />
+          <rect x="14" y="11" width="7" height="10" rx="1" />
+          <rect x="3" y="14" width="7" height="7" rx="1" />
+        </svg>
+      </NavButton>
+
       {/* Chat */}
       <NavButton
         active={activeSection === "chat"}
@@ -49,19 +65,29 @@ export default function IconRail({
       </NavButton>
 
       {/* Work */}
-      <NavButton
-        active={activeSection === "work"}
-        onClick={() => onNavClick("work")}
-        title="Work"
-      >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <polyline points="14 2 14 8 20 8" />
-          <line x1="16" y1="13" x2="8" y2="13" />
-          <line x1="16" y1="17" x2="8" y2="17" />
-          <polyline points="10 9 9 9 8 9" />
-        </svg>
-      </NavButton>
+      <div className="relative">
+        <NavButton
+          active={activeSection === "work"}
+          onClick={() => onNavClick("work")}
+          title="Work"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="16" y1="13" x2="8" y2="13" />
+            <line x1="16" y1="17" x2="8" y2="17" />
+            <polyline points="10 9 9 9 8 9" />
+          </svg>
+        </NavButton>
+        {workNotificationCount > 0 && (
+          <span
+            className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] rounded-full flex items-center justify-center text-[9px] font-bold text-white leading-none px-1"
+            style={{ background: "var(--color-accent)" }}
+          >
+            {workNotificationCount > 9 ? "9+" : workNotificationCount}
+          </span>
+        )}
+      </div>
 
       {/* Scheduled */}
       <NavButton

@@ -107,6 +107,17 @@ export async function PATCH(
     return NextResponse.json({ error: "Work item not found" }, { status: 404 });
   }
 
+  // Log activity event for status changes
+  if (status === "complete") {
+    await service.from("activity_events").insert({
+      workspace_id: ctx.workspaceId,
+      agent_id: (data as Record<string, unknown>).agent_id as string || null,
+      work_item_id: id,
+      event_type: "work_completed",
+      description: `completed ${(data as Record<string, unknown>).title || "work item"}`,
+    }).then(() => {}, () => {});
+  }
+
   return NextResponse.json(data);
 }
 

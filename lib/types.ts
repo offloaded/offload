@@ -149,9 +149,13 @@ export interface WorkItem {
   conversation_id: string | null;
   created_at: string;
   updated_at: string;
+  source?: 'manual' | 'email' | 'api';
+  inbound_email_id?: string | null;
   // Enriched from joins
   agent_name?: string;
   agent_color?: string;
+  email_from?: string | null;
+  email_subject?: string | null;
 }
 
 export interface WorkExecutionContext {

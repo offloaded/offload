@@ -124,5 +124,14 @@ export async function POST(
     })
     .eq("id", id);
 
+  // Log activity event
+  await service.from("activity_events").insert({
+    workspace_id: ctx.workspaceId,
+    agent_id: workItem.agent_id || null,
+    work_item_id: id,
+    event_type: "work_started",
+    description: `started work on ${workItem.title}`,
+  }).then(() => {}, () => {}); // fire-and-forget
+
   return NextResponse.json(execCtx, { status: 201 });
 }

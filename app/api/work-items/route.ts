@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   const service = createServiceSupabase();
   let query = service
     .from("work_items")
-    .select("*, agents(name, color)")
+    .select("*, agents(name, color), inbound_emails(from_address, from_name, subject)")
     .eq("workspace_id", ctx.workspaceId);
 
   if (status) {
@@ -28,14 +28,17 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Flatten agent info from the join
+  // Flatten agent and email info from joins
   const items = (data || []).map((item) => {
-    const { agents, ...rest } = item as Record<string, unknown>;
+    const { agents, inbound_emails, ...rest } = item as Record<string, unknown>;
     const agent = agents as { name: string; color: string } | null;
+    const email = inbound_emails as { from_address: string; from_name: string | null; subject: string | null } | null;
     return {
       ...rest,
       agent_name: agent?.name || null,
       agent_color: agent?.color || null,
+      email_from: email ? (email.from_name || email.from_address) : null,
+      email_subject: email?.subject || null,
     };
   });
 

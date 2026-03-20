@@ -103,7 +103,7 @@ export default function LandingPage({ isAuthenticated }: { isAuthenticated: bool
             MARKETPLACE
           </a>
           <Link
-            href={isAuthenticated ? "/chat" : "/auth"}
+            href={isAuthenticated ? "/dashboard" : "/auth"}
             className="font-['Press_Start_2P'] text-[9px] tracking-wider no-underline transition-all duration-300 px-4 py-2 rounded-sm hover:shadow-[0_0_16px_rgba(0,240,255,0.4)]"
             style={{
               color: NEON_CYAN,

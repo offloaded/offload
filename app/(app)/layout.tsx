@@ -14,7 +14,7 @@ interface TeamWithAgents extends Team {
   agent_ids: string[];
 }
 
-type NavSection = "chat" | "work" | "scheduled" | "settings";
+type NavSection = "dashboard" | "chat" | "work" | "scheduled" | "settings";
 
 interface AppContextValue {
   agents: Agent[];
@@ -59,6 +59,8 @@ interface AppContextValue {
   // Work items
   workItems: WorkItem[];
   refreshWorkItems: () => Promise<void>;
+  workNotificationCount: number;
+  markWorkNotificationsRead: () => void;
 }
 
 const AppContext = createContext<AppContextValue>({
@@ -93,10 +95,12 @@ const AppContext = createContext<AppContextValue>({
   reportEditCallback: { current: null },
   reportLiveUpdate: null,
   setReportLiveUpdate: () => {},
-  activeSection: "chat",
+  activeSection: "dashboard",
   sidebarOpen: true,
   workItems: [],
   refreshWorkItems: async () => {},
+  workNotificationCount: 0,
+  markWorkNotificationsRead: () => {},
 });
 
 export function useApp() {
@@ -188,8 +192,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   // Navigation state — persisted in localStorage
   const [activeSection, setActiveSectionState] = useState<NavSection>(() => {
-    if (typeof window === "undefined") return "chat";
-    return (localStorage.getItem("nav_section") as NavSection) || "chat";
+    if (typeof window === "undefined") return "dashboard";
+    return (localStorage.getItem("nav_section") as NavSection) || "dashboard";
   });
   const [sidebarOpen, setSidebarOpenState] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -199,6 +203,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   // Work items state
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
+  const [workNotificationCount, setWorkNotificationCount] = useState(0);
 
   const setActiveSection = useCallback((section: NavSection) => {
     setActiveSectionState(section);
@@ -211,6 +216,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, []);
 
   const handleNavClick = useCallback((section: NavSection) => {
+    if (section === "dashboard") {
+      setActiveSection("dashboard");
+      router.push("/dashboard");
+      return;
+    }
     if (section === "settings") {
       router.push("/settings");
       return;
@@ -219,9 +229,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       router.push("/tasks");
       return;
     }
-    // If we're on a page that doesn't show the sidebar (settings, tasks, etc.),
+    // If we're on a page that doesn't show the sidebar (settings, tasks, dashboard, etc.),
     // navigate to the appropriate section's default page
-    const isOnSidebarlessPage = pathname.startsWith("/settings") || pathname.startsWith("/tasks");
+    const isOnSidebarlessPage = pathname.startsWith("/settings") || pathname.startsWith("/tasks") || pathname.startsWith("/dashboard");
     if (isOnSidebarlessPage) {
       setActiveSection(section);
       setSidebarOpen(true);
@@ -256,12 +266,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   // Sync activeSection with current route
   useEffect(() => {
-    if (pathname.startsWith("/work")) {
+    if (pathname.startsWith("/dashboard")) {
+      if (activeSection !== "dashboard") setActiveSection("dashboard");
+    } else if (pathname.startsWith("/work")) {
       if (activeSection !== "work") setActiveSection("work");
     } else if (pathname.startsWith("/settings") || pathname.startsWith("/tasks")) {
       // Don't change section for settings or tasks — accessed via icon rail
     } else {
       if (activeSection !== "chat") setActiveSection("chat");
+    }
+  }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clear work notifications when user navigates to the Work section
+  useEffect(() => {
+    if (pathname.startsWith("/work") && workNotificationCount > 0) {
+      // markWorkNotificationsRead defined below — safe in useEffect since it runs after render
+      fetch("/api/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mark_all_read: true }),
+      }).then(() => setWorkNotificationCount(0)).catch(() => {});
     }
   }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -444,6 +468,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     } catch { /* non-fatal */ }
   }, []);
 
+  const refreshWorkNotifications = useCallback(() => {
+    fetch("/api/notifications?unread_only=true")
+      .then((r) => (r.ok ? r.json() : { unread_count: 0 }))
+      .then((d) => setWorkNotificationCount(d.unread_count || 0))
+      .catch(() => {});
+  }, []);
+
+  const markWorkNotificationsRead = useCallback(() => {
+    fetch("/api/notifications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mark_all_read: true }),
+    }).then(() => setWorkNotificationCount(0)).catch(() => {});
+  }, []);
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) {
@@ -459,10 +498,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         checkNewActivity();
         refreshReportCount();
         refreshWorkItems();
+        refreshWorkNotifications();
         fetch("/api/admin/check").then(r => r.ok ? r.json() : { isAdmin: false }).then(d => setIsAdmin(d.isAdmin)).catch(() => {});
       }
     });
-  }, [supabase, router, refreshAgents, refreshTeams, refreshActiveDms, refreshTaskCount, refreshUnreadCounts, checkNewActivity, refreshWorkspace, refreshReportCount, refreshWorkItems]);
+  }, [supabase, router, refreshAgents, refreshTeams, refreshActiveDms, refreshTaskCount, refreshUnreadCounts, checkNewActivity, refreshWorkspace, refreshReportCount, refreshWorkItems, refreshWorkNotifications]);
 
   // Poll for unread counts and new activity every 20 seconds
   useEffect(() => {
@@ -473,6 +513,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       refreshAgents();
       refreshTeams();
       refreshActiveDms();
+      refreshWorkNotifications();
     }, 20_000);
     return () => clearInterval(interval);
   }, [checked, refreshUnreadCounts, checkNewActivity, refreshAgents, refreshTeams, refreshActiveDms]);
@@ -513,19 +554,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   const workspaceInitial = workspace?.name?.charAt(0)?.toUpperCase() || "O";
+  const isDashboardPage = pathname.startsWith("/dashboard");
   const isSettingsPage = pathname.startsWith("/settings");
   const isTasksPage = pathname.startsWith("/tasks");
-  const isSidebarlessPage = isSettingsPage || isTasksPage;
+  const isSidebarlessPage = isDashboardPage || isSettingsPage || isTasksPage;
 
   // Determine which icon should be highlighted in the rail
-  const railActiveSection: "chat" | "work" | "scheduled" | "settings" = isSettingsPage
+  const railActiveSection: "dashboard" | "chat" | "work" | "scheduled" | "settings" = isDashboardPage
+    ? "dashboard"
+    : isSettingsPage
     ? "settings"
     : isTasksPage
     ? "scheduled"
     : activeSection;
 
   return (
-    <AppContext value={{ agents, allAgents, refreshAgents, teams, refreshTeams, activeDmAgentIds, refreshActiveDms, ensureActiveDm, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, switchWorkspace, refreshWorkspace, reportCount, refreshReportCount, openReportId, openReport, closeReport, reportEditCallback, reportLiveUpdate, setReportLiveUpdate, activeSection, sidebarOpen, workItems, refreshWorkItems }}>
+    <AppContext value={{ agents, allAgents, refreshAgents, teams, refreshTeams, activeDmAgentIds, refreshActiveDms, ensureActiveDm, activeTaskCount, refreshTaskCount, mobile, openDrawer: () => setDrawerOpen(true), unreadCounts, refreshUnreadCounts, markRead, setActiveChatKey, hasNewActivity, isAdmin, workspace, workspaces, workspaceRole, switchWorkspace, refreshWorkspace, reportCount, refreshReportCount, openReportId, openReport, closeReport, reportEditCallback, reportLiveUpdate, setReportLiveUpdate, activeSection, sidebarOpen, workItems, refreshWorkItems, workNotificationCount, markWorkNotificationsRead }}>
       <div className="flex h-screen w-full bg-[var(--color-page-bg)] overflow-hidden">
         {/* Icon Rail — always visible on desktop */}
         <div className="hidden md:flex">
@@ -536,6 +580,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             workspace={workspace}
             workspaces={workspaces}
             onSwitchWorkspace={switchWorkspace}
+            workNotificationCount={workNotificationCount}
           />
         </div>
 
