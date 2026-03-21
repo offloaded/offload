@@ -73,6 +73,7 @@ export async function POST(request: Request) {
   let conversation_id: string | null = null;
   let fileContext: string | null = null;
   let fileName: string | null = null;
+  let fileBuffer: Buffer | null = null; // Raw file buffer for .docx template saving
   let imageData: { base64: string; mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp" } | null = null;
 
   const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp"]);
@@ -96,6 +97,9 @@ export async function POST(request: Request) {
       fileName = file.name;
       try {
         const buffer = Buffer.from(await file.arrayBuffer());
+        if (ext === "docx") {
+          fileBuffer = buffer; // Preserve for save_template
+        }
         if (IMAGE_EXTENSIONS.has(ext)) {
           // Images: send as base64 vision content to Claude
           imageData = {
@@ -981,9 +985,12 @@ export async function POST(request: Request) {
           /```(gcal_list_events|gcal_get_event|gcal_create_event|gcal_update_event)\s*\n?([\s\S]*?)\n?```/
         );
 
-        // Document template tool block
+        // Document template tool blocks
         const saveDocumentMatch = fullResponse.match(
           /```save_document\s*\n?([\s\S]*?)\n?```/
+        );
+        const saveTemplateMatch = fullResponse.match(
+          /```save_template\s*\n?([\s\S]*?)\n?```/
         );
 
         // Clean the response: strip <search> blocks, schedule_request blocks, feature_request blocks, etc.
@@ -1172,6 +1179,59 @@ export async function POST(request: Request) {
             }
           } catch (e) {
             console.error("[Chat] Failed to parse save_document block:", e);
+          }
+        }
+
+        // Handle save_template — agent wants to save an uploaded .docx as a reusable template
+        if (saveTemplateMatch && fileBuffer && fileName?.endsWith(".docx")) {
+          try {
+            const tmplParsed = safeJsonParse(saveTemplateMatch[1].trim()) as {
+              attachment_index?: number;
+              name?: string;
+              description?: string;
+            } | null;
+
+            if (tmplParsed) {
+              const { parseDocxTemplate, isValidDocx } = await import("@/lib/docx-template-parser");
+
+              if (isValidDocx(fileBuffer)) {
+                const parsed = parseDocxTemplate(fileBuffer);
+                const templateName = tmplParsed.name || fileName.replace(/\.docx$/i, "");
+                const storagePath = `${ctx.workspaceId}/${Date.now()}-${fileName}`;
+
+                await serviceDb.storage.from("document-templates").upload(storagePath, fileBuffer, {
+                  contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                });
+
+                const { data: savedTmpl } = await serviceDb.from("document_templates").insert({
+                  workspace_id: ctx.workspaceId,
+                  user_id: user.id,
+                  name: templateName,
+                  description: tmplParsed.description || "",
+                  file_name: fileName,
+                  file_size: fileBuffer.length,
+                  storage_path: storagePath,
+                  placeholders: parsed.placeholders,
+                  sections: parsed.sections,
+                }).select("id, name").single();
+
+                if (savedTmpl) {
+                  console.log(`[Chat] Template saved: "${savedTmpl.name}" (${savedTmpl.id}), ${parsed.placeholders.length} placeholder(s)`);
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({
+                        type: "tool_confirmation",
+                        tool: "document",
+                        action: "save_template",
+                        message: `Template "${savedTmpl.name}" saved to library${parsed.placeholders.length > 0 ? ` with ${parsed.placeholders.length} placeholder(s)` : ""}`,
+                      })}\n\n`
+                    )
+                  );
+                }
+              }
+            }
+          } catch (e) {
+            console.error("[Chat] save_template failed:", e);
           }
         }
 

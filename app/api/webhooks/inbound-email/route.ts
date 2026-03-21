@@ -256,10 +256,12 @@ export async function POST(request: Request): Promise<Response> {
     const workItemId = workItem.work_item.id as string;
     const conversationId = workItem.conversation_id || null;
 
-    // 7a. Detect .docx attachments that may be Word templates with {{placeholders}}
+    // 7a. Pre-process .docx attachments — download and parse them for the agent
     const docxAttachments = attachments.filter((a) =>
       a.filename?.endsWith(".docx") && a.downloadUrl
     );
+    // Store downloaded buffers so the agent's save_template handler can access them
+    const docxBuffers: Array<{ filename: string; buffer: Buffer; placeholders: Array<{ name: string; label: string; description: string }>; sections: Record<string, { heading: string; description: string }> }> = [];
     let detectedTemplateId: string | null = null;
 
     if (docxAttachments.length > 0) {
@@ -273,40 +275,53 @@ export async function POST(request: Request): Promise<Response> {
           if (!isValidDocx(buffer)) continue;
 
           const parsed = parseDocxTemplate(buffer);
-          if (parsed.placeholders.length === 0) continue;
+          docxBuffers.push({
+            filename: att.filename,
+            buffer,
+            placeholders: parsed.placeholders,
+            sections: parsed.sections,
+          });
+          console.log(`[Inbound Email] Parsed .docx "${att.filename}": ${parsed.placeholders.length} placeholder(s)`);
+        } catch (e) {
+          console.error(`[Inbound Email] Failed to parse .docx attachment "${att.filename}":`, e);
+        }
+      }
 
-          console.log(`[Inbound Email] Detected .docx template "${att.filename}" with ${parsed.placeholders.length} placeholders`);
+      // Auto-detect: if a .docx has placeholders and the email body doesn't mention "save as template",
+      // treat it as a template to fill (backward compatible with existing behavior)
+      const saveAsTemplateIntent = /save.*(?:as|for).*template|store.*template|keep.*(?:for|as).*template|add.*to.*templates/i;
+      const userWantsToSaveTemplate = saveAsTemplateIntent.test(subject || "") || saveAsTemplateIntent.test(body_plain || "");
 
-          // Store the template file
-          const storagePath = `${workspace.id}/${Date.now()}-${att.filename}`;
-          await service.storage.from("document-templates").upload(storagePath, buffer, {
+      if (!userWantsToSaveTemplate) {
+        // Auto-save first .docx with placeholders as a template to fill
+        for (const doc of docxBuffers) {
+          if (doc.placeholders.length === 0) continue;
+
+          const storagePath = `${workspace.id}/${Date.now()}-${doc.filename}`;
+          await service.storage.from("document-templates").upload(storagePath, doc.buffer, {
             contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
           });
 
-          // Create template record
           const { data: tmpl } = await service.from("document_templates").insert({
             workspace_id: workspace.id,
             user_id: workspace.owner_id,
-            name: att.filename.replace(/\.docx$/i, ""),
+            name: doc.filename.replace(/\.docx$/i, ""),
             description: `Auto-detected from email: ${subject || "attachment"}`,
-            file_name: att.filename,
-            file_size: buffer.length,
+            file_name: doc.filename,
+            file_size: doc.buffer.length,
             storage_path: storagePath,
-            placeholders: parsed.placeholders,
-            sections: parsed.sections,
+            placeholders: doc.placeholders,
+            sections: doc.sections,
           }).select("id").single();
 
           if (tmpl) {
             detectedTemplateId = tmpl.id;
-            // Link template to the work item
             await service.from("work_items").update({
               document_template_id: tmpl.id,
             }).eq("id", workItemId);
-            console.log(`[Inbound Email] Linked template ${tmpl.id} to work item ${workItemId}`);
-            break; // Use the first template found
+            console.log(`[Inbound Email] Auto-linked template ${tmpl.id} to work item ${workItemId}`);
+            break;
           }
-        } catch (e) {
-          console.error(`[Inbound Email] Failed to parse .docx attachment "${att.filename}":`, e);
         }
       }
     }
@@ -347,6 +362,23 @@ export async function POST(request: Request): Promise<Response> {
             documentNames.length > 0 ? documentNames : undefined
           );
           systemPrompt += `\n\nThis is a work item created from an inbound email. Process the email content and provide a helpful response. The current date is ${new Date().toISOString().slice(0, 10)}.`;
+
+          // Tell the agent about all .docx attachments
+          if (docxBuffers.length > 0) {
+            systemPrompt += `\n\nEMAIL ATTACHMENTS — Word documents attached to this email:`;
+            docxBuffers.forEach((doc, idx) => {
+              systemPrompt += `\n[${idx}] "${doc.filename}" (${(doc.buffer.length / 1024).toFixed(0)}KB)`;
+              if (doc.placeholders.length > 0) {
+                systemPrompt += ` — contains {{placeholders}}: ${doc.placeholders.map(p => p.name).join(", ")}`;
+              } else {
+                systemPrompt += ` — standard Word document (no placeholders detected)`;
+              }
+            });
+            systemPrompt += `\n\nIf the user asks you to save any of these as a template for future use, use the save_template block:
+\`\`\`save_template
+{"attachment_index": 0, "name": "Template Name", "description": "What this template is for"}
+\`\`\``;
+          }
 
           // If a .docx template was detected from the email attachments, inject it into the prompt
           if (detectedTemplateId) {
@@ -440,6 +472,62 @@ Fill ALL placeholders based on the email content and your analysis.`;
               }
             } catch (e) {
               console.error("[Inbound Email] save_document failed:", e);
+            }
+          }
+
+          // Check for save_template block — agent wants to save an attachment as a reusable template
+          const saveTemplateMatch = rawText.match(/```save_template\s*\n?([\s\S]*?)\n?```/);
+          if (saveTemplateMatch && docxBuffers.length > 0) {
+            try {
+              const tmplParsed = JSON.parse(saveTemplateMatch[1].trim()) as {
+                attachment_index?: number;
+                name?: string;
+                description?: string;
+              };
+              const idx = tmplParsed.attachment_index ?? 0;
+              const doc = docxBuffers[idx];
+              if (doc) {
+                const templateName = tmplParsed.name || doc.filename.replace(/\.docx$/i, "");
+                const storagePath = `${workspace.id}/${Date.now()}-${doc.filename}`;
+
+                await service.storage.from("document-templates").upload(storagePath, doc.buffer, {
+                  contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                });
+
+                const { data: savedTmpl } = await service.from("document_templates").insert({
+                  workspace_id: workspace.id,
+                  user_id: workspace.owner_id,
+                  name: templateName,
+                  description: tmplParsed.description || `Saved by ${routingResult.agent_name || "agent"} from email: ${subject || "attachment"}`,
+                  file_name: doc.filename,
+                  file_size: doc.buffer.length,
+                  storage_path: storagePath,
+                  placeholders: doc.placeholders,
+                  sections: doc.sections,
+                }).select("id, name").single();
+
+                if (savedTmpl) {
+                  console.log(`[Inbound Email] Agent saved template: "${savedTmpl.name}" (${savedTmpl.id})`);
+
+                  // If the agent that saved this has no default template, assign it
+                  if (routingResult.agent_id) {
+                    const { data: agentCheck } = await service.from("agents")
+                      .select("default_document_template_id")
+                      .eq("id", routingResult.agent_id)
+                      .single();
+                    if (agentCheck && !agentCheck.default_document_template_id) {
+                      await service.from("agents").update({
+                        default_document_template_id: savedTmpl.id,
+                      }).eq("id", routingResult.agent_id);
+                      console.log(`[Inbound Email] Auto-assigned template to agent ${routingResult.agent_id}`);
+                    }
+                  }
+                }
+              } else {
+                console.warn(`[Inbound Email] save_template: attachment_index ${idx} out of range (${docxBuffers.length} attachments)`);
+              }
+            } catch (e) {
+              console.error("[Inbound Email] save_template failed:", e);
             }
           }
         }

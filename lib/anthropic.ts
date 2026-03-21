@@ -470,6 +470,21 @@ RULES:
 5. Fill ALL placeholders — do not leave any empty unless the user says to skip them.`;
   }
 
+  // save_template tool — always available so agents can save .docx attachments as templates
+  prompt += `\n\nSAVING DOCUMENT TEMPLATES:
+When a user sends you a Word document (.docx file) and asks you to save it as a template for future use, use the save_template block. This stores the document in the template library so it can be reused later.
+
+\`\`\`save_template
+{"attachment_index": 0, "name": "Template Name", "description": "Brief description of what this template is for"}
+\`\`\`
+
+- attachment_index: which attachment to save (0 for the first .docx, 1 for the second, etc.)
+- name: a clear descriptive name for the template
+- description: what the template is for (helps with future routing)
+
+Only use this when the user EXPLICITLY asks to save a document as a template. Examples: "save this as a template", "keep this for future use", "add this to my templates", "store this document as a template".
+Do NOT automatically save attachments as templates unless instructed.`;
+
   if (options?.reportEdits && options.reportEdits.length > 0) {
     prompt += `\n\nREPORT FEEDBACK — The user has edited your previous reports. Study these corrections carefully and apply the same improvements to future reports:\n`;
     for (const edit of options.reportEdits) {
@@ -561,6 +576,7 @@ export function cleanResponse(text: string, streaming = false): string {
   cleaned = cleaned.replace(/```github_\w+\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```gcal_\w+\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```save_document\s*\n?[\s\S]*?\n?```/g, "");
+  cleaned = cleaned.replace(/```save_template\s*\n?[\s\S]*?\n?```/g, "");
 
   if (streaming) {
     // Remove incomplete opening tags whose closing tag hasn't arrived yet.
@@ -580,6 +596,7 @@ export function cleanResponse(text: string, streaming = false): string {
     cleaned = cleaned.replace(/```github_\w+[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```gcal_\w+[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```save_document[\s\S]*$/g, "");
+    cleaned = cleaned.replace(/```save_template[\s\S]*$/g, "");
   }
 
   // Strip leading [AgentName] or [You] bracket prefix that agents sometimes generate
