@@ -238,6 +238,51 @@ export default function WorkItemPage() {
             >
               {statusConfig.label}
             </span>
+            {/* Agent assignment / reassignment */}
+            {showReassign ? (
+              <select
+                autoFocus
+                className="text-[12px] rounded-lg px-2 py-1 border shrink-0"
+                style={{
+                  background: "var(--color-bg)",
+                  color: "var(--color-text)",
+                  borderColor: "var(--color-border)",
+                }}
+                defaultValue={workItem.agent_id || ""}
+                onChange={(e) => {
+                  if (e.target.value) reassignAgent(e.target.value);
+                }}
+                onBlur={() => setShowReassign(false)}
+              >
+                <option value="" disabled>Select agent...</option>
+                {agents.map((a) => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </select>
+            ) : agent ? (
+              <button
+                onClick={() => setShowReassign(true)}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-transparent border border-[var(--color-border)] cursor-pointer transition-colors hover:bg-[var(--color-hover)] shrink-0"
+              >
+                <Avatar name={agent.name} color={agent.color} size={18} />
+                <span className="text-[12px] font-medium text-[var(--color-text-secondary)]">{agent.name}</span>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-tertiary)" strokeWidth="2.5">
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowReassign(true)}
+                className="px-2 py-1 rounded-lg text-[12px] font-medium border cursor-pointer transition-colors hover:bg-[var(--color-hover)] shrink-0"
+                style={{
+                  background: "transparent",
+                  color: "var(--color-orange)",
+                  borderColor: "var(--color-orange)",
+                }}
+              >
+                Assign agent
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {workItem.report_id && (
@@ -301,51 +346,18 @@ export default function WorkItemPage() {
       <div className={`flex-col shrink-0 w-full md:w-[380px] bg-[var(--color-bg)] ${mobileView === "chat" ? "flex" : "hidden md:flex"}`}>
         {/* Chat header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--color-border)] shrink-0">
-          {showReassign ? (
-            <select
-              autoFocus
-              className="text-[13px] rounded px-2 py-1 border"
-              style={{
-                background: "var(--color-bg)",
-                color: "var(--color-text)",
-                borderColor: "var(--color-border)",
-              }}
-              defaultValue={workItem.agent_id || ""}
-              onChange={(e) => {
-                if (e.target.value) reassignAgent(e.target.value);
-              }}
-              onBlur={() => setShowReassign(false)}
-            >
-              <option value="" disabled>Select agent...</option>
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
-              ))}
-            </select>
-          ) : agent ? (
-            <button
-              onClick={() => setShowReassign(true)}
-              className="flex items-center gap-2 bg-transparent border-none cursor-pointer p-0 group"
-              title="Reassign to a different agent"
-            >
+          {agent ? (
+            <>
               <Avatar name={agent.name} color={agent.color} size={24} />
-              <span className="text-[13px] font-medium text-[var(--color-text)] group-hover:text-[var(--color-accent)] transition-colors">{agent.name}</span>
+              <span className="text-[13px] font-medium text-[var(--color-text)]">{agent.name}</span>
               {agent.role && (
                 <span className="text-[11px] px-1.5 py-0.5 rounded bg-[var(--color-hover)] text-[var(--color-text-tertiary)]">
                   {agent.role}
                 </span>
               )}
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-tertiary)" strokeWidth="2" className="opacity-0 group-hover:opacity-100 transition-opacity">
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </button>
+            </>
           ) : (
-            <button
-              onClick={() => setShowReassign(true)}
-              className="text-[13px] font-medium bg-transparent border-none cursor-pointer p-0"
-              style={{ color: "var(--color-orange)" }}
-            >
-              Assign agent...
-            </button>
+            <span className="text-[13px] font-medium text-[var(--color-text-secondary)]">Chat</span>
           )}
           <div className="flex-1" />
           {/* Run / Re-run button */}
