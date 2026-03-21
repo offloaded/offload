@@ -17,10 +17,10 @@ export async function GET(
   const { id } = await params;
   const service = createServiceSupabase();
 
-  // Fetch work item with agent info
+  // Fetch work item with agent info and linked report in a single query
   const { data: workItem, error } = await service
     .from("work_items")
-    .select("*, agents(name, color)")
+    .select("*, agents(name, color), reports(title, content)")
     .eq("id", id)
     .eq("workspace_id", ctx.workspaceId)
     .single();
@@ -29,20 +29,11 @@ export async function GET(
     return NextResponse.json({ error: "Work item not found" }, { status: 404 });
   }
 
-  // Flatten agent info
-  const { agents, ...rest } = workItem as Record<string, unknown>;
+  // Flatten agent and report info
+  const { agents, reports, ...rest } = workItem as Record<string, unknown>;
   const agent = agents as { name: string; color: string } | null;
-
-  // Fetch linked report content
-  let reportData: { title: string; content: string; id?: string } | null = null;
-  if (rest.report_id) {
-    const { data: report } = await service
-      .from("reports")
-      .select("title, content")
-      .eq("id", rest.report_id as string)
-      .single();
-    reportData = report || null;
-  }
+  let reportData: { title: string; content: string; id?: string } | null =
+    (reports as { title: string; content: string } | null) || null;
 
   // Fallback: if the linked report is empty but there's a report saved from this conversation,
   // find it and link it to the work item (fixes previously orphaned reports)
@@ -59,20 +50,18 @@ export async function GET(
 
     if (convReport && convReport.content) {
       reportData = convReport;
-      // Also fix the link so future loads are fast
+      // Fire-and-forget: fix the link so future loads are fast
       if (rest.report_id && rest.report_id !== convReport.id) {
-        // Update the linked report with the content from the orphaned report
-        await service.from("reports").update({
+        service.from("reports").update({
           title: convReport.title,
           content: convReport.content,
           updated_at: new Date().toISOString(),
-        }).eq("id", rest.report_id as string);
+        }).eq("id", rest.report_id as string).then(() => {}, () => {});
       } else if (!rest.report_id) {
-        // Link the found report to the work item
-        await service.from("work_items").update({
+        service.from("work_items").update({
           report_id: convReport.id,
           updated_at: new Date().toISOString(),
-        }).eq("id", id);
+        }).eq("id", id).then(() => {}, () => {});
       }
     }
   }

@@ -1,8 +1,10 @@
 import { createServiceSupabase } from "@/lib/supabase-server";
 import { getWorkspaceContext, hasPermission } from "@/lib/workspace";
+import { perfStart } from "@/lib/perf";
 import { NextResponse } from "next/server";
 
 export async function GET() {
+  const perfEnd = perfStart("GET /api/teams");
   const ctx = await getWorkspaceContext();
   if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -10,10 +12,10 @@ export async function GET() {
 
   const service = createServiceSupabase();
 
-  // Fetch all teams in workspace with their agent members
+  // Fetch all teams in workspace with their agent members — select only needed columns
   const { data: teams, error } = await service
     .from("teams")
-    .select("*, team_members(agent_id)")
+    .select("id, user_id, workspace_id, name, description, is_system, visibility, created_by, last_message_at, created_at, updated_at, team_members(agent_id)")
     .eq("workspace_id", ctx.workspaceId)
     .order("last_message_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: true });
@@ -58,6 +60,7 @@ export async function GET() {
     agent_ids: (t.team_members || []).map((m: { agent_id: string }) => m.agent_id),
   }));
 
+  perfEnd(result?.length);
   return NextResponse.json(result);
 }
 

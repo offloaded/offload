@@ -19,29 +19,21 @@ export async function GET(
   const { id } = await params;
   const service = createServiceSupabase();
 
-  // Verify the work item belongs to this workspace
-  const { data: workItem } = await service
-    .from("work_items")
-    .select("id")
-    .eq("id", id)
-    .eq("workspace_id", ctx.workspaceId)
-    .single();
+  // Run verification and data fetch in parallel
+  const [verifyResult, execResult] = await Promise.all([
+    service.from("work_items").select("id").eq("id", id).eq("workspace_id", ctx.workspaceId).single(),
+    service.from("work_execution_contexts").select("id, work_item_id, agent_id, conversation_id, status, context_summary, created_at").eq("work_item_id", id).order("created_at", { ascending: false }).limit(10),
+  ]);
 
-  if (!workItem) {
+  if (!verifyResult.data) {
     return NextResponse.json({ error: "Work item not found" }, { status: 404 });
   }
 
-  const { data, error } = await service
-    .from("work_execution_contexts")
-    .select("*")
-    .eq("work_item_id", id)
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (execResult.error) {
+    return NextResponse.json({ error: execResult.error.message }, { status: 500 });
   }
 
-  return NextResponse.json(data || []);
+  return NextResponse.json(execResult.data || []);
 }
 
 // POST /api/work-items/[id]/executions — create a new execution context (new run)

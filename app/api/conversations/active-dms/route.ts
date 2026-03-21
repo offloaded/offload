@@ -1,5 +1,6 @@
 import { createServiceSupabase } from "@/lib/supabase-server";
 import { getWorkspaceContext } from "@/lib/workspace";
+import { perfStart } from "@/lib/perf";
 import { NextResponse } from "next/server";
 
 /**
@@ -8,6 +9,7 @@ import { NextResponse } from "next/server";
  * sorted by most recent activity.
  */
 export async function GET() {
+  const perfEnd = perfStart("GET /api/conversations/active-dms");
   const ctx = await getWorkspaceContext();
   if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -57,16 +59,24 @@ export async function GET() {
     unique.push(c);
   }
 
-  // Check which conversations have at least one message
+  // Check which conversations have at least one message — use one query per conversation
+  // but only check the first few (most are active) and batch with Promise.all
   const convIds = unique.map((c) => c.id);
-  const { data: messageCounts } = await service
-    .from("messages")
-    .select("conversation_id")
-    .in("conversation_id", convIds)
-    .limit(1000);
+
+  // Batch existence checks — one lightweight query per conversation
+  const existenceChecks = await Promise.all(
+    convIds.map((id) =>
+      service
+        .from("messages")
+        .select("id", { count: "exact", head: true })
+        .eq("conversation_id", id)
+        .limit(1)
+        .then(({ count }) => ({ id, hasMessages: (count || 0) > 0 }))
+    )
+  );
 
   const convsWithMessages = new Set(
-    (messageCounts || []).map((m) => m.conversation_id)
+    existenceChecks.filter((c) => c.hasMessages).map((c) => c.id)
   );
 
   // Return only agents with actual messages, preserving recency order
@@ -77,5 +87,6 @@ export async function GET() {
       last_message_at: c.updated_at,
     }));
 
+  perfEnd(result?.length);
   return NextResponse.json(result);
 }

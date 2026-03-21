@@ -1,9 +1,11 @@
 import { createServerSupabase, createServiceSupabase } from "@/lib/supabase-server";
 import { getWorkspaceContext, hasPermission } from "@/lib/workspace";
 import { generateAndSaveKeywords } from "@/lib/routing-keywords";
+import { perfStart } from "@/lib/perf";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
+  const perfEnd = perfStart("GET /api/agents");
   const ctx = await getWorkspaceContext();
   if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -13,9 +15,12 @@ export async function GET(request: Request) {
   const includeDeleted = searchParams.get("include_deleted") === "true";
 
   const service = createServiceSupabase();
+  // Select only the columns needed by the sidebar/UI — skip large text fields like system_prompt, knowledge_base
+  const columns = "id, workspace_id, name, role, purpose, color, model, created_at, last_message_at, deleted_at, asana_enabled, asana_projects, github_enabled, github_repos, google_calendar_enabled, google_calendar_ids, working_style, communication_style, soft_skills, team_expectations";
+
   let query = service
     .from("agents")
-    .select("*")
+    .select(columns)
     .eq("workspace_id", ctx.workspaceId);
 
   if (!includeDeleted) {
@@ -31,7 +36,7 @@ export async function GET(request: Request) {
     if (error.message?.includes("deleted_at")) {
       const { data: fallback, error: fbError } = await service
         .from("agents")
-        .select("*")
+        .select(columns)
         .eq("workspace_id", ctx.workspaceId)
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: true });
@@ -41,6 +46,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  perfEnd(data?.length);
   return NextResponse.json(data);
 }
 

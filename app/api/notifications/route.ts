@@ -1,9 +1,11 @@
 import { createServiceSupabase } from "@/lib/supabase-server";
 import { getWorkspaceContext } from "@/lib/workspace";
+import { perfStart } from "@/lib/perf";
 import { NextResponse } from "next/server";
 
 // GET /api/notifications — fetch notifications for the current user
 export async function GET(request: Request): Promise<Response> {
+  const perfEnd = perfStart("GET /api/notifications");
   const ctx = await getWorkspaceContext();
   if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -13,17 +15,30 @@ export async function GET(request: Request): Promise<Response> {
   const unreadOnly = searchParams.get("unread_only") === "true";
 
   const service = createServiceSupabase();
-  let query = service
-    .from("work_notifications")
-    .select("*")
-    .eq("user_id", ctx.user.id)
-    .eq("workspace_id", ctx.workspaceId);
 
+  // Fast path: when only count is needed (initial page load), use count query
   if (unreadOnly) {
-    query = query.eq("read", false);
+    const { count, error } = await service
+      .from("work_notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", ctx.user.id)
+      .eq("workspace_id", ctx.workspaceId)
+      .eq("read", false);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    perfEnd(0);
+    return NextResponse.json({ unread_count: count || 0, notifications: [] });
   }
 
-  const { data, error } = await query.order("created_at", { ascending: false });
+  const { data, error } = await service
+    .from("work_notifications")
+    .select("id, type, title, message, read, work_item_id, created_at")
+    .eq("user_id", ctx.user.id)
+    .eq("workspace_id", ctx.workspaceId)
+    .order("created_at", { ascending: false })
+    .limit(50);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -32,6 +47,7 @@ export async function GET(request: Request): Promise<Response> {
   const notifications = data || [];
   const unread_count = notifications.filter((n) => !n.read).length;
 
+  perfEnd(notifications?.length);
   return NextResponse.json({ unread_count, notifications });
 }
 

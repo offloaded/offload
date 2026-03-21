@@ -1,10 +1,12 @@
 import { createServiceSupabase } from "@/lib/supabase-server";
 import { getWorkspaceContext } from "@/lib/workspace";
 import { routeByKeywords } from "@/lib/routing-keywords";
+import { perfStart } from "@/lib/perf";
 import { NextResponse } from "next/server";
 
 // GET /api/work-items — list work items for the current workspace
 export async function GET(request: Request) {
+  const perfEnd = perfStart("GET /api/work-items");
   const ctx = await getWorkspaceContext();
   if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -15,32 +17,35 @@ export async function GET(request: Request) {
 
   const service = createServiceSupabase();
 
+  // Select only columns needed for list view — skip large instructions/report fields
+  const listColumns = "id, workspace_id, user_id, agent_id, title, status, report_id, conversation_id, source, created_at, updated_at";
+
   // Try with inbound_emails join first, fall back without it if the table/column doesn't exist
   let query = service
     .from("work_items")
-    .select("*, agents(name, color), inbound_emails(from_address, from_name, subject)")
+    .select(`${listColumns}, agents(name, color), inbound_emails(from_address, from_name, subject)`)
     .eq("workspace_id", ctx.workspaceId);
 
   if (status) {
     query = query.eq("status", status);
   }
 
-  let { data, error } = await query.order("updated_at", { ascending: false });
+  let { data, error } = await query.order("updated_at", { ascending: false }).limit(100);
 
   // Fallback: if the inbound_emails join fails (column/table may not exist yet)
   if (error) {
     console.warn("[WorkItems] Query with inbound_emails join failed, falling back:", error.message);
     let fallbackQuery = service
       .from("work_items")
-      .select("*, agents(name, color)")
+      .select(`${listColumns}, agents(name, color)`)
       .eq("workspace_id", ctx.workspaceId);
 
     if (status) {
       fallbackQuery = fallbackQuery.eq("status", status);
     }
 
-    const fallback = await fallbackQuery.order("updated_at", { ascending: false });
-    data = fallback.data;
+    const fallback = await fallbackQuery.order("updated_at", { ascending: false }).limit(100);
+    data = fallback.data as typeof data;
     error = fallback.error;
   }
 
@@ -62,6 +67,7 @@ export async function GET(request: Request) {
     };
   });
 
+  perfEnd(items?.length);
   return NextResponse.json(items);
 }
 

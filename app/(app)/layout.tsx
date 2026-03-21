@@ -9,7 +9,7 @@ import WorkSidebar from "@/components/WorkSidebar";
 import MobileTabBar from "@/components/MobileTabBar";
 import { useRouter, usePathname } from "next/navigation";
 import type { Agent, Team, Workspace, WorkItem } from "@/lib/types";
-import { preloadAllChats } from "@/lib/chat-cache";
+// preloadAllChats removed — chats are loaded on-demand when opened
 
 interface TeamWithAgents extends Team {
   agent_ids: string[];
@@ -309,7 +309,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (res.ok) {
       const data = await res.json();
       setAgents(data);
-      preloadAllChats(data.map((a: Agent) => a.id));
     }
     if (resAll.ok) {
       const dataAll = await resAll.json();
@@ -520,19 +519,27 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     });
   }, [supabase, router, refreshAgents, refreshTeams, refreshActiveDms, refreshTaskCount, refreshUnreadCounts, checkNewActivity, refreshWorkspace, refreshReportCount, refreshWorkItems, refreshWorkNotifications]);
 
-  // Poll for unread counts and new activity every 20 seconds
+  // Poll for unread counts and new activity — pause when tab is hidden
   useEffect(() => {
     if (!checked) return;
+    let tickCount = 0;
     const interval = setInterval(() => {
+      // Don't poll when tab is hidden — saves resources
+      if (document.hidden) return;
+      tickCount++;
+      // Fast poll (every 30s): unread counts, notifications
       refreshUnreadCounts();
-      checkNewActivity();
-      refreshAgents();
-      refreshTeams();
-      refreshActiveDms();
       refreshWorkNotifications();
-    }, 20_000);
+      // Slow poll (every 60s): agents, teams, active DMs, activity
+      if (tickCount % 2 === 0) {
+        checkNewActivity();
+        refreshAgents();
+        refreshTeams();
+        refreshActiveDms();
+      }
+    }, 30_000);
     return () => clearInterval(interval);
-  }, [checked, refreshUnreadCounts, checkNewActivity, refreshAgents, refreshTeams, refreshActiveDms]);
+  }, [checked, refreshUnreadCounts, checkNewActivity, refreshAgents, refreshTeams, refreshActiveDms, refreshWorkNotifications]);
 
   // Realtime: listen for new conversations (cross-tab, background tasks)
   useEffect(() => {

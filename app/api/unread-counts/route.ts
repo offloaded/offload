@@ -1,7 +1,9 @@
 import { createServerSupabase } from "@/lib/supabase-server";
+import { perfStart } from "@/lib/perf";
 import { NextResponse } from "next/server";
 
 export async function GET() {
+  const perfEnd = perfStart("GET /api/unread-counts");
   const supabase = await createServerSupabase();
   const {
     data: { user },
@@ -25,5 +27,6 @@ export async function GET() {
     counts[row.chat_key] = row.unread_count;
   }
 
+  perfEnd(Object.keys(counts).length);
   return NextResponse.json(counts);
 }
