@@ -3,6 +3,7 @@ import { getWorkspaceContext } from "@/lib/workspace";
 import { getAnthropicClient, buildSystemPrompt, cleanResponse, resolveModel } from "@/lib/anthropic";
 import { retrieveContext, type RetrievedChunk } from "@/lib/rag";
 import { asanaPreFetch, ASANA_KEYWORDS } from "@/lib/asana";
+import { parseSaveReportBlock } from "@/lib/tool-execution";
 import { NextResponse } from "next/server";
 
 // GET /api/work-items/[id]/executions — list execution contexts for a work item
@@ -225,5 +226,30 @@ async function runAgentResponse(
       role: "assistant",
       content: responseText,
     });
+  }
+
+  // Check for save_report block in the agent's response and update the linked report
+  const saveReportMatch = rawText.match(/```save_report(?!_)\s*\n?([\s\S]*?)\n?```/);
+  if (saveReportMatch) {
+    const parsed = parseSaveReportBlock(saveReportMatch[1].trim());
+    if (parsed) {
+      // Look up the work item's linked report
+      const { data: wi } = await service
+        .from("work_items")
+        .select("report_id")
+        .eq("conversation_id", conversationId)
+        .single();
+
+      if (wi?.report_id) {
+        await service.from("reports").update({
+          title: parsed.title,
+          content: parsed.content,
+          agent_id: agentId,
+          source: "agent",
+          updated_at: new Date().toISOString(),
+        }).eq("id", wi.report_id);
+        console.log(`[WorkExecution] Updated linked report ${wi.report_id} with save_report content`);
+      }
+    }
   }
 }

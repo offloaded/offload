@@ -34,7 +34,7 @@ export async function GET(
   const agent = agents as { name: string; color: string } | null;
 
   // Fetch linked report content
-  let reportData: { title: string; content: string } | null = null;
+  let reportData: { title: string; content: string; id?: string } | null = null;
   if (rest.report_id) {
     const { data: report } = await service
       .from("reports")
@@ -42,6 +42,39 @@ export async function GET(
       .eq("id", rest.report_id as string)
       .single();
     reportData = report || null;
+  }
+
+  // Fallback: if the linked report is empty but there's a report saved from this conversation,
+  // find it and link it to the work item (fixes previously orphaned reports)
+  if ((!reportData || !reportData.content) && rest.conversation_id) {
+    const { data: convReport } = await service
+      .from("reports")
+      .select("id, title, content")
+      .eq("conversation_id", rest.conversation_id as string)
+      .eq("workspace_id", ctx.workspaceId)
+      .neq("content", "")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (convReport && convReport.content) {
+      reportData = convReport;
+      // Also fix the link so future loads are fast
+      if (rest.report_id && rest.report_id !== convReport.id) {
+        // Update the linked report with the content from the orphaned report
+        await service.from("reports").update({
+          title: convReport.title,
+          content: convReport.content,
+          updated_at: new Date().toISOString(),
+        }).eq("id", rest.report_id as string);
+      } else if (!rest.report_id) {
+        // Link the found report to the work item
+        await service.from("work_items").update({
+          report_id: convReport.id,
+          updated_at: new Date().toISOString(),
+        }).eq("id", id);
+      }
+    }
   }
 
   return NextResponse.json({
