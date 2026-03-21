@@ -1,6 +1,7 @@
 import { createServiceSupabase } from "@/lib/supabase-server";
 import { getWorkspaceContext } from "@/lib/workspace";
 import { parseDocxTemplate, isValidDocx } from "@/lib/docx-template-parser";
+import mammoth from "mammoth";
 import { NextResponse } from "next/server";
 
 // POST /api/document-templates/upload — upload a .docx template
@@ -41,6 +42,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to parse template placeholders" }, { status: 400 });
   }
 
+  // Extract HTML content from the .docx for in-app editing and agent readability
+  let htmlContent = "";
+  try {
+    const result = await mammoth.convertToHtml({ buffer });
+    htmlContent = result.value || "";
+  } catch (err) {
+    console.warn("[DocTemplates] mammoth extraction failed (non-fatal):", err);
+  }
+
   const service = createServiceSupabase();
 
   // Upload to storage
@@ -66,13 +76,14 @@ export async function POST(request: Request) {
       user_id: ctx.user.id,
       name: templateName,
       description: description.trim(),
+      content: htmlContent,
       file_name: file.name,
       file_size: buffer.length,
       storage_path: storagePath,
       placeholders: parsed.placeholders,
       sections: parsed.sections,
     })
-    .select("id, name, file_name, file_size, placeholders, sections, created_at")
+    .select("id, name, file_name, file_size, placeholders, sections, content, created_at")
     .single();
 
   if (error) {

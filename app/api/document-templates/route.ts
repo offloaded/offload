@@ -12,7 +12,7 @@ export async function GET() {
   const service = createServiceSupabase();
   const { data, error } = await service
     .from("document_templates")
-    .select("id, name, description, file_name, file_size, placeholders, sections, created_at, updated_at")
+    .select("id, name, description, content, file_name, file_size, placeholders, sections, created_at, updated_at")
     .eq("workspace_id", ctx.workspaceId)
     .order("created_at", { ascending: false });
 

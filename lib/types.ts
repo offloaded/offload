@@ -204,6 +204,7 @@ export interface DocumentTemplate {
   user_id: string;
   name: string;
   description: string;
+  content: string;
   file_name: string;
   file_size: number;
   storage_path: string;

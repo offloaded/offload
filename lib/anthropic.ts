@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { htmlToReadableText } from "@/lib/html-to-readable";
 
 export const DEFAULT_MODEL = "claude-sonnet-4-5-20250929";
 
@@ -101,7 +102,7 @@ export function buildSystemPrompt(
     reportTemplates?: Array<{ id: string; name: string; description: string; structure?: Array<{ heading: string; description: string }> }>;
     assignedTemplates?: Array<{ id: string; name: string; description: string; structure?: Array<{ heading: string; description: string }> }>;
     recentReports?: Array<{ id: string; title: string; generated_title?: string; content: string; agent_name?: string; updated_at: string; is_mine?: boolean }>;
-    documentTemplates?: Array<{ id: string; name: string; placeholders: Array<{ name: string; label: string; description: string }>; sections: Record<string, { heading: string; description: string }> }>;
+    documentTemplates?: Array<{ id: string; name: string; content?: string; placeholders: Array<{ name: string; label: string; description: string }>; sections: Record<string, { heading: string; description: string }> }>;
     asanaProjects?: Array<{ gid: string; name: string }>;
     githubRepos?: Array<{ full_name: string; name: string }>;
     googleCalendars?: Array<{ id: string; name: string }>;
@@ -450,10 +451,21 @@ You have access to Word document templates. When the user asks you to fill a tem
 Available templates:`;
     for (const dt of options.documentTemplates) {
       prompt += `\n\n### ${dt.name} (ID: ${dt.id})`;
-      prompt += `\nPlaceholders to fill:`;
-      for (const ph of dt.placeholders) {
-        const section = dt.sections[ph.name];
-        prompt += `\n- **${ph.name}** (${ph.label}): ${section?.description || ph.description || "Content for this field"}`;
+
+      // Include the template's full content as readable text — this is the template's instructions/guide
+      if (dt.content) {
+        const readableContent = htmlToReadableText(dt.content);
+        if (readableContent) {
+          prompt += `\n\nTemplate content (use as guidance for what to write in each section):\n${readableContent}`;
+        }
+      }
+
+      if (dt.placeholders.length > 0) {
+        prompt += `\nPlaceholders to fill:`;
+        for (const ph of dt.placeholders) {
+          const section = dt.sections[ph.name];
+          prompt += `\n- **${ph.name}** (${ph.label}): ${section?.description || ph.description || "Content for this field"}`;
+        }
       }
     }
     prompt += `\n
