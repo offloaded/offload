@@ -525,6 +525,26 @@ export default function WorkItemPage() {
                   )}
                 </div>
               ))}
+              {/* Typing indicator — show when agent is working on a response */}
+              {agent && (sending || (execCtx?.status === "running" && (messages.length === 0 || messages[messages.length - 1]?.role === "user"))) && (
+                <div className="flex flex-col items-start">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Avatar name={agent.name} color={agent.color} size={20} />
+                    <span className="text-[11px] text-[var(--color-accent)]">{agent.name}</span>
+                  </div>
+                  <div className="rounded-2xl rounded-tl-sm px-3.5 py-2.5 bg-[var(--color-surface-raised)]">
+                    <div className="flex items-center gap-1">
+                      {[0, 1, 2].map((d) => (
+                        <div
+                          key={d}
+                          className="w-[6px] h-[6px] rounded-full bg-[var(--color-text-tertiary)]"
+                          style={{ animation: `typing-dot 1.2s ease-in-out ${d * 0.15}s infinite` }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
               <div ref={chatEndRef} />
             </>
           )}
