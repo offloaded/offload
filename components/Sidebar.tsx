@@ -338,7 +338,7 @@ function ComposeModal({ open, onClose, agents, workspaceId, canCreateTeam }: Com
               <span key={`${p.type}:${p.id}`} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-medium bg-[var(--color-accent-soft)] text-[var(--color-accent)]">
                 {p.type === "agent" && <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />}
                 {p.name}
-                <button onClick={() => removeParticipant(p.id, p.type)} className="bg-transparent border-none text-[var(--color-accent)] cursor-pointer p-0 flex ml-0.5 hover:opacity-70"><XIcon /></button>
+                <button onClick={() => removeParticipant(p.id, p.type)} className="bg-transparent border-none text-[var(--color-accent)] cursor-pointer p-1 flex ml-0.5 hover:opacity-70"><XIcon /></button>
               </span>
             ))}
             <input
@@ -644,10 +644,10 @@ export function SidebarContent({
                           e.stopPropagation();
                           onHideDm?.(a.id);
                         }}
-                        className="absolute right-1 opacity-0 group-hover/dm:opacity-100 transition-opacity p-0.5 rounded hover:bg-[var(--color-hover)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+                        className="absolute right-1 opacity-0 group-hover/dm:opacity-100 transition-opacity p-2 rounded hover:bg-[var(--color-hover)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
                         title="Hide from sidebar"
                       >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                       </button>
                     </div>
                   );

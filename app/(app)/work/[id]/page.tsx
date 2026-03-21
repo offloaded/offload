@@ -244,10 +244,12 @@ export default function WorkItemPage() {
         {/* Title + agent bar */}
         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--color-border)]">
           <button
-            onClick={() => { if (mobile) openDrawer(); }}
-            className="md:hidden bg-transparent border-none cursor-pointer p-0 flex text-[var(--color-text-secondary)]"
+            onClick={() => { if (mobile) router.push("/work"); }}
+            className="md:hidden bg-transparent border-none cursor-pointer p-1 flex text-[var(--color-text-secondary)]"
           >
-            <MenuIcon />
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
           </button>
           <h1 className="text-[14px] font-semibold text-[var(--color-text)] truncate flex-1">
             {workItem.title}
@@ -303,6 +305,35 @@ export default function WorkItemPage() {
             </button>
           )}
         </div>
+        {/* Mobile action buttons */}
+        {(workItem.report_id || workItem.status === "review" || workItem.status === "complete") && (
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--color-border)]">
+            {workItem.report_id && (
+              <button
+                onClick={() => openReport(workItem.report_id!)}
+                className="px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all bg-transparent border border-[var(--color-border)] text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)]"
+              >
+                Export
+              </button>
+            )}
+            {workItem.status === "review" && (
+              <button
+                onClick={() => updateStatus("complete")}
+                className="px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all bg-[var(--color-accent)] text-white border-none cursor-pointer hover:opacity-90"
+              >
+                Mark Complete
+              </button>
+            )}
+            {workItem.status === "complete" && (
+              <button
+                onClick={() => updateStatus("in_progress")}
+                className="px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all bg-transparent border border-[var(--color-border)] text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-hover)]"
+              >
+                Reopen
+              </button>
+            )}
+          </div>
+        )}
         {/* Tab toggle */}
         <div className="flex items-center">
           <button
@@ -552,7 +583,7 @@ export default function WorkItemPage() {
 
         {/* Chat input — only shown when there's an active execution */}
         {canChat && (
-          <div className="px-4 py-3 border-t border-[var(--color-border)]">
+          <div className="px-4 py-3 pb-[max(12px,env(safe-area-inset-bottom))] md:pb-3 border-t border-[var(--color-border)]">
             <div className="flex items-center rounded-xl px-3.5 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)]">
               <input
                 ref={fileInputRef}
@@ -572,7 +603,7 @@ export default function WorkItemPage() {
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="mr-2 bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-0 flex hover:text-[var(--color-text-secondary)]"
+                className="mr-2 bg-transparent border-none text-[var(--color-text-tertiary)] cursor-pointer p-1.5 flex hover:text-[var(--color-text-secondary)]"
               >
                 <PaperclipIcon />
               </button>
@@ -587,7 +618,7 @@ export default function WorkItemPage() {
               <button
                 onClick={handleSend}
                 disabled={!chatInput.trim() || sending}
-                className="bg-transparent border-none text-[var(--color-accent)] cursor-pointer p-0 flex disabled:opacity-30"
+                className="bg-transparent border-none text-[var(--color-accent)] cursor-pointer p-1.5 flex disabled:opacity-30"
               >
                 <SendIcon />
               </button>

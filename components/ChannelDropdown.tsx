@@ -22,7 +22,7 @@ export function ChannelDropdown({
   if (filtered.length === 0) return null;
 
   return (
-    <div className="absolute bottom-full left-0 right-0 mb-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-lg overflow-hidden z-50 max-h-[200px] overflow-y-auto max-w-full">
+    <div className="absolute bottom-full left-0 right-0 mb-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-lg overflow-hidden z-50 max-h-[min(200px,40vh)] overflow-y-auto max-w-full">
       {filtered.map((c, i) => (
         <button
           key={c.id}

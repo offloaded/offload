@@ -310,7 +310,7 @@ function EmptyState({ message, t }: { message: string; t: typeof themes.light })
 // -- Main Dashboard Component ----------------------------------------------------
 
 export default function DashboardPage() {
-  const { workspace } = useApp();
+  const { workspace, mobile } = useApp();
   const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -424,7 +424,7 @@ export default function DashboardPage() {
     <div
       style={{
         background: t.pageBg,
-        padding: 24,
+        padding: mobile ? "16px 16px 80px" : 24,
         minHeight: "100vh",
         overflowY: "auto",
         fontFamily: "var(--font-sans, system-ui, sans-serif)",
@@ -439,7 +439,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Metric Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: mobile ? "repeat(2, minmax(0, 1fr))" : "repeat(4, minmax(0, 1fr))", gap: 10, marginBottom: 16 }}>
         {loading ? (
           Array.from({ length: 4 }).map((_, i) => (
             <div key={i} style={{ background: t.cardBg, border: `1px solid ${t.cardBorder}`, borderRadius: 12, padding: "14px 16px" }}>
@@ -470,7 +470,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Main Grid: Work Items + Agent Activity / Upcoming */}
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.55fr) minmax(0, 1fr)", gap: 16, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "minmax(0, 1.55fr) minmax(0, 1fr)", gap: 16, marginBottom: 16 }}>
 
         {/* Work Items */}
         {loading ? (

@@ -242,7 +242,7 @@ function MentionDropdown({
   if (filtered.length === 0) return null;
 
   return (
-    <div className="absolute bottom-full left-0 right-0 mb-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-lg overflow-hidden z-50 max-h-[200px] overflow-y-auto max-w-full">
+    <div className="absolute bottom-full left-0 right-0 mb-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-lg overflow-hidden z-50 max-h-[min(200px,40vh)] overflow-y-auto max-w-full">
       {filtered.map((a, i) => (
         <button
           key={a.id}
@@ -635,7 +635,7 @@ function GroupChatInput({
 
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-50 md:static md:z-10 md:shrink-0 bg-[var(--color-surface)] px-3 pt-2 pb-[max(16px,env(safe-area-inset-bottom))] md:px-6 md:pb-5"
+      className="fixed bottom-[60px] left-0 right-0 z-50 md:static md:bottom-auto md:z-10 md:shrink-0 bg-[var(--color-surface)] px-3 pt-2 pb-[max(8px,env(safe-area-inset-bottom))] md:px-6 md:pb-5"
     >
       <div className="relative">
         {mentionOpen && filteredMentionAgents.length > 0 && (
@@ -674,7 +674,7 @@ function GroupChatInput({
               </span>
               <button
                 onClick={() => setAttachedFile(null)}
-                className="bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] cursor-pointer p-0 flex"
+                className="bg-transparent border-none text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] cursor-pointer p-1.5 flex"
               >
                 <XIcon />
               </button>
@@ -1034,7 +1034,7 @@ export function GroupChatView({
       {/* Messages — padded for fixed header/input on mobile */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto overflow-x-hidden pt-[52px] pb-[72px] md:pt-4 md:pb-2 min-h-0"
+        className="flex-1 overflow-y-auto overflow-x-hidden pt-[60px] pb-[132px] md:pt-4 md:pb-2 min-h-0"
       >
         <div className="flex flex-col justify-end min-h-full">
         <div ref={sentinelRef} className="h-1" />
