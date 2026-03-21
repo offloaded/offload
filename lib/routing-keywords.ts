@@ -200,7 +200,7 @@ export async function refineAgentKeywords(agentId: string): Promise<{
     }
   }
 
-  // Also include manual assignment data
+  // Also include manual assignment data (positive signal: assigned TO this agent)
   const { data: manualAssignments } = await service
     .from("manual_assignments")
     .select("work_item_title, work_item_instructions")
@@ -211,7 +211,18 @@ export async function refineAgentKeywords(agentId: string): Promise<{
     `${a.work_item_title || ""} ${(a.work_item_instructions || "").slice(0, 200)}`
   ).filter(Boolean);
 
-  if (firstMessages.length === 0 && assignmentTopics.length === 0) return null;
+  // Negative signal: work items reassigned AWAY from this agent
+  const { data: reassignedAway } = await service
+    .from("manual_assignments")
+    .select("work_item_title, work_item_instructions")
+    .eq("previous_agent_id", agentId)
+    .gte("assigned_at", thirtyDaysAgo);
+
+  const reassignedAwayTopics = (reassignedAway || []).map((a) =>
+    `${a.work_item_title || ""} ${(a.work_item_instructions || "").slice(0, 200)}`
+  ).filter(Boolean);
+
+  if (firstMessages.length === 0 && assignmentTopics.length === 0 && reassignedAwayTopics.length === 0) return null;
 
   // Extract topics via Haiku
   const client = getAnthropicClient();
@@ -248,7 +259,8 @@ export async function refineAgentKeywords(agentId: string): Promise<{
 
 Current keywords: ${JSON.stringify(currentKeywords)}
 Recent conversation topics: ${JSON.stringify(extractedTopics)}
-Manual assignments (work items users specifically directed to this agent): ${assignmentTopics.length > 0 ? assignmentTopics.join("; ") : "None"}`,
+Manual assignments (work items users specifically directed to this agent — positive signal, add keywords for these): ${assignmentTopics.length > 0 ? assignmentTopics.join("; ") : "None"}
+Reassigned away (work items initially routed to this agent but the user moved them elsewhere — negative signal, remove or deprioritise keywords that only match these): ${reassignedAwayTopics.length > 0 ? reassignedAwayTopics.join("; ") : "None"}`,
     }],
   });
 

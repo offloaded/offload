@@ -33,6 +33,7 @@ export default function WorkItemPage() {
   const [startingRun, setStartingRun] = useState(false);
   // Mobile: toggle between report and chat views
   const [mobileView, setMobileView] = useState<"report" | "chat">("chat");
+  const [showReassign, setShowReassign] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -147,6 +148,21 @@ export default function WorkItemPage() {
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const reassignAgent = async (newAgentId: string) => {
+    if (!workItem || newAgentId === workItem.agent_id) {
+      setShowReassign(false);
+      return;
+    }
+    await fetch(`/api/work-items/${workItem.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent_id: newAgentId }),
+    });
+    setShowReassign(false);
+    loadWorkItem();
+    refreshWorkItems();
   };
 
   const updateStatus = async (status: string) => {
@@ -285,18 +301,51 @@ export default function WorkItemPage() {
       <div className={`flex-col shrink-0 w-full md:w-[380px] bg-[var(--color-bg)] ${mobileView === "chat" ? "flex" : "hidden md:flex"}`}>
         {/* Chat header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--color-border)] shrink-0">
-          {agent ? (
-            <>
+          {showReassign ? (
+            <select
+              autoFocus
+              className="text-[13px] rounded px-2 py-1 border"
+              style={{
+                background: "var(--color-bg)",
+                color: "var(--color-text)",
+                borderColor: "var(--color-border)",
+              }}
+              defaultValue={workItem.agent_id || ""}
+              onChange={(e) => {
+                if (e.target.value) reassignAgent(e.target.value);
+              }}
+              onBlur={() => setShowReassign(false)}
+            >
+              <option value="" disabled>Select agent...</option>
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          ) : agent ? (
+            <button
+              onClick={() => setShowReassign(true)}
+              className="flex items-center gap-2 bg-transparent border-none cursor-pointer p-0 group"
+              title="Reassign to a different agent"
+            >
               <Avatar name={agent.name} color={agent.color} size={24} />
-              <span className="text-[13px] font-medium text-[var(--color-text)]">{agent.name}</span>
+              <span className="text-[13px] font-medium text-[var(--color-text)] group-hover:text-[var(--color-accent)] transition-colors">{agent.name}</span>
               {agent.role && (
                 <span className="text-[11px] px-1.5 py-0.5 rounded bg-[var(--color-hover)] text-[var(--color-text-tertiary)]">
                   {agent.role}
                 </span>
               )}
-            </>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-tertiary)" strokeWidth="2" className="opacity-0 group-hover:opacity-100 transition-opacity">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
           ) : (
-            <span className="text-[13px] font-medium text-[var(--color-text-secondary)]">Chat</span>
+            <button
+              onClick={() => setShowReassign(true)}
+              className="text-[13px] font-medium bg-transparent border-none cursor-pointer p-0"
+              style={{ color: "var(--color-orange)" }}
+            >
+              Assign agent...
+            </button>
           )}
           <div className="flex-1" />
           {/* Run / Re-run button */}

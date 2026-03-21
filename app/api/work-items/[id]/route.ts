@@ -84,6 +84,18 @@ export async function PATCH(
 
   const service = createServiceSupabase();
 
+  // Fetch previous agent_id before updating (for reassignment tracking)
+  let previousAgentId: string | null = null;
+  if (agent_id !== undefined) {
+    const { data: existing } = await service
+      .from("work_items")
+      .select("agent_id")
+      .eq("id", id)
+      .eq("workspace_id", ctx.workspaceId)
+      .single();
+    previousAgentId = (existing?.agent_id as string) || null;
+  }
+
   const updates: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
@@ -107,13 +119,14 @@ export async function PATCH(
     return NextResponse.json({ error: "Work item not found" }, { status: 404 });
   }
 
-  // Track manual agent assignment for keyword learning
+  // Track manual agent assignment/reassignment for keyword learning
   if (agent_id) {
     const wi = data as Record<string, unknown>;
     service.from("manual_assignments").insert({
       workspace_id: ctx.workspaceId,
       work_item_id: id,
       agent_id,
+      previous_agent_id: previousAgentId !== agent_id ? previousAgentId : null,
       work_item_title: (wi.title as string) || null,
       work_item_instructions: (wi.instructions as string) || null,
     }).then(() => {}, () => {}); // fire-and-forget
