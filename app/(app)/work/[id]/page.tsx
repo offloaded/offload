@@ -502,8 +502,8 @@ export default function WorkItemPage() {
 
             {reportContent ? (
               <div
-                className="text-[14px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap"
-                dangerouslySetInnerHTML={{ __html: reportContent.replace(/\n/g, "<br/>") }}
+                className={`text-[14px] leading-relaxed text-[var(--color-text)] break-words ${reportContent.includes("<p>") || reportContent.includes("<h") ? "tiptap" : "whitespace-pre-wrap"}`}
+                dangerouslySetInnerHTML={{ __html: reportContent.includes("<p>") || reportContent.includes("<h") ? reportContent : reportContent.replace(/\n/g, "<br/>") }}
               />
             ) : documentOutputs.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-center">

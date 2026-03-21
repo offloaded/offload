@@ -55,22 +55,6 @@ function textToHtml(text: string): string {
     .join("");
 }
 
-/**
- * Convert editor HTML back to plain text for storage.
- */
-function htmlToText(html: string): string {
-  if (!html) return "";
-  return html
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>\s*<p>/gi, "\n\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&nbsp;/g, " ")
-    .trim();
-}
-
 export default function RichTextEditor({ content, onChange, placeholder }: RichTextEditorProps) {
   const editor = useEditor({
     extensions: [
@@ -88,7 +72,7 @@ export default function RichTextEditor({ content, onChange, placeholder }: RichT
     ],
     content: textToHtml(content),
     onUpdate: ({ editor }) => {
-      onChange(htmlToText(editor.getHTML()));
+      onChange(editor.getHTML());
     },
     editorProps: {
       attributes: {
@@ -99,7 +83,7 @@ export default function RichTextEditor({ content, onChange, placeholder }: RichT
 
   // Sync external content changes (e.g. when switching documents)
   useEffect(() => {
-    if (editor && content !== htmlToText(editor.getHTML())) {
+    if (editor && textToHtml(content) !== editor.getHTML()) {
       editor.commands.setContent(textToHtml(content));
     }
   }, [content]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -227,4 +211,4 @@ export default function RichTextEditor({ content, onChange, placeholder }: RichT
   );
 }
 
-export { textToHtml, htmlToText };
+export { textToHtml };

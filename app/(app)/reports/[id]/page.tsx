@@ -286,6 +286,11 @@ export default function ReportDetailPage() {
                 placeholder="Write your report content..."
               />
             </Suspense>
+          ) : report.content.includes("<p>") || report.content.includes("<h") || report.content.includes("<ul>") || report.content.includes("<strong>") ? (
+            <div
+              className="tiptap text-[15px] leading-relaxed text-[var(--color-text)] break-words"
+              dangerouslySetInnerHTML={{ __html: report.content }}
+            />
           ) : (
             <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words">
               {report.content}

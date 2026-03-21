@@ -15,12 +15,9 @@ export async function GET(request: Request) {
   const includeDeleted = searchParams.get("include_deleted") === "true";
 
   const service = createServiceSupabase();
-  // Select only the columns needed by the sidebar/UI — skip large text fields like system_prompt, knowledge_base
-  const columns = "id, workspace_id, name, role, purpose, color, model, created_at, last_message_at, deleted_at, asana_enabled, asana_projects, github_enabled, github_repositories, google_calendar_enabled, google_calendar_ids, working_style, communication_style, soft_skills, team_expectations, default_document_template_id";
-
   let query = service
     .from("agents")
-    .select(columns)
+    .select("*")
     .eq("workspace_id", ctx.workspaceId);
 
   if (!includeDeleted) {
@@ -36,7 +33,7 @@ export async function GET(request: Request) {
     if (error.message?.includes("deleted_at")) {
       const { data: fallback, error: fbError } = await service
         .from("agents")
-        .select(columns)
+        .select("*")
         .eq("workspace_id", ctx.workspaceId)
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: true });

@@ -256,6 +256,11 @@ export function ReportPanel({ reportId, onClose, onDoneEditing, liveUpdate, init
               placeholder="Write your report content..."
             />
           </Suspense>
+        ) : report.content.includes("<") && (report.content.includes("<p>") || report.content.includes("<h") || report.content.includes("<ul>") || report.content.includes("<ol>") || report.content.includes("<strong>")) ? (
+          <div
+            className="tiptap text-[13.5px] leading-[1.75] text-[var(--color-text)] break-words"
+            dangerouslySetInnerHTML={{ __html: report.content }}
+          />
         ) : (
           <div className="text-[13.5px] leading-[1.75] text-[var(--color-text)] whitespace-pre-wrap break-words">
             {report.content}
