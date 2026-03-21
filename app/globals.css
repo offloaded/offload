@@ -170,6 +170,63 @@ code {
   font-size: 0.85em;
 }
 
+/* Tiptap rich text editor */
+.tiptap {
+  outline: none;
+}
+
+.tiptap h1 {
+  font-size: 1.4em;
+  font-weight: 700;
+  margin: 0.8em 0 0.4em;
+}
+
+.tiptap h2 {
+  font-size: 1.2em;
+  font-weight: 600;
+  margin: 0.7em 0 0.3em;
+}
+
+.tiptap h3 {
+  font-size: 1.05em;
+  font-weight: 600;
+  margin: 0.6em 0 0.2em;
+}
+
+.tiptap p {
+  margin: 0.4em 0;
+}
+
+.tiptap ul,
+.tiptap ol {
+  padding-left: 1.5em;
+  margin: 0.4em 0;
+}
+
+.tiptap li {
+  margin: 0.15em 0;
+}
+
+.tiptap blockquote {
+  border-left: 3px solid var(--color-border);
+  padding-left: 1em;
+  margin: 0.6em 0;
+  color: var(--color-text-secondary);
+}
+
+.tiptap a {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--color-text-tertiary);
+  pointer-events: none;
+  height: 0;
+}
+
 /* PWA standalone mode */
 @supports (padding-top: env(safe-area-inset-top)) {
   .pt-safe {

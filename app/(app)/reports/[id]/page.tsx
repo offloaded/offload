@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useApp } from "@/app/(app)/layout";
+
+const RichTextEditor = lazy(() => import("@/components/RichTextEditor"));
 import { MenuIcon, BackIcon, CopyIcon, DownloadIcon, TrashIcon, SaveIcon } from "@/components/Icons";
 
 interface Report {
@@ -277,13 +279,13 @@ export default function ReportDetailPage() {
           </div>
 
           {editing ? (
-            <textarea
-              ref={contentRef}
-              value={editContent}
-              onChange={(e) => setEditContent(e.target.value)}
-              className="w-full text-[15px] leading-relaxed text-[var(--color-text)] bg-transparent border border-[var(--color-border)] rounded-xl px-4 py-3 outline-none focus:border-[var(--color-accent)] transition-colors resize-none min-h-[300px]"
-              style={{ fontFamily: "inherit" }}
-            />
+            <Suspense fallback={<div className="text-[13px] text-[var(--color-text-tertiary)] py-4">Loading editor...</div>}>
+              <RichTextEditor
+                content={editContent}
+                onChange={setEditContent}
+                placeholder="Write your report content..."
+              />
+            </Suspense>
           ) : (
             <div className="text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap break-words">
               {report.content}

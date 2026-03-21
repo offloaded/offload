@@ -8,11 +8,11 @@ import { runGroupOrchestration } from "@/lib/group-orchestration";
 import { logApiUsage, estimateCost } from "@/lib/api-usage";
 import { estimateTokens, trimHistory, trimRagChunks, shouldArchive, calculateBudget, detectTopicChange, checkConversationHealth } from "@/lib/context-manager";
 import { getWorkspaceContext } from "@/lib/workspace";
-import { listTasks, getTask, createTask, updateTask, addComment, asanaPreFetch, ASANA_KEYWORDS } from "@/lib/asana";
-import { listIssues, getIssue, createIssue, updateIssue, addIssueComment, listLabels } from "@/lib/github";
+import { asanaPreFetch, ASANA_KEYWORDS } from "@/lib/asana";
+// GitHub tool execution now handled via executeGithubTool from tool-execution.ts
 import { listEvents as gcalListEvents } from "@/lib/google-calendar";
 import { shouldCompact, compactConversation, injectCompactionContext, type CompactableMessage } from "@/lib/compaction";
-import { effectiveDueDate } from "@/lib/tool-execution";
+import { effectiveDueDate, extractAllToolBlocks, executeAsanaTool, executeGithubTool, executeGoogleCalendarTool, type ToolContext } from "@/lib/tool-execution";
 
 /** Safely parse JSON, returning null on failure instead of throwing */
 function safeJsonParse(text: string): unknown | null {
@@ -995,7 +995,7 @@ export async function POST(request: Request) {
         }
 
         // Check if any tool blocks will produce follow-up content or handle the response
-        const hasFollowUpTool = !!(readReportMatch || readTemplateMatch || saveReportMatch || updateReportMatch || asanaMatch || githubMatch);
+        const hasFollowUpTool = !!(readReportMatch || readTemplateMatch || saveReportMatch || updateReportMatch || asanaMatch || githubMatch || gcalMatch);
 
         // Track the saved assistant message ID so follow-up handlers can update it instead of inserting duplicates
         let savedAssistantMsgId: string | null = null;
@@ -1020,7 +1020,7 @@ export async function POST(request: Request) {
           // initial response. The follow-up handler will save ONLY the final
           // natural-language summary. This prevents intermediate text like
           // "Let me check Asana..." from persisting in conversation history.
-          const deferSave = !!(asanaMatch || githubMatch);
+          const deferSave = !!(asanaMatch || githubMatch || gcalMatch);
           if (!deferSave) {
             const { data: savedRow } = await supabase.from("messages").insert({
               conversation_id: convId,
@@ -1792,378 +1792,142 @@ export async function POST(request: Request) {
           }
         }
 
-        // Handle Asana tool blocks — execute operation and stream follow-up
-        if (asanaMatch && agent.asana_enabled && asanaProjects.length > 0) {
-          try {
-            const asanaAction = asanaMatch[1];
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const asanaPayload = safeJsonParse(asanaMatch[2].trim()) as any;
-            if (!asanaPayload) throw new Error("Invalid JSON in Asana tool block");
-            let asanaResult = "";
+        // ── Tool call loop: execute ALL tool blocks and loop on follow-ups ──
+        // Extracts all asana/github/gcal tool blocks (not just the first match),
+        // executes every one, sends results back to Claude, and repeats until
+        // Claude responds with no more tool blocks (or safety limit is hit).
+        {
+          const toolCtx: ToolContext = {
+            workspaceId: ctx.workspaceId,
+            userId: user.id,
+            agentId: agent_id,
+            agentName: agent.name,
+            conversationId: convId || "",
+            supabase,
+          };
+          let currentResponseText = fullResponse;
+          let toolLoopIteration = 0;
+          const MAX_TOOL_ITERATIONS = 10;
 
-            // Validate project access for operations that reference a project
-            const allowedGids = new Set(asanaProjects.map((p) => p.gid));
+          while (toolLoopIteration < MAX_TOOL_ITERATIONS) {
+            const toolBlocks = extractAllToolBlocks(currentResponseText);
+            if (toolBlocks.length === 0) break;
 
-            if (asanaAction === "asana_list_tasks") {
-              if (asanaPayload.project_gid && !allowedGids.has(asanaPayload.project_gid)) {
-                asanaResult = "Error: You don't have access to that project.";
-              } else {
-                const targetGids = asanaPayload.project_gid ? [asanaPayload.project_gid] : [...allowedGids];
-                const projectNameMap = new Map(asanaProjects.map((p) => [p.gid, p.name]));
-                console.log(`[Chat] Asana list_tasks: querying ${targetGids.length} project(s): ${targetGids.map((g) => `${projectNameMap.get(g) || "?"} (${g})`).join(", ")}`);
-                const allTasks: Array<{ name: string; gid: string; completed: boolean; start_on: string | null; due_on: string | null; assignee: string | null; section: string | null; project: string }> = [];
-                for (const gid of targetGids) {
-                  const pName = projectNameMap.get(gid) || gid;
-                  const result = await listTasks(ctx.workspaceId, gid, {
-                    completedSince: asanaPayload.completed_since === "now" ? "now" : undefined,
-                  });
-                  if (result.ok && result.tasks) {
-                    console.log(`[Chat] Asana project "${pName}": ${result.tasks.length} task(s) returned`);
-                    allTasks.push(...result.tasks.map((t) => ({
-                      name: t.name,
-                      gid: t.gid,
-                      completed: t.completed,
-                      start_on: t.start_on,
-                      due_on: effectiveDueDate(t),
-                      assignee: t.assignee ? (t.assignee.name || t.assignee.email || t.assignee.gid) : null,
-                      section: t.memberships?.[0]?.section?.name || null,
-                      project: pName,
-                    })));
-                  } else if (!result.ok) {
-                    console.error(`[Chat] Asana project "${pName}" failed: ${result.error}`);
-                    asanaResult = `Error: ${result.error}`;
-                    break;
-                  }
-                }
-                console.log(`[Chat] Asana list_tasks total: ${allTasks.length} task(s) across ${targetGids.length} project(s)`);
-                if (!asanaResult) {
-                  if (allTasks.length > 0) {
-                    // Group by project for clearer output when querying multiple projects
-                    if (targetGids.length > 1) {
-                      const byProject = new Map<string, typeof allTasks>();
-                      for (const t of allTasks) {
-                        const key = t.project;
-                        if (!byProject.has(key)) byProject.set(key, []);
-                        byProject.get(key)!.push(t);
+            const allResults: string[] = [];
+
+            for (const block of toolBlocks) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const payload = safeJsonParse(block.rawPayload) as any;
+              if (!payload) {
+                console.warn(`[Chat] Tool loop: invalid JSON in ${block.action} block, skipping`);
+                continue;
+              }
+
+              let result = "";
+
+              if (block.category === "asana" && agent.asana_enabled && asanaProjects.length > 0) {
+                try {
+                  result = await executeAsanaTool(block.action, payload, asanaProjects, toolCtx);
+                  console.log(`[Chat] Tool call ${toolLoopIteration + 1}: ${block.action} — ${result.startsWith("Error") ? "failed" : "success"} (${result.slice(0, 120)})`);
+
+                  // Emit SSE events for write operations
+                  if (["asana_create_task", "asana_update_task", "asana_add_comment"].includes(block.action)) {
+                    if (!result.startsWith("Error")) {
+                      if (block.action === "asana_create_task" || block.action === "asana_update_task") {
+                        logActivity(supabase, user.id, agent_id, block.action, `${agent.name} ${block.action}: ${result.split("\n")[0]}`, { conversation_id: convId });
                       }
-                      let out = `Found ${allTasks.length} task(s) across ${byProject.size} project(s):\n`;
-                      for (const [project, tasks] of byProject) {
-                        out += `\n## ${project} (${tasks.length} tasks)\n`;
-                        out += tasks.map((t) => {
-                          let dates = "";
-                          if (t.start_on && t.due_on) dates = ` ${t.start_on} → ${t.due_on}`;
-                          else if (t.start_on) dates = ` starts ${t.start_on}`;
-                          else if (t.due_on) dates = ` due ${t.due_on}`;
-                          return `- ${t.name} (GID: ${t.gid})${t.assignee ? ` [${t.assignee}]` : ""}${dates}${t.section ? ` {${t.section}}` : ""}${t.completed ? " [DONE]" : ""}`;
-                        }).join("\n");
-                      }
-                      asanaResult = out;
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "tool_confirmation", tool: "asana", action: block.action.replace("asana_", ""), message: result.split("\n")[0] })}\n\n`));
                     } else {
-                      asanaResult = `Found ${allTasks.length} task(s):\n${allTasks.map((t) => {
-                        let dates = "";
-                        if (t.start_on && t.due_on) dates = ` ${t.start_on} → ${t.due_on}`;
-                        else if (t.start_on) dates = ` starts ${t.start_on}`;
-                        else if (t.due_on) dates = ` due ${t.due_on}`;
-                        return `- ${t.name} (GID: ${t.gid})${t.assignee ? ` [${t.assignee}]` : ""}${dates}${t.section ? ` {${t.section}}` : ""}${t.completed ? " [DONE]" : ""}`;
-                      }).join("\n")}`;
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "tool_error", tool: "asana", action: block.action.replace("asana_", ""), message: result })}\n\n`));
                     }
-                  } else {
-                    asanaResult = "No tasks found.";
                   }
+                } catch (e) {
+                  console.error(`[Chat] Asana ${block.action} failed:`, e);
+                  result = `Error: ${e instanceof Error ? e.message : "Unknown error"}`;
                 }
-              }
-            } else if (asanaAction === "asana_get_task") {
-              const result = await getTask(ctx.workspaceId, asanaPayload.task_gid);
-              if (result.ok && result.task) {
-                const t = result.task;
-                const assigneeLabel = t.assignee ? (t.assignee.name || t.assignee.email || t.assignee.gid) : "Unassigned";
-                const dueDate = effectiveDueDate(t);
-                asanaResult = `Task: ${t.name} (GID: ${t.gid})\nStatus: ${t.completed ? "Complete" : "Incomplete"}\nAssignee: ${assigneeLabel}${t.assignee?.email ? ` (${t.assignee.email})` : ""}\nStart: ${t.start_on || "No start date"}\nDue: ${dueDate || "No due date"}${t.notes ? `\nDescription: ${t.notes}` : ""}${t.permalink_url ? `\nURL: ${t.permalink_url}` : ""}`;
-                if (t.stories && t.stories.length > 0) {
-                  asanaResult += `\n\nComments (${t.stories.length}):\n${t.stories.map((s) => `- ${s.created_by?.name || "Unknown"} (${new Date(s.created_at).toLocaleDateString()}): ${s.text}`).join("\n")}`;
+                allResults.push(`[Asana ${block.action} result]: ${result}`);
+              } else if (block.category === "github" && agent.github_enabled && githubRepos.length > 0) {
+                try {
+                  result = await executeGithubTool(block.action, payload, githubRepos, toolCtx);
+                  console.log(`[Chat] Tool call ${toolLoopIteration + 1}: ${block.action} — ${result.startsWith("Error") ? "failed" : "success"} (${result.slice(0, 120)})`);
+
+                  // Emit SSE events for write operations
+                  if (["github_create_issue", "github_update_issue", "github_add_comment"].includes(block.action)) {
+                    if (!result.startsWith("Error")) {
+                      const repoFullName = payload.owner && payload.repo ? `${payload.owner}/${payload.repo}` : null;
+                      if (block.action === "github_create_issue" || block.action === "github_update_issue") {
+                        logActivity(supabase, user.id, agent_id, block.action, `${agent.name} ${block.action}: ${result.split("\n")[0]}`, { conversation_id: convId, repo: repoFullName });
+                      }
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "tool_confirmation", tool: "github", action: block.action.replace("github_", ""), message: result.split("\n")[0] })}\n\n`));
+                    } else {
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "tool_error", tool: "github", action: block.action.replace("github_", ""), message: result })}\n\n`));
+                    }
+                  }
+                } catch (e) {
+                  console.error(`[Chat] GitHub ${block.action} failed:`, e);
+                  result = `Error: ${e instanceof Error ? e.message : "Unknown error"}`;
                 }
-              } else {
-                asanaResult = `Error: ${result.error}`;
-              }
-            } else if (asanaAction === "asana_create_task") {
-              if (!allowedGids.has(asanaPayload.project_gid)) {
-                asanaResult = "Error: You don't have access to that project.";
-              } else {
-                const result = await createTask(ctx.workspaceId, asanaPayload);
-                if (result.ok && result.task) {
-                  asanaResult = `Task created: "${result.task.name}" (GID: ${result.task.gid})${result.task.permalink_url ? `\nURL: ${result.task.permalink_url}` : ""}`;
-                  logActivity(supabase, user.id, agent_id, "asana_create_task", `${agent.name} created Asana task: ${result.task.name}`, { conversation_id: convId, task_gid: result.task.gid });
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "tool_confirmation", tool: "asana", action: "create_task", message: `Task "${result.task.name}" created in Asana`, details: { gid: result.task.gid, url: result.task.permalink_url } })}\n\n`));
-                } else {
-                  asanaResult = `Error: ${result.error}`;
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "tool_error", tool: "asana", action: "create_task", message: `Failed to create task: ${result.error}` })}\n\n`));
+                allResults.push(`[GitHub ${block.action} result]: ${result}`);
+              } else if (block.category === "gcal" && agent.google_calendar_enabled && googleCalendars.length > 0) {
+                try {
+                  result = await executeGoogleCalendarTool(block.action, payload, googleCalendars, toolCtx);
+                  console.log(`[Chat] Tool call ${toolLoopIteration + 1}: ${block.action} — ${result.startsWith("Error") ? "failed" : "success"} (${result.slice(0, 120)})`);
+                } catch (e) {
+                  console.error(`[Chat] GCal ${block.action} failed:`, e);
+                  result = `Error: ${e instanceof Error ? e.message : "Unknown error"}`;
                 }
-              }
-            } else if (asanaAction === "asana_update_task") {
-              const result = await updateTask(ctx.workspaceId, asanaPayload.task_gid, asanaPayload);
-              if (result.ok && result.task) {
-                asanaResult = `Task updated: "${result.task.name}" (GID: ${result.task.gid})`;
-                logActivity(supabase, user.id, agent_id, "asana_update_task", `${agent.name} updated Asana task: ${result.task.name}`, { conversation_id: convId, task_gid: result.task.gid });
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "tool_confirmation", tool: "asana", action: "update_task", message: `Task "${result.task.name}" updated in Asana`, details: { gid: result.task.gid } })}\n\n`));
-              } else {
-                asanaResult = `Error: ${result.error}`;
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "tool_error", tool: "asana", action: "update_task", message: `Failed to update task: ${result.error}` })}\n\n`));
-              }
-            } else if (asanaAction === "asana_add_comment") {
-              const result = await addComment(ctx.workspaceId, asanaPayload.task_gid, asanaPayload.text);
-              if (result.ok) {
-                asanaResult = `Comment added (GID: ${result.commentGid})`;
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "tool_confirmation", tool: "asana", action: "add_comment", message: "Comment added to Asana task" })}\n\n`));
-              } else {
-                asanaResult = `Error: ${result.error}`;
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "tool_error", tool: "asana", action: "add_comment", message: `Failed to add comment: ${result.error}` })}\n\n`));
+                allResults.push(`[Google Calendar ${block.action} result]: ${result}`);
               }
             }
 
-            // Do a follow-up call so the agent can summarize the results naturally
-            if (asanaResult) {
-              console.log(`[Chat] Asana ${asanaAction} result:\n${asanaResult.slice(0, 500)}`);
-              const followUpMessages = [
-                ...messages,
-                { role: "assistant" as const, content: cleaned || "" },
-                { role: "user" as const, content: `[System: Asana operation result]\n${asanaResult}` },
-              ];
+            if (allResults.length === 0) break;
 
-              const followUpStream = anthropic.messages.stream({
-                model: resolveModel(agent),
-                max_tokens: 4096,
-                system: systemPrompt,
-                messages: followUpMessages,
-              });
+            console.log(`[Chat] Tool call loop iteration ${toolLoopIteration + 1}: executed ${allResults.length} tool(s)`);
 
-              let followUpText = "";
-              for await (const event of followUpStream) {
-                if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-                  followUpText += event.delta.text;
-                  controller.enqueue(
-                    encoder.encode(`data: ${JSON.stringify({ type: "text", text: event.delta.text })}\n\n`)
-                  );
-                }
-              }
+            // Send all tool results back to Claude for the next response
+            const cleanedCurrent = cleanResponse(currentResponseText);
+            const followUpMessages = [
+              ...messages,
+              { role: "assistant" as const, content: cleanedCurrent || "" },
+              { role: "user" as const, content: `[System: Tool operation results]\n${allResults.join("\n\n")}` },
+            ];
 
-              const followUpCleaned = cleanResponse(followUpText);
-              if (followUpCleaned) {
-                // Save ONLY the follow-up (natural language summary), not the initial
-                // "Let me check Asana..." text. Raw tool data and intermediate text
-                // are ephemeral — only the final formatted answer should persist in
-                // conversation history. This prevents context bloat that causes the
-                // model to hallucinate instead of making fresh API calls on later queries.
-                if (savedAssistantMsgId) {
-                  await supabase.from("messages").update({ content: followUpCleaned }).eq("id", savedAssistantMsgId);
-                } else {
-                  const { data: newRow } = await supabase.from("messages").insert({ conversation_id: convId, role: "assistant", content: followUpCleaned }).select("id").single();
-                  savedAssistantMsgId = newRow?.id || null;
-                }
-                savedContent = followUpCleaned;
-                controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ type: "replace", text: followUpCleaned })}\n\n`)
-                );
-              }
-            }
-          } catch (e) {
-            console.error("[Chat] Asana operation failed:", e);
-          }
-        }
+            const followUpResponse = await anthropic.messages.create({
+              model: resolveModel(agent),
+              max_tokens: 4096,
+              system: systemPrompt,
+              messages: followUpMessages,
+            });
 
-        // Handle GitHub tool blocks — execute operation and stream follow-up
-        if (githubMatch && agent.github_enabled && githubRepos.length > 0) {
-          try {
-            const githubAction = githubMatch[1];
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const githubPayload = safeJsonParse(githubMatch[2].trim()) as any;
-            if (!githubPayload) throw new Error("Invalid JSON in GitHub tool block");
-            let githubResult = "";
+            currentResponseText = followUpResponse.content
+              .filter((b: any) => b.type === "text")
+              .map((b: any) => b.text as string)
+              .join("");
 
-            // Validate repo access
-            const allowedRepos = new Set(githubRepos.map((r) => r.full_name));
-            const repoFullName = githubPayload.owner && githubPayload.repo
-              ? `${githubPayload.owner}/${githubPayload.repo}`
-              : null;
-
-            if (repoFullName && !allowedRepos.has(repoFullName)) {
-              githubResult = "Error: You don't have access to that repository.";
-            } else if (githubAction === "github_list_issues") {
-              const result = await listIssues(ctx.workspaceId, githubPayload.owner, githubPayload.repo, {
-                state: githubPayload.state || "open",
-                labels: githubPayload.labels,
-              });
-              if (result.ok && result.issues) {
-                githubResult = result.issues.length > 0
-                  ? `Found ${result.issues.length} issue(s):\n${result.issues.map((i) =>
-                      `- #${i.number}: ${i.title} [${i.state}]${i.labels && i.labels.length > 0 ? ` (${i.labels.map((l) => l.name).join(", ")})` : ""}${i.assignees && i.assignees.length > 0 ? ` [${i.assignees.map((a) => a.login).join(", ")}]` : ""}`
-                    ).join("\n")}`
-                  : "No issues found.";
-              } else {
-                githubResult = `Error: ${result.error}`;
-              }
-            } else if (githubAction === "github_get_issue") {
-              const result = await getIssue(ctx.workspaceId, githubPayload.owner, githubPayload.repo, githubPayload.issue_number);
-              if (result.ok && result.issue) {
-                const i = result.issue;
-                githubResult = `Issue #${i.number}: ${i.title}\nState: ${i.state}\nAuthor: ${i.user?.login || "Unknown"}${i.assignees && i.assignees.length > 0 ? `\nAssignees: ${i.assignees.map((a) => a.login).join(", ")}` : ""}${i.labels && i.labels.length > 0 ? `\nLabels: ${i.labels.map((l) => l.name).join(", ")}` : ""}${i.body ? `\nDescription: ${i.body}` : ""}\nURL: ${i.html_url}`;
-                if (result.comments && result.comments.length > 0) {
-                  githubResult += `\n\nComments (${result.comments.length}):\n${result.comments.map((c) =>
-                    `- ${c.user?.login || "Unknown"} (${new Date(c.created_at).toLocaleDateString()}): ${c.body}`
-                  ).join("\n")}`;
-                }
-              } else {
-                githubResult = `Error: ${result.error}`;
-              }
-            } else if (githubAction === "github_create_issue") {
-              const result = await createIssue(ctx.workspaceId, githubPayload.owner, githubPayload.repo, {
-                title: githubPayload.title,
-                body: githubPayload.body,
-                labels: githubPayload.labels,
-              });
-              if (result.ok && result.issue) {
-                githubResult = `Issue created: #${result.issue.number} "${result.issue.title}"\nURL: ${result.issue.html_url}`;
-                logActivity(supabase, user.id, agent_id, "github_create_issue", `${agent.name} created GitHub issue: ${result.issue.title}`, { conversation_id: convId, issue_number: result.issue.number, repo: repoFullName });
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "tool_confirmation", tool: "github", action: "create_issue", message: `Issue #${result.issue.number} "${result.issue.title}" created on GitHub`, details: { number: result.issue.number, url: result.issue.html_url } })}\n\n`));
-              } else {
-                githubResult = `Error: ${result.error}`;
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "tool_error", tool: "github", action: "create_issue", message: `Failed to create issue: ${result.error}` })}\n\n`));
-              }
-            } else if (githubAction === "github_update_issue") {
-              const updateData: Record<string, unknown> = {};
-              if (githubPayload.title !== undefined) updateData.title = githubPayload.title;
-              if (githubPayload.body !== undefined) updateData.body = githubPayload.body;
-              if (githubPayload.state !== undefined) updateData.state = githubPayload.state;
-              if (githubPayload.labels !== undefined) updateData.labels = githubPayload.labels;
-              const result = await updateIssue(ctx.workspaceId, githubPayload.owner, githubPayload.repo, githubPayload.issue_number, updateData);
-              if (result.ok && result.issue) {
-                githubResult = `Issue updated: #${result.issue.number} "${result.issue.title}" [${result.issue.state}]`;
-                logActivity(supabase, user.id, agent_id, "github_update_issue", `${agent.name} updated GitHub issue: ${result.issue.title}`, { conversation_id: convId, issue_number: result.issue.number, repo: repoFullName });
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "tool_confirmation", tool: "github", action: "update_issue", message: `Issue #${result.issue.number} "${result.issue.title}" updated on GitHub`, details: { number: result.issue.number } })}\n\n`));
-              } else {
-                githubResult = `Error: ${result.error}`;
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "tool_error", tool: "github", action: "update_issue", message: `Failed to update issue: ${result.error}` })}\n\n`));
-              }
-            } else if (githubAction === "github_add_comment") {
-              const result = await addIssueComment(ctx.workspaceId, githubPayload.owner, githubPayload.repo, githubPayload.issue_number, githubPayload.body);
-              if (result.ok) {
-                githubResult = `Comment added to issue #${githubPayload.issue_number}`;
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "tool_confirmation", tool: "github", action: "add_comment", message: `Comment added to GitHub issue #${githubPayload.issue_number}` })}\n\n`));
-              } else {
-                githubResult = `Error: ${result.error}`;
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "tool_error", tool: "github", action: "add_comment", message: `Failed to add comment: ${result.error}` })}\n\n`));
-              }
-            } else if (githubAction === "github_list_labels") {
-              const result = await listLabels(ctx.workspaceId, githubPayload.owner, githubPayload.repo);
-              if (result.ok && result.labels) {
-                githubResult = result.labels.length > 0
-                  ? `Available labels:\n${result.labels.map((l) => `- ${l.name}${l.description ? `: ${l.description}` : ""}`).join("\n")}`
-                  : "No labels found.";
-              } else {
-                githubResult = `Error: ${result.error}`;
-              }
-            }
-
-            // Do a follow-up call so the agent can summarize the results naturally
-            if (githubResult) {
-              const followUpMessages = [
-                ...messages,
-                { role: "assistant" as const, content: cleaned || "" },
-                { role: "user" as const, content: `[System: GitHub operation result]\n${githubResult}` },
-              ];
-
-              const followUpStream = anthropic.messages.stream({
-                model: resolveModel(agent),
-                max_tokens: 4096,
-                system: systemPrompt,
-                messages: followUpMessages,
-              });
-
-              let followUpText = "";
-              for await (const event of followUpStream) {
-                if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-                  followUpText += event.delta.text;
-                  controller.enqueue(
-                    encoder.encode(`data: ${JSON.stringify({ type: "text", text: event.delta.text })}\n\n`)
-                  );
-                }
-              }
-
-              const followUpCleaned = cleanResponse(followUpText);
-              if (followUpCleaned) {
-                // Save ONLY the follow-up (natural language summary) — same rationale as Asana above
-                if (savedAssistantMsgId) {
-                  await supabase.from("messages").update({ content: followUpCleaned }).eq("id", savedAssistantMsgId);
-                } else {
-                  const { data: newRow } = await supabase.from("messages").insert({ conversation_id: convId, role: "assistant", content: followUpCleaned }).select("id").single();
-                  savedAssistantMsgId = newRow?.id || null;
-                }
-                savedContent = followUpCleaned;
-                controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ type: "replace", text: followUpCleaned })}\n\n`)
-                );
-              }
-            }
-          } catch (e) {
-            console.error("[Chat] GitHub operation failed:", e);
+            toolLoopIteration++;
           }
-        }
 
-        // Handle Google Calendar tool blocks — execute operation and stream follow-up
-        if (gcalMatch && agent.google_calendar_enabled && googleCalendars.length > 0) {
-          try {
-            const { executeGoogleCalendarTool } = await import("@/lib/tool-execution");
-            const gcalAction = gcalMatch[1];
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const gcalPayload = safeJsonParse(gcalMatch[2].trim()) as any;
-            if (!gcalPayload) throw new Error("Invalid JSON in Google Calendar tool block");
+          if (toolLoopIteration >= MAX_TOOL_ITERATIONS) {
+            console.warn("[Chat] Tool call loop hit safety limit");
+          }
 
-            const gcalResult = await executeGoogleCalendarTool(
-              gcalAction,
-              gcalPayload,
-              googleCalendars,
-              { workspaceId: ctx.workspaceId, userId: user.id, agentId: agent_id, agentName: agent.name, conversationId: convId || "", supabase }
-            );
-
-            if (gcalResult) {
-              const followUpMessages = [
-                ...messages,
-                { role: "assistant" as const, content: cleaned || "" },
-                { role: "user" as const, content: `[System: Google Calendar operation result]\n${gcalResult}` },
-              ];
-
-              const followUpStream = anthropic.messages.stream({
-                model: resolveModel(agent),
-                max_tokens: 4096,
-                system: systemPrompt,
-                messages: followUpMessages,
-              });
-
-              let followUpText = "";
-              for await (const event of followUpStream) {
-                if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-                  followUpText += event.delta.text;
-                  controller.enqueue(
-                    encoder.encode(`data: ${JSON.stringify({ type: "text", text: event.delta.text })}\n\n`)
-                  );
-                }
+          // If we executed any tools, persist the final clean response
+          if (toolLoopIteration > 0) {
+            console.log(`[Chat] Tool call loop completed after ${toolLoopIteration} iteration(s)`);
+            const finalCleaned = cleanResponse(currentResponseText);
+            if (finalCleaned) {
+              if (savedAssistantMsgId) {
+                await supabase.from("messages").update({ content: finalCleaned }).eq("id", savedAssistantMsgId);
+              } else {
+                const { data: newRow } = await supabase.from("messages").insert({ conversation_id: convId, role: "assistant", content: finalCleaned }).select("id").single();
+                savedAssistantMsgId = newRow?.id || null;
               }
-
-              const followUpCleaned = cleanResponse(followUpText);
-              if (followUpCleaned) {
-                if (savedAssistantMsgId) {
-                  await supabase.from("messages").update({ content: followUpCleaned }).eq("id", savedAssistantMsgId);
-                } else {
-                  const { data: newRow } = await supabase.from("messages").insert({ conversation_id: convId, role: "assistant", content: followUpCleaned }).select("id").single();
-                  savedAssistantMsgId = newRow?.id || null;
-                }
-                savedContent = followUpCleaned;
-                controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ type: "replace", text: followUpCleaned })}\n\n`)
-                );
-              }
+              savedContent = finalCleaned;
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ type: "replace", text: finalCleaned })}\n\n`)
+              );
             }
-          } catch (e) {
-            console.error("[Chat] Google Calendar operation failed:", e);
           }
         }
 

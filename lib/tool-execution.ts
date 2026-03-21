@@ -517,3 +517,31 @@ export async function executeUpdateReport(
 
   return `Report "${existing.display_name || existing.title}" updated successfully.`;
 }
+
+// ── Multi-tool extraction ─────────────────────────────────────────────
+
+export interface ExtractedToolBlock {
+  action: string;
+  rawPayload: string;
+  category: "asana" | "github" | "gcal";
+}
+
+/**
+ * Extract ALL actionable tool blocks (asana, github, gcal) from a response.
+ * Uses matchAll so multiple blocks of the same type are all captured.
+ */
+export function extractAllToolBlocks(text: string): ExtractedToolBlock[] {
+  const blocks: ExtractedToolBlock[] = [];
+  const regex = /```(asana_list_tasks|asana_get_task|asana_create_task|asana_update_task|asana_add_comment|github_list_issues|github_get_issue|github_create_issue|github_update_issue|github_add_comment|github_list_labels|gcal_list_events|gcal_get_event|gcal_create_event|gcal_update_event)\s*\n?([\s\S]*?)\n?```/g;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    const action = match[1];
+    const rawPayload = match[2]?.trim() || "";
+    let category: ExtractedToolBlock["category"];
+    if (action.startsWith("asana_")) category = "asana";
+    else if (action.startsWith("github_")) category = "github";
+    else category = "gcal";
+    blocks.push({ action, rawPayload, category });
+  }
+  return blocks;
+}

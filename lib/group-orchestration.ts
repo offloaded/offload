@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient, cleanResponse, buildStyleInstructions, resolveModel } from "./anthropic";
 import { retrieveContext } from "./rag";
 import { isStandupQuestion, getAgentActivitySummary } from "./activity";
-import { executeAsanaTool, executeGithubTool, executeSaveReport, executeReadReport, executeUpdateReport, type ToolContext } from "./tool-execution";
+import { executeAsanaTool, executeGithubTool, executeSaveReport, executeReadReport, executeUpdateReport, extractAllToolBlocks, type ToolContext } from "./tool-execution";
 
 type MessageIntent = "casual" | "knowledge" | "action" | "search";
 
@@ -722,66 +722,78 @@ export async function generateAgentResponse(
       supabase: toolContext.serviceDb || supabase,
     };
 
-    // Asana tool blocks
-    const asanaMatch = rawText.match(/```(asana_list_tasks|asana_get_task|asana_create_task|asana_update_task|asana_add_comment)\s*\n?([\s\S]*?)\n?```/);
-    if (asanaMatch && agent.asana_enabled && agent.asana_projects) {
-      try {
-        const asanaProjects = (agent.asana_projects as Array<{ gid: string; name: string }>);
-        const asanaPayload = JSON.parse(asanaMatch[2].trim());
-        const asanaResult = await executeAsanaTool(asanaMatch[1], asanaPayload, asanaProjects, ctx);
-        console.log(`[Generate] ${agent.name}: executed ${asanaMatch[1]} → ${asanaResult.slice(0, 100)}`);
+    // ── Tool call loop: execute ALL tool blocks and loop on follow-ups ──
+    // Extracts all asana/github tool blocks (not just the first match),
+    // executes every one, sends results back to Claude, and repeats until
+    // Claude responds with no more tool blocks (or safety limit is hit).
+    const asanaProjects = agent.asana_enabled && agent.asana_projects
+      ? (agent.asana_projects as Array<{ gid: string; name: string }>)
+      : [];
+    const githubRepos = agent.github_enabled && agent.github_repositories
+      ? (agent.github_repositories as Array<{ full_name: string; name: string }>)
+      : [];
 
-        // Follow-up call so agent can present results naturally
-        const cleanedFirst = cleanResponse(rawText);
-        const followUpMessages = [
-          ...messages,
-          ...(cleanedFirst ? [{ role: "assistant" as const, content: cleanedFirst }] : []),
-          { role: "user" as const, content: `[System: Asana operation result]\n${asanaResult}` },
-        ];
-        const followUpResponse = await anthropic.messages.create({
-          model: resolveModel(agent),
-          max_tokens: maxTokens,
-          system: systemPrompt,
-          messages: followUpMessages,
-        });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const followUpText = followUpResponse.content.filter((b: any) => b.type === "text").map((b: any) => b.text as string).join("").trim();
-        // Save ONLY the follow-up text — not the initial "Let me check Asana..." text.
-        // This prevents raw tool data patterns from accumulating in conversation history.
-        rawText = followUpText || cleanedFirst || rawText;
-      } catch (e) {
-        console.error(`[Generate] ${agent.name}: Asana tool execution failed:`, e);
+    let toolLoopIteration = 0;
+    const MAX_TOOL_ITERATIONS = 10;
+
+    while (toolLoopIteration < MAX_TOOL_ITERATIONS) {
+      const toolBlocks = extractAllToolBlocks(rawText);
+      if (toolBlocks.length === 0) break;
+
+      const allResults: string[] = [];
+
+      for (const block of toolBlocks) {
+        let payload;
+        try { payload = JSON.parse(block.rawPayload); } catch { continue; }
+
+        let result = "";
+        try {
+          if (block.category === "asana" && asanaProjects.length > 0) {
+            result = await executeAsanaTool(block.action, payload, asanaProjects, ctx);
+          } else if (block.category === "github" && githubRepos.length > 0) {
+            result = await executeGithubTool(block.action, payload, githubRepos, ctx);
+          } else {
+            continue;
+          }
+          console.log(`[Generate] ${agent.name}: tool call ${toolLoopIteration + 1}: ${block.action} — ${result.startsWith("Error") ? "failed" : "success"} (${result.slice(0, 100)})`);
+        } catch (e) {
+          console.error(`[Generate] ${agent.name}: ${block.action} failed:`, e);
+          result = `Error: ${e instanceof Error ? e.message : "Unknown error"}`;
+        }
+        allResults.push(`[${block.category === "asana" ? "Asana" : "GitHub"} ${block.action} result]: ${result}`);
       }
+
+      if (allResults.length === 0) break;
+
+      console.log(`[Generate] ${agent.name}: tool call loop iteration ${toolLoopIteration + 1}: executed ${allResults.length} tool(s)`);
+
+      // Send all tool results back to Claude for the next response
+      const cleanedCurrent = cleanResponse(rawText);
+      const followUpMessages = [
+        ...messages,
+        ...(cleanedCurrent ? [{ role: "assistant" as const, content: cleanedCurrent }] : []),
+        { role: "user" as const, content: `[System: Tool operation results]\n${allResults.join("\n\n")}` },
+      ];
+      const followUpResponse = await anthropic.messages.create({
+        model: resolveModel(agent),
+        max_tokens: maxTokens,
+        system: systemPrompt,
+        messages: followUpMessages,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const followUpText = followUpResponse.content.filter((b: any) => b.type === "text").map((b: any) => b.text as string).join("").trim();
+      // Save ONLY the follow-up text — not the initial "Let me check..." text.
+      // This prevents raw tool data patterns from accumulating in conversation history.
+      rawText = followUpText || cleanedCurrent || rawText;
+
+      toolLoopIteration++;
     }
 
-    // GitHub tool blocks
-    const githubMatch = rawText.match(/```(github_list_issues|github_get_issue|github_create_issue|github_update_issue|github_add_comment|github_list_labels)\s*\n?([\s\S]*?)\n?```/);
-    if (githubMatch && agent.github_enabled && agent.github_repositories) {
-      try {
-        const githubRepos = (agent.github_repositories as Array<{ full_name: string; name: string }>);
-        const githubPayload = JSON.parse(githubMatch[2].trim());
-        const githubResult = await executeGithubTool(githubMatch[1], githubPayload, githubRepos, ctx);
-        console.log(`[Generate] ${agent.name}: executed ${githubMatch[1]} → ${githubResult.slice(0, 100)}`);
-
-        const cleanedFirst = cleanResponse(rawText);
-        const followUpMessages = [
-          ...messages,
-          ...(cleanedFirst ? [{ role: "assistant" as const, content: cleanedFirst }] : []),
-          { role: "user" as const, content: `[System: GitHub operation result]\n${githubResult}` },
-        ];
-        const followUpResponse = await anthropic.messages.create({
-          model: resolveModel(agent),
-          max_tokens: maxTokens,
-          system: systemPrompt,
-          messages: followUpMessages,
-        });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const followUpText = followUpResponse.content.filter((b: any) => b.type === "text").map((b: any) => b.text as string).join("").trim();
-        // Save ONLY the follow-up text — same rationale as Asana above
-        rawText = followUpText || cleanedFirst || rawText;
-      } catch (e) {
-        console.error(`[Generate] ${agent.name}: GitHub tool execution failed:`, e);
-      }
+    if (toolLoopIteration >= MAX_TOOL_ITERATIONS) {
+      console.warn(`[Generate] ${agent.name}: tool call loop hit safety limit`);
+    }
+    if (toolLoopIteration > 0) {
+      console.log(`[Generate] ${agent.name}: tool call loop completed after ${toolLoopIteration} iteration(s)`);
     }
 
     // save_report tool block
