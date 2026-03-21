@@ -1,5 +1,7 @@
 import { createServerSupabase, createServiceSupabase } from "@/lib/supabase-server";
 import { getWorkspaceContext } from "@/lib/workspace";
+import { getAnthropicClient, buildSystemPrompt, cleanResponse, resolveModel } from "@/lib/anthropic";
+import { retrieveContext, type RetrievedChunk } from "@/lib/rag";
 import { NextResponse } from "next/server";
 
 // GET /api/work-items/[id]/executions — list execution contexts for a work item
@@ -133,5 +135,73 @@ export async function POST(
     description: `started work on ${workItem.title}`,
   }).then(() => {}, () => {}); // fire-and-forget
 
+  // Trigger the agent to respond (fire-and-forget so the UI gets the exec context immediately)
+  if (workItem.agent_id && workItem.instructions?.trim()) {
+    runAgentResponse(service, workItem.agent_id, conversation.id, workItem.instructions.trim()).catch((err) => {
+      console.error("[WorkExecution] Agent response failed:", err);
+    });
+  }
+
   return NextResponse.json(execCtx, { status: 201 });
+}
+
+// ─── Call Claude to generate the agent's response ───────────────────
+async function runAgentResponse(
+  service: ReturnType<typeof createServiceSupabase>,
+  agentId: string,
+  conversationId: string,
+  instructions: string,
+) {
+  const { data: agent } = await service
+    .from("agents")
+    .select("*")
+    .eq("id", agentId)
+    .single();
+
+  if (!agent) return;
+
+  // Build RAG context from agent's knowledge base
+  let ragContext: RetrievedChunk[] = [];
+  let documentNames: string[] = [];
+  const { data: agentDocs } = await service
+    .from("documents")
+    .select("file_name")
+    .eq("agent_id", agent.id)
+    .eq("status", "ready");
+
+  if (agentDocs && agentDocs.length > 0) {
+    documentNames = agentDocs.map((d: { file_name: string }) => d.file_name);
+    try {
+      ragContext = await retrieveContext(service, agent.id, instructions, 10);
+    } catch { /* non-fatal */ }
+  }
+
+  let systemPrompt = buildSystemPrompt(
+    agent,
+    ragContext.length > 0 ? ragContext : undefined,
+    documentNames.length > 0 ? documentNames : undefined
+  );
+  systemPrompt += `\n\nThis is a work item execution. Process the instructions and provide a thorough response. The current date is ${new Date().toISOString().slice(0, 10)}.`;
+
+  const anthropic = getAnthropicClient();
+  const response = await anthropic.messages.create({
+    model: resolveModel(agent),
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages: [{ role: "user", content: instructions }],
+  });
+
+  const rawText = response.content
+    .filter((b) => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+  const responseText = cleanResponse(rawText);
+
+  if (responseText) {
+    await service.from("messages").insert({
+      conversation_id: conversationId,
+      role: "assistant",
+      content: responseText,
+    });
+  }
 }
