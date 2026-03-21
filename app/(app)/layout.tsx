@@ -619,6 +619,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   selectedId={pathname.startsWith("/work/") ? pathname.split("/work/")[1] : null}
                   onSelect={(id) => router.push(`/work/${id}`)}
                   onNew={() => router.push("/work/new")}
+                  agents={agents.map((a) => ({ id: a.id, name: a.name, color: a.color }))}
+                  onAssignAgent={async (workItemId, agentId) => {
+                    try {
+                      await fetch(`/api/work-items/${workItemId}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ agent_id: agentId }),
+                      });
+                      refreshWorkItems();
+                    } catch {}
+                  }}
                 />
               )}
             </div>

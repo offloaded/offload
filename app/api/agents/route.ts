@@ -1,5 +1,6 @@
 import { createServerSupabase, createServiceSupabase } from "@/lib/supabase-server";
 import { getWorkspaceContext, hasPermission } from "@/lib/workspace";
+import { generateAndSaveKeywords } from "@/lib/routing-keywords";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
@@ -78,6 +79,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // Fire-and-forget: generate routing keywords from agent config
+  generateAndSaveKeywords({
+    id: data.id,
+    name: data.name,
+    role: data.role,
+    purpose: data.purpose,
+  }).catch(() => {});
+
   return NextResponse.json(data, { status: 201 });
 }
 
@@ -131,6 +140,18 @@ export async function PUT(request: Request) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Regenerate routing keywords if config fields changed
+  const configChanged = name !== undefined || role !== undefined || purpose !== undefined;
+  if (configChanged && data) {
+    generateAndSaveKeywords({
+      id: data.id,
+      name: data.name,
+      role: data.role,
+      purpose: data.purpose,
+      custom_system_prompt: data.custom_system_prompt,
+    }).catch(() => {});
   }
 
   return NextResponse.json(data);

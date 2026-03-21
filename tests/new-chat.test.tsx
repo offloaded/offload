@@ -39,6 +39,8 @@ const testAgent: Agent = {
   soft_skills: null,
   team_expectations: null,
   assigned_templates: null,
+  routing_keywords: null,
+  keywords_updated_at: null,
   last_message_at: null,
   deleted_at: null,
   created_at: "2024-01-01T00:00:00Z",

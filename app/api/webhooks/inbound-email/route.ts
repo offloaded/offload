@@ -27,6 +27,7 @@
 
 import { createServiceSupabase } from "@/lib/supabase-server";
 import { routeEmailToAgent } from "@/lib/email-router";
+import { routeByKeywords } from "@/lib/routing-keywords";
 import { createWorkItem } from "@/lib/work-item-service";
 import { getAnthropicClient, buildSystemPrompt, cleanResponse, resolveModel } from "@/lib/anthropic";
 import { retrieveContext, type RetrievedChunk } from "@/lib/rag";
@@ -208,13 +209,34 @@ export async function POST(request: Request): Promise<Response> {
 
   // Steps 6-9 wrapped in try/catch — failures don't lose the stored email
   try {
-    // 6. Route email to the best-fit agent
-    const routingResult = await routeEmailToAgent(workspace.id, {
-      from_address,
-      from_name: from_name || null,
-      subject: subject || null,
-      body_plain: body_plain || null,
-    });
+    // 6. Route email — try keyword matching first, fall back to LLM routing
+    const { data: allAgents } = await service
+      .from("agents")
+      .select("id, name, routing_keywords")
+      .eq("workspace_id", workspace.id)
+      .is("deleted_at", null);
+
+    const searchText = `${subject || ""} ${(body_plain || "").slice(0, 500)}`;
+    const keywordMatch = routeByKeywords(searchText, allAgents || []);
+
+    let routingResult;
+    if (keywordMatch) {
+      console.log(`[Inbound Email] Keyword match → ${keywordMatch.agent_name} (score: ${keywordMatch.score.toFixed(3)}, matched: ${keywordMatch.matched_keywords.join(", ")})`);
+      routingResult = {
+        agent_id: keywordMatch.agent_id,
+        agent_name: keywordMatch.agent_name,
+        reason: `Keyword match (score: ${keywordMatch.score.toFixed(2)}, keywords: ${keywordMatch.matched_keywords.slice(0, 5).join(", ")})`,
+        suggested_title: subject || "Email work item",
+      };
+    } else {
+      // Fall back to LLM routing
+      routingResult = await routeEmailToAgent(workspace.id, {
+        from_address,
+        from_name: from_name || null,
+        subject: subject || null,
+        body_plain: body_plain || null,
+      });
+    }
 
     console.log(`[Inbound Email] Routed to ${routingResult.agent_name} (${routingResult.agent_id}): ${routingResult.reason}`);
 

@@ -1,5 +1,6 @@
 import { createServiceSupabase } from "@/lib/supabase-server";
 import { getWorkspaceContext } from "@/lib/workspace";
+import { routeByKeywords } from "@/lib/routing-keywords";
 import { NextResponse } from "next/server";
 
 // GET /api/work-items — list work items for the current workspace
@@ -86,6 +87,24 @@ export async function POST(request: Request) {
 
   const service = createServiceSupabase();
 
+  // Auto-route via keywords if no agent specified
+  let resolvedAgentId = agent_id || null;
+  if (!resolvedAgentId) {
+    const { data: agents } = await service
+      .from("agents")
+      .select("id, name, routing_keywords")
+      .eq("workspace_id", ctx.workspaceId)
+      .is("deleted_at", null);
+
+    if (agents && agents.length > 0) {
+      const searchText = `${title} ${instructions || ""}`.slice(0, 500);
+      const match = routeByKeywords(searchText, agents);
+      if (match) {
+        resolvedAgentId = match.agent_id;
+      }
+    }
+  }
+
   // 1. Create an empty report for this work item
   const { data: report, error: reportError } = await service
     .from("reports")
@@ -94,7 +113,7 @@ export async function POST(request: Request) {
       user_id: ctx.user.id,
       title: title.trim(),
       content: "",
-      agent_id: agent_id || null,
+      agent_id: resolvedAgentId,
     })
     .select("id")
     .single();
@@ -111,7 +130,7 @@ export async function POST(request: Request) {
       user_id: ctx.user.id,
       title: title.trim(),
       instructions: instructions?.trim() || null,
-      agent_id: agent_id || null,
+      agent_id: resolvedAgentId,
       report_id: report.id,
       conversation_id: null, // Set when execution context is created
     })

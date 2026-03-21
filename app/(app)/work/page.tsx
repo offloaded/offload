@@ -6,7 +6,7 @@ import { useApp } from "../layout";
 import WorkSidebar from "@/components/WorkSidebar";
 
 export default function WorkPage() {
-  const { workItems, refreshWorkItems, mobile } = useApp();
+  const { workItems, refreshWorkItems, mobile, agents } = useApp();
   const router = useRouter();
   const [loaded, setLoaded] = useState(false);
 
@@ -31,6 +31,17 @@ export default function WorkPage() {
           selectedId={null}
           onSelect={(id) => router.push(`/work/${id}`)}
           onNew={() => router.push("/work/new")}
+          agents={agents.map((a) => ({ id: a.id, name: a.name, color: a.color }))}
+          onAssignAgent={async (workItemId, agentId) => {
+            try {
+              await fetch(`/api/work-items/${workItemId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ agent_id: agentId }),
+              });
+              refreshWorkItems();
+            } catch {}
+          }}
         />
       </div>
     );
