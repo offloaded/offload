@@ -507,9 +507,9 @@ export default function DashboardPage() {
           ) : (
             <>
               <Card t={t}>
-                <CardHead title="Agent activity" t={t} />
+                <CardHead title="Agent activity" link={data && data.agents.length > 5 ? "View all \u2192" : undefined} onClick={() => router.push("/settings?tab=agents")} t={t} />
                 {data && data.agents.length > 0 ? (
-                  data.agents.map((a, i) => (
+                  data.agents.slice(0, 5).map((a, i) => (
                     <AgentRow
                       key={a.id}
                       initials={a.initials}
@@ -518,7 +518,7 @@ export default function DashboardPage() {
                       color={a.color}
                       active={a.active}
                       t={t}
-                      isLast={i === data.agents.length - 1}
+                      isLast={i === Math.min(data.agents.length, 5) - 1}
                     />
                   ))
                 ) : (
