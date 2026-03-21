@@ -16,7 +16,7 @@ export async function GET(request: Request) {
 
   const service = createServiceSupabase();
   // Select only the columns needed by the sidebar/UI — skip large text fields like system_prompt, knowledge_base
-  const columns = "id, workspace_id, name, role, purpose, color, model, created_at, last_message_at, deleted_at, asana_enabled, asana_projects, github_enabled, github_repos, google_calendar_enabled, google_calendar_ids, working_style, communication_style, soft_skills, team_expectations";
+  const columns = "id, workspace_id, name, role, purpose, color, model, created_at, last_message_at, deleted_at, asana_enabled, asana_projects, github_enabled, github_repositories, google_calendar_enabled, google_calendar_ids, working_style, communication_style, soft_skills, team_expectations";
 
   let query = service
     .from("agents")

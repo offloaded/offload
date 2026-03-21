@@ -42,6 +42,14 @@ export interface ReportUpdatedEvent {
   content: string;
 }
 
+export interface ToolConfirmation {
+  tool: string;
+  action: string;
+  message: string;
+  details?: Record<string, unknown>;
+  isError?: boolean;
+}
+
 interface InflightState {
   streaming: boolean;
   streamText: string;
@@ -51,6 +59,7 @@ interface InflightState {
   groupMessageRequest: GroupMessageRequest | null;
   reportSaved: ReportSavedEvent | null;
   reportUpdated: ReportUpdatedEvent | null;
+  toolConfirmations: ToolConfirmation[];
   // Group chat: per-agent sequential delivery
   typingAgentName: string | null;
   typingAgentColor: string | null;
@@ -85,7 +94,7 @@ if (typeof setInterval !== "undefined") {
 
 const EMPTY_STATE: () => InflightState = () => ({
   streaming: false, streamText: "", conversationId: null,
-  scheduleRequest: null, featureRequest: null, groupMessageRequest: null, reportSaved: null, reportUpdated: null,
+  scheduleRequest: null, featureRequest: null, groupMessageRequest: null, reportSaved: null, reportUpdated: null, toolConfirmations: [],
   typingAgentName: null, typingAgentColor: null, streamMessages: [],
 });
 
@@ -299,6 +308,23 @@ async function _streamDM(
               conversation_id: event.conversation_id,
               team_id: event.team_id || null,
             };
+            notify(chatId);
+          } else if (event.type === "tool_confirmation") {
+            entry.state.toolConfirmations = [...entry.state.toolConfirmations, {
+              tool: event.tool,
+              action: event.action,
+              message: event.message,
+              details: event.details,
+              isError: false,
+            }];
+            notify(chatId);
+          } else if (event.type === "tool_error") {
+            entry.state.toolConfirmations = [...entry.state.toolConfirmations, {
+              tool: event.tool,
+              action: event.action,
+              message: event.message,
+              isError: true,
+            }];
             notify(chatId);
           } else if (event.type === "report_saved") {
             entry.state.reportSaved = {

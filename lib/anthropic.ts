@@ -197,7 +197,14 @@ Adds a comment to a task.
 
 Write your visible reply naturally (e.g. "Let me check Asana for the latest status..."), then include the tool block at the end. The system will execute the operation and provide results in a follow-up. Only access projects listed above — if asked about other projects, say you don't have access.
 
-When the user asks for a status report, team update, or overview across multiple people/projects, use a single asana_list_tasks call WITHOUT project_gid to query all projects at once. Do NOT make separate calls per project.`;
+When the user asks for a status report, team update, or overview across multiple people/projects, use a single asana_list_tasks call WITHOUT project_gid to query all projects at once. Do NOT make separate calls per project.
+
+CRITICAL RULES FOR WRITE OPERATIONS:
+1. NEVER say "I've created", "I've updated", "I've added", "Done!", or any past-tense confirmation of an action unless you included the corresponding tool block (asana_create_task, asana_update_task, asana_add_comment) in your response.
+2. Describing an action in text is NOT the same as performing it. The tool block is the ONLY mechanism that actually executes the operation.
+3. If you want to create or modify a task, you MUST include the tool block. Then the system will execute it and give you the result in a follow-up — only THEN can you confirm success.
+4. For your initial response (before the system executes the tool), use future tense: "Let me create that task..." or "I'll add that to Asana...". NEVER past tense.
+5. If a tool call fails, report the failure honestly. Do not pretend it succeeded.`;
   }
 
   if (options?.githubRepos && options.githubRepos.length > 0) {
@@ -240,7 +247,14 @@ Lists available labels for a repository.
 
 Write your visible reply naturally, then include the block at the end. The system will execute the operation and provide results in a follow-up. Only access repositories listed above — if asked about other repos, say you don't have access.
 
-IMPORTANT: When the user asks you to check, pull, query, or refresh data from GitHub, you MUST make a fresh tool call every time. Never reference previous tool results from earlier in the conversation — the data may have changed. Always call the tool again.`;
+IMPORTANT: When the user asks you to check, pull, query, or refresh data from GitHub, you MUST make a fresh tool call every time. Never reference previous tool results from earlier in the conversation — the data may have changed. Always call the tool again.
+
+CRITICAL RULES FOR WRITE OPERATIONS:
+1. NEVER say "I've created", "I've updated", "I've added", "Done!", or any past-tense confirmation of an action unless you included the corresponding tool block (github_create_issue, github_update_issue, github_add_comment) in your response.
+2. Describing an action in text is NOT the same as performing it. The tool block is the ONLY mechanism that actually executes the operation.
+3. If you want to create or modify an issue, you MUST include the tool block. Then the system will execute it and give you the result in a follow-up — only THEN can you confirm success.
+4. For your initial response (before the system executes the tool), use future tense: "Let me create that issue..." or "I'll add a comment...". NEVER past tense.
+5. If a tool call fails, report the failure honestly. Do not pretend it succeeded.`;
   }
 
   if (options?.googleCalendars && options.googleCalendars.length > 0) {
@@ -273,7 +287,13 @@ Updates an event. Include only the fields you want to change.
 
 Write your visible reply naturally (e.g. "Let me check your calendar..."), then include the tool block at the end. The system will execute the operation and provide results in a follow-up. Only access calendars listed above.
 
-IMPORTANT: When the user asks about their schedule, meetings, availability, or calendar, you MUST make a fresh tool call every time. Never reference previous calendar results from earlier in the conversation — events may have changed. Always call the tool again.`;
+IMPORTANT: When the user asks about their schedule, meetings, availability, or calendar, you MUST make a fresh tool call every time. Never reference previous calendar results from earlier in the conversation — events may have changed. Always call the tool again.
+
+CRITICAL RULES FOR WRITE OPERATIONS:
+1. NEVER say "I've created", "I've updated", "Done!", or any past-tense confirmation of an action unless you included the corresponding tool block (gcal_create_event, gcal_update_event) in your response.
+2. The tool block is the ONLY mechanism that actually executes the operation. Text alone does nothing.
+3. For your initial response, use future tense: "Let me create that event..." NEVER past tense.
+4. If a tool call fails, report the failure honestly.`;
   }
 
   if (options?.enableScheduleDetection) {

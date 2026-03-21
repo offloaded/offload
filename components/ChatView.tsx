@@ -568,6 +568,7 @@ export function ChatView({
   const [groupMessageRequest, setGroupMessageRequest] = useState<GroupMessageRequest | null>(null);
   const [reportSaved, setReportSaved] = useState<ReportSavedEvent | null>(null);
   const [reportUpdated, setReportUpdated] = useState<ReportUpdatedEvent | null>(null);
+  const [toolConfirmations, setToolConfirmations] = useState<Array<{ tool: string; action: string; message: string; isError?: boolean }>>([]);
   const [applyingTemplate, setApplyingTemplate] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -594,6 +595,9 @@ export function ChatView({
       }
       if (state.groupMessageRequest) {
         setGroupMessageRequest(state.groupMessageRequest);
+      }
+      if (state.toolConfirmations && state.toolConfirmations.length > 0) {
+        setToolConfirmations(state.toolConfirmations);
       }
       if (state.reportSaved) {
         setReportSaved(state.reportSaved);
@@ -1083,6 +1087,25 @@ export function ChatView({
             </button>
           </div>
         )}
+
+        {/* Tool confirmation banners — system-verified action results */}
+        {toolConfirmations.length > 0 && toolConfirmations.map((tc, i) => (
+          <div
+            key={`tc-${i}`}
+            className={`mx-3 my-1.5 md:mx-5 px-3 py-2 rounded-lg border flex items-center gap-2 text-[13px] ${
+              tc.isError
+                ? "border-[var(--color-red)] bg-[var(--color-red-soft)] text-[var(--color-red)]"
+                : "border-[var(--color-green)] bg-[var(--color-green-soft)] text-[var(--color-green)]"
+            }`}
+          >
+            {tc.isError ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5"/></svg>
+            )}
+            <span className="font-medium">{tc.message}</span>
+          </div>
+        ))}
 
         {/* Report saved with template picker */}
         {reportSaved && (
