@@ -200,28 +200,93 @@ export default function WorkItemPage() {
 
   return (
     <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-[var(--color-surface)]">
-      {/* Mobile view toggle */}
-      <div className="flex md:hidden items-center border-b border-[var(--color-border)] bg-[var(--color-surface)] shrink-0">
-        <button
-          onClick={() => setMobileView("chat")}
-          className="flex-1 py-2.5 text-[13px] font-medium bg-transparent border-none cursor-pointer transition-colors relative"
-          style={{ color: mobileView === "chat" ? "var(--color-accent)" : "var(--color-text-secondary)" }}
-        >
-          Chat
-          {mobileView === "chat" && (
-            <div className="absolute bottom-0 left-4 right-4 h-[2px] rounded-full" style={{ background: "var(--color-accent)" }} />
+      {/* Mobile header: title + agent assignment + tab toggle */}
+      <div className="flex flex-col md:hidden shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+        {/* Title + agent bar */}
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--color-border)]">
+          <button
+            onClick={() => { if (mobile) openDrawer(); }}
+            className="md:hidden bg-transparent border-none cursor-pointer p-0 flex text-[var(--color-text-secondary)]"
+          >
+            <MenuIcon />
+          </button>
+          <h1 className="text-[14px] font-semibold text-[var(--color-text)] truncate flex-1">
+            {workItem.title}
+          </h1>
+          <span
+            className="px-2 py-0.5 rounded text-[11px] font-medium shrink-0"
+            style={{ background: statusConfig.bg, color: statusConfig.text }}
+          >
+            {statusConfig.label}
+          </span>
+          {showReassign ? (
+            <select
+              autoFocus
+              className="text-[12px] rounded-lg px-2 py-1 border shrink-0"
+              style={{
+                background: "var(--color-bg)",
+                color: "var(--color-text)",
+                borderColor: "var(--color-border)",
+              }}
+              defaultValue={workItem.agent_id || ""}
+              onChange={(e) => {
+                if (e.target.value) reassignAgent(e.target.value);
+              }}
+              onBlur={() => setShowReassign(false)}
+            >
+              <option value="" disabled>Select agent...</option>
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          ) : agent ? (
+            <button
+              onClick={() => setShowReassign(true)}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-transparent border border-[var(--color-border)] cursor-pointer transition-colors hover:bg-[var(--color-hover)] shrink-0"
+            >
+              <Avatar name={agent.name} color={agent.color} size={18} />
+              <span className="text-[12px] font-medium text-[var(--color-text-secondary)]">{agent.name}</span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-tertiary)" strokeWidth="2.5">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowReassign(true)}
+              className="px-2 py-1 rounded-lg text-[12px] font-medium border cursor-pointer transition-colors hover:bg-[var(--color-hover)] shrink-0"
+              style={{
+                background: "transparent",
+                color: "var(--color-orange)",
+                borderColor: "var(--color-orange)",
+              }}
+            >
+              Assign agent
+            </button>
           )}
-        </button>
-        <button
-          onClick={() => setMobileView("report")}
-          className="flex-1 py-2.5 text-[13px] font-medium bg-transparent border-none cursor-pointer transition-colors relative"
-          style={{ color: mobileView === "report" ? "var(--color-accent)" : "var(--color-text-secondary)" }}
-        >
-          Report
-          {mobileView === "report" && (
-            <div className="absolute bottom-0 left-4 right-4 h-[2px] rounded-full" style={{ background: "var(--color-accent)" }} />
-          )}
-        </button>
+        </div>
+        {/* Tab toggle */}
+        <div className="flex items-center">
+          <button
+            onClick={() => setMobileView("chat")}
+            className="flex-1 py-2.5 text-[13px] font-medium bg-transparent border-none cursor-pointer transition-colors relative"
+            style={{ color: mobileView === "chat" ? "var(--color-accent)" : "var(--color-text-secondary)" }}
+          >
+            Chat
+            {mobileView === "chat" && (
+              <div className="absolute bottom-0 left-4 right-4 h-[2px] rounded-full" style={{ background: "var(--color-accent)" }} />
+            )}
+          </button>
+          <button
+            onClick={() => setMobileView("report")}
+            className="flex-1 py-2.5 text-[13px] font-medium bg-transparent border-none cursor-pointer transition-colors relative"
+            style={{ color: mobileView === "report" ? "var(--color-accent)" : "var(--color-text-secondary)" }}
+          >
+            Report
+            {mobileView === "report" && (
+              <div className="absolute bottom-0 left-4 right-4 h-[2px] rounded-full" style={{ background: "var(--color-accent)" }} />
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Report panel (primary) — hidden on mobile when chat is active */}
