@@ -14,14 +14,9 @@ export async function GET(request: Request) {
 
   const service = createServiceSupabase();
 
-  // When no agent_id filter, return minimal columns for sidebar count
-  const columns = agentId
-    ? "id, workspace_id, agent_id, instruction, cron, timezone, enabled, last_run, created_at, updated_at"
-    : "id, agent_id, instruction, cron, timezone, enabled, last_run, created_at, updated_at";
-
   let query = service
     .from("scheduled_tasks")
-    .select(columns)
+    .select("*")
     .eq("workspace_id", ctx.workspaceId)
     .order("created_at", { ascending: true });
 
@@ -29,7 +24,7 @@ export async function GET(request: Request) {
     query = query.eq("agent_id", agentId);
   }
 
-  const { data, error } = await query.limit(100);
+  const { data, error } = await query;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
