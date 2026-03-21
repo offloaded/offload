@@ -244,4 +244,62 @@ async function runAgentResponse(
       }
     }
   }
+
+  // Check for save_document block — fill a Word template
+  const saveDocMatch = rawText.match(/```save_document\s*\n?([\s\S]*?)\n?```/);
+  if (saveDocMatch) {
+    try {
+      const parsed = JSON.parse(saveDocMatch[1].trim());
+      if (parsed.template_id && parsed.data) {
+        const { assembleDocument } = await import("@/lib/docx-assembler");
+
+        // Get the template
+        const { data: template } = await service
+          .from("document_templates")
+          .select("id, name, file_name, storage_path, placeholders")
+          .eq("id", parsed.template_id)
+          .single();
+
+        if (template) {
+          // Download template
+          const { data: fileData } = await service.storage
+            .from("document-templates")
+            .download(template.storage_path);
+
+          if (fileData) {
+            const templateBuffer = Buffer.from(await fileData.arrayBuffer());
+            const expectedPlaceholders = (template.placeholders as Array<{ name: string }>).map((p) => p.name);
+            const result = assembleDocument(templateBuffer, parsed.data, expectedPlaceholders);
+
+            // Get workspace_id from the work item
+            const { data: wiData } = await service.from("work_items").select("workspace_id, id").eq("conversation_id", conversationId).single();
+            if (wiData) {
+              const timestamp = Date.now();
+              const outputFileName = `${template.name}-${new Date().toISOString().slice(0, 10)}.docx`.replace(/[^a-zA-Z0-9._-]/g, "-");
+              const storagePath = `${wiData.workspace_id}/${wiData.id}/${timestamp}-${outputFileName}`;
+
+              await service.storage.from("document-outputs").upload(storagePath, result.buffer, {
+                contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              });
+
+              await service.from("document_outputs").insert({
+                workspace_id: wiData.workspace_id,
+                work_item_id: wiData.id,
+                document_template_id: template.id,
+                agent_id: agentId,
+                file_name: outputFileName,
+                storage_path: storagePath,
+                placeholder_data: parsed.data,
+                status: "ready",
+              });
+
+              console.log(`[WorkExecution] Document generated: ${outputFileName}`);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[WorkExecution] save_document failed:", e);
+    }
+  }
 }

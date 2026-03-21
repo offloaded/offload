@@ -101,6 +101,7 @@ export function buildSystemPrompt(
     reportTemplates?: Array<{ id: string; name: string; description: string; structure?: Array<{ heading: string; description: string }> }>;
     assignedTemplates?: Array<{ id: string; name: string; description: string; structure?: Array<{ heading: string; description: string }> }>;
     recentReports?: Array<{ id: string; title: string; generated_title?: string; content: string; agent_name?: string; updated_at: string; is_mine?: boolean }>;
+    documentTemplates?: Array<{ id: string; name: string; placeholders: Array<{ name: string; label: string; description: string }>; sections: Record<string, { heading: string; description: string }> }>;
     asanaProjects?: Array<{ gid: string; name: string }>;
     githubRepos?: Array<{ full_name: string; name: string }>;
     googleCalendars?: Array<{ id: string; name: string }>;
@@ -441,6 +442,34 @@ These templates are available in the workspace but not assigned to you. If the u
 ${options.reportTemplates.map((t) => `- ${t.name} (ID: ${t.id})${t.description ? ` — ${t.description}` : ""}`).join("\n")}`;
   }
 
+  // Document templates — for generating formatted Word documents
+  if (options?.documentTemplates && options.documentTemplates.length > 0) {
+    prompt += `\n\nDOCUMENT TEMPLATES (Word .docx output):
+You have access to Word document templates. When the user asks you to fill a template, generate a document, or produce formatted output, use the save_document block to fill the template with content.
+
+Available templates:`;
+    for (const dt of options.documentTemplates) {
+      prompt += `\n\n### ${dt.name} (ID: ${dt.id})`;
+      prompt += `\nPlaceholders to fill:`;
+      for (const ph of dt.placeholders) {
+        const section = dt.sections[ph.name];
+        prompt += `\n- **${ph.name}** (${ph.label}): ${section?.description || ph.description || "Content for this field"}`;
+      }
+    }
+    prompt += `\n
+To generate a filled document, include this block at the END of your response:
+\`\`\`save_document
+{"template_id": "template-uuid-here", "data": {"placeholder_name": "content value", "another_placeholder": "more content"}}
+\`\`\`
+
+RULES:
+1. Every key in "data" must exactly match a placeholder name from the template.
+2. For multi-paragraph content, use \\n for line breaks within a value.
+3. Use future tense initially: "Let me fill out that document...". Confirm success only after the system processes it.
+4. If unsure which template to use, ask the user.
+5. Fill ALL placeholders — do not leave any empty unless the user says to skip them.`;
+  }
+
   if (options?.reportEdits && options.reportEdits.length > 0) {
     prompt += `\n\nREPORT FEEDBACK — The user has edited your previous reports. Study these corrections carefully and apply the same improvements to future reports:\n`;
     for (const edit of options.reportEdits) {
@@ -531,6 +560,7 @@ export function cleanResponse(text: string, streaming = false): string {
   cleaned = cleaned.replace(/```asana_\w+\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```github_\w+\s*\n?[\s\S]*?\n?```/g, "");
   cleaned = cleaned.replace(/```gcal_\w+\s*\n?[\s\S]*?\n?```/g, "");
+  cleaned = cleaned.replace(/```save_document\s*\n?[\s\S]*?\n?```/g, "");
 
   if (streaming) {
     // Remove incomplete opening tags whose closing tag hasn't arrived yet.
@@ -549,6 +579,7 @@ export function cleanResponse(text: string, streaming = false): string {
     cleaned = cleaned.replace(/```asana_\w+[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```github_\w+[\s\S]*$/g, "");
     cleaned = cleaned.replace(/```gcal_\w+[\s\S]*$/g, "");
+    cleaned = cleaned.replace(/```save_document[\s\S]*$/g, "");
   }
 
   // Strip leading [AgentName] or [You] bracket prefix that agents sometimes generate

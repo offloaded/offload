@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useApp } from "../layout";
 import { Avatar } from "@/components/Avatar";
 import { PlusIcon, ArrowIcon, MenuIcon, ChevronDownIcon, GlobeIcon, PeopleIcon } from "@/components/Icons";
@@ -50,7 +50,7 @@ const COMMON_TIMEZONES = [
   "Pacific/Auckland",
 ];
 
-type Tab = "profile" | "agents" | "integrations" | "members";
+type Tab = "profile" | "agents" | "integrations" | "members" | "documents";
 
 // ─── Nav Icons ───
 
@@ -97,10 +97,22 @@ function PlugIcon() {
 
 // ─── Nav Items Config ───
 
+function DocIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="16" y1="13" x2="8" y2="13" />
+      <line x1="16" y1="17" x2="8" y2="17" />
+    </svg>
+  );
+}
+
 const NAV_ITEMS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "profile", label: "Profile", icon: <UserIcon /> },
   { id: "agents", label: "Agents", icon: <GridIcon /> },
   { id: "members", label: "Members", icon: <PeopleAddIcon /> },
+  { id: "documents", label: "Documents", icon: <DocIcon /> },
   { id: "integrations", label: "Integrations", icon: <PlugIcon /> },
 ];
 
@@ -110,7 +122,7 @@ export default function SettingsPage() {
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<Tab>(() => {
     const t = searchParams.get("tab");
-    return t === "integrations" || t === "agents" || t === "members" ? t : "profile";
+    return t === "integrations" || t === "agents" || t === "members" || t === "documents" ? t : "profile";
   });
 
   return (
@@ -211,6 +223,8 @@ export default function SettingsPage() {
             <AgentsTab agents={agents} canManage={canManage} />
           ) : tab === "members" ? (
             <MembersTab />
+          ) : tab === "documents" ? (
+            <DocumentTemplatesTab />
           ) : (
             <IntegrationsTab />
           )}
@@ -810,6 +824,135 @@ function IntegrationCard({
         <span className="text-[13px] text-[var(--color-text-tertiary)]">
           Not available — ask your administrator to configure this integration.
         </span>
+      )}
+    </div>
+  );
+}
+
+interface DocTemplate {
+  id: string;
+  name: string;
+  description: string;
+  file_name: string;
+  file_size: number;
+  placeholders: Array<{ name: string; label: string; description: string }>;
+  created_at: string;
+}
+
+function DocumentTemplatesTab() {
+  const [templates, setTemplates] = useState<DocTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const loadTemplates = useCallback(async () => {
+    try {
+      const res = await fetch("/api/document-templates");
+      if (res.ok) setTemplates(await res.json());
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadTemplates(); }, [loadTemplates]);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/document-templates/upload", { method: "POST", body: formData });
+      if (res.ok) {
+        await loadTemplates();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || "Upload failed");
+      }
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Delete this template?")) return;
+    await fetch(`/api/document-templates?id=${id}`, { method: "DELETE" });
+    loadTemplates();
+  };
+
+  return (
+    <div className="p-6 md:p-8 max-w-3xl">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-[16px] font-semibold text-[var(--color-text)]">Document Templates</h2>
+          <p className="text-[13px] text-[var(--color-text-secondary)] mt-1">
+            Upload Word (.docx) templates with {"{{placeholder}}"} tags. Agents will fill them to produce formatted documents.
+          </p>
+        </div>
+        <div>
+          <input ref={fileInputRef} type="file" accept=".docx" className="hidden" onChange={handleUpload} />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="px-4 py-2 bg-[var(--color-accent)] text-white border-none rounded-xl text-[13px] font-medium cursor-pointer hover:opacity-90 transition-opacity disabled:opacity-40"
+          >
+            {uploading ? "Uploading..." : "Upload Template"}
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-[13px] text-[var(--color-text-tertiary)]">Loading...</div>
+      ) : templates.length === 0 ? (
+        <div className="text-center py-16">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-tertiary)" strokeWidth="1.5" className="mx-auto mb-4">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+          </svg>
+          <p className="text-[14px] text-[var(--color-text-secondary)] mb-2">No document templates yet</p>
+          <p className="text-[13px] text-[var(--color-text-tertiary)]">
+            Upload a .docx file with {"{{placeholder}}"} tags to get started.
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {templates.map((t) => (
+            <div key={t.id} className="border border-[var(--color-border)] rounded-xl p-4 bg-[var(--color-surface)]">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="text-[14px] font-medium text-[var(--color-text)]">{t.name}</div>
+                  {t.description && (
+                    <div className="text-[12px] text-[var(--color-text-secondary)] mt-0.5">{t.description}</div>
+                  )}
+                  <div className="text-[11px] text-[var(--color-text-tertiary)] mt-1">
+                    {t.file_name} &middot; {(t.file_size / 1024).toFixed(0)}KB &middot; {new Date(t.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleDelete(t.id)}
+                  className="text-[12px] text-[var(--color-text-tertiary)] hover:text-[var(--color-red)] bg-transparent border-none cursor-pointer p-1"
+                >
+                  Delete
+                </button>
+              </div>
+              {t.placeholders.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {t.placeholders.map((ph) => (
+                    <span
+                      key={ph.name}
+                      className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
+                      title={ph.description}
+                    >
+                      {`{{${ph.name}}}`}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

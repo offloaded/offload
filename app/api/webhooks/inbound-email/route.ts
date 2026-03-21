@@ -256,6 +256,61 @@ export async function POST(request: Request): Promise<Response> {
     const workItemId = workItem.work_item.id as string;
     const conversationId = workItem.conversation_id || null;
 
+    // 7a. Detect .docx attachments that may be Word templates with {{placeholders}}
+    const docxAttachments = attachments.filter((a) =>
+      a.filename?.endsWith(".docx") && a.downloadUrl
+    );
+    let detectedTemplateId: string | null = null;
+
+    if (docxAttachments.length > 0) {
+      const { parseDocxTemplate, isValidDocx } = await import("@/lib/docx-template-parser");
+
+      for (const att of docxAttachments) {
+        try {
+          const attRes = await fetch(att.downloadUrl);
+          if (!attRes.ok) continue;
+          const buffer = Buffer.from(await attRes.arrayBuffer());
+          if (!isValidDocx(buffer)) continue;
+
+          const parsed = parseDocxTemplate(buffer);
+          if (parsed.placeholders.length === 0) continue;
+
+          console.log(`[Inbound Email] Detected .docx template "${att.filename}" with ${parsed.placeholders.length} placeholders`);
+
+          // Store the template file
+          const storagePath = `${workspace.id}/${Date.now()}-${att.filename}`;
+          await service.storage.from("document-templates").upload(storagePath, buffer, {
+            contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          });
+
+          // Create template record
+          const { data: tmpl } = await service.from("document_templates").insert({
+            workspace_id: workspace.id,
+            user_id: workspace.owner_id,
+            name: att.filename.replace(/\.docx$/i, ""),
+            description: `Auto-detected from email: ${subject || "attachment"}`,
+            file_name: att.filename,
+            file_size: buffer.length,
+            storage_path: storagePath,
+            placeholders: parsed.placeholders,
+            sections: parsed.sections,
+          }).select("id").single();
+
+          if (tmpl) {
+            detectedTemplateId = tmpl.id;
+            // Link template to the work item
+            await service.from("work_items").update({
+              document_template_id: tmpl.id,
+            }).eq("id", workItemId);
+            console.log(`[Inbound Email] Linked template ${tmpl.id} to work item ${workItemId}`);
+            break; // Use the first template found
+          }
+        } catch (e) {
+          console.error(`[Inbound Email] Failed to parse .docx attachment "${att.filename}":`, e);
+        }
+      }
+    }
+
     // 7b. Trigger the agent to process the email — call Claude directly
     // (Same pattern as cron/run-tasks — no user session needed)
     if (routingResult.agent_id && conversationId) {
@@ -293,6 +348,32 @@ export async function POST(request: Request): Promise<Response> {
           );
           systemPrompt += `\n\nThis is a work item created from an inbound email. Process the email content and provide a helpful response. The current date is ${new Date().toISOString().slice(0, 10)}.`;
 
+          // If a .docx template was detected from the email attachments, inject it into the prompt
+          if (detectedTemplateId) {
+            const { data: tmplData } = await service.from("document_templates")
+              .select("id, name, placeholders, sections")
+              .eq("id", detectedTemplateId)
+              .single();
+            if (tmplData) {
+              const phs = (tmplData.placeholders as Array<{ name: string; label: string; description: string }>) || [];
+              const secs = (tmplData.sections as Record<string, { heading: string; description: string }>) || {};
+              systemPrompt += `\n\nATTACHED DOCUMENT TEMPLATE: "${tmplData.name}"
+The email included a Word document template that needs to be filled. Use the save_document block to fill it.
+
+Placeholders to fill:`;
+              for (const ph of phs) {
+                systemPrompt += `\n- **${ph.name}** (${ph.label}): ${secs[ph.name]?.description || ph.description || "Content for this field"}`;
+              }
+              systemPrompt += `\n
+To fill this template, include at the END of your response:
+\`\`\`save_document
+{"template_id": "${tmplData.id}", "data": {"placeholder": "value", ...}}
+\`\`\`
+
+Fill ALL placeholders based on the email content and your analysis.`;
+            }
+          }
+
           const chatMessage = subject
             ? `From: ${from_name || from_address}\nSubject: ${subject}\n\n${body_plain}`
             : body_plain || "Please review the forwarded email.";
@@ -320,6 +401,46 @@ export async function POST(request: Request): Promise<Response> {
               content: responseText,
             });
             console.log(`[Inbound Email] Agent responded (${responseText.length} chars)`);
+          }
+
+          // Check for save_document block in response
+          const saveDocMatch = rawText.match(/```save_document\s*\n?([\s\S]*?)\n?```/);
+          if (saveDocMatch) {
+            try {
+              const docParsed = JSON.parse(saveDocMatch[1].trim());
+              if (docParsed.template_id && docParsed.data) {
+                const { assembleDocument } = await import("@/lib/docx-assembler");
+                const { data: tmpl } = await service.from("document_templates")
+                  .select("id, name, file_name, storage_path, placeholders")
+                  .eq("id", docParsed.template_id).single();
+                if (tmpl) {
+                  const { data: fileData } = await service.storage.from("document-templates").download(tmpl.storage_path);
+                  if (fileData) {
+                    const templateBuffer = Buffer.from(await fileData.arrayBuffer());
+                    const expectedPhs = (tmpl.placeholders as Array<{ name: string }>).map((p) => p.name);
+                    const result = assembleDocument(templateBuffer, docParsed.data, expectedPhs);
+                    const outputFileName = `${tmpl.name}-${new Date().toISOString().slice(0, 10)}.docx`.replace(/[^a-zA-Z0-9._-]/g, "-");
+                    const storagePath = `${workspace.id}/${workItemId}/${Date.now()}-${outputFileName}`;
+                    await service.storage.from("document-outputs").upload(storagePath, result.buffer, {
+                      contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    });
+                    await service.from("document_outputs").insert({
+                      workspace_id: workspace.id,
+                      work_item_id: workItemId,
+                      document_template_id: tmpl.id,
+                      agent_id: routingResult.agent_id,
+                      file_name: outputFileName,
+                      storage_path: storagePath,
+                      placeholder_data: docParsed.data,
+                      status: "ready",
+                    });
+                    console.log(`[Inbound Email] Document generated: ${outputFileName}`);
+                  }
+                }
+              }
+            } catch (e) {
+              console.error("[Inbound Email] save_document failed:", e);
+            }
           }
         }
       } catch (chatErr) {

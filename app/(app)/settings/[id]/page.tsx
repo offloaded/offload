@@ -108,6 +108,9 @@ export default function AgentEditorPage() {
   const [availableTemplates, setAvailableTemplates] = useState<Array<{ id: string; name: string; description: string }>>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  // Document Templates
+  const [docTemplateId, setDocTemplateId] = useState("");
+  const [docTemplates, setDocTemplates] = useState<Array<{ id: string; name: string; placeholders: Array<{ name: string }> }>>([]);
 
   // Initialize form state from existing agent — only once, not on every poll refresh
   useEffect(() => {
@@ -130,6 +133,7 @@ export default function AgentEditorPage() {
       setVoiceProfile(existing.voice_profile ?? "");
       setSoftSkills(existing.soft_skills ?? []);
       setTeamExpectations(existing.team_expectations ?? []);
+      setDocTemplateId(existing.default_document_template_id ?? "");
       // Load assigned template details if IDs exist
       const templateIds = existing.assigned_templates;
       if (templateIds && templateIds.length > 0) {
@@ -145,6 +149,14 @@ export default function AgentEditorPage() {
       setColor(PALETTE[agents.length % PALETTE.length]);
     }
   }, [existing, isNew, agents.length]);
+
+  // Load document templates for the picker
+  useEffect(() => {
+    fetch("/api/document-templates")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setDocTemplates)
+      .catch(() => {});
+  }, []);
 
   const loadDocs = useCallback(() => {
     if (!isNew && params.id) {
@@ -373,6 +385,7 @@ export default function AgentEditorPage() {
           ...(!isNew ? { soft_skills: softSkills.length > 0 ? softSkills : null } : {}),
           ...(!isNew ? { team_expectations: teamExpectations.length > 0 ? teamExpectations : null } : {}),
           ...(!isNew ? { assigned_templates: assignedTemplates.length > 0 ? assignedTemplates.map((t) => t.id) : null } : {}),
+          ...(!isNew ? { default_document_template_id: docTemplateId || null } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1498,6 +1511,34 @@ export default function AgentEditorPage() {
                         <PlusIcon /> Assign template
                       </button>
                     )}
+                  </div>
+                </div>
+
+                {/* Default Document Template */}
+                <div className="border border-[var(--color-border)] rounded-xl">
+                  <div className="w-full flex items-center gap-3 py-3 px-4">
+                    <span className="text-lg">📋</span>
+                    <span className="flex-1 text-[14px] text-[var(--color-text)]">
+                      Document Template
+                    </span>
+                    <span className="text-[12px] text-[var(--color-text-tertiary)]">
+                      Word .docx output
+                    </span>
+                  </div>
+                  <div className="px-4 pb-3 border-t border-[var(--color-border)] pt-3">
+                    <div className="text-[12px] text-[var(--color-text-tertiary)] mb-2">
+                      When this agent executes work items, it will generate formatted Word documents using this template.
+                    </div>
+                    <select
+                      className="w-full text-[13px] rounded-lg px-3 py-2 border bg-[var(--color-surface)] text-[var(--color-text)] border-[var(--color-border)]"
+                      value={docTemplateId}
+                      onChange={(e) => setDocTemplateId(e.target.value)}
+                    >
+                      <option value="">None</option>
+                      {docTemplates.map((dt) => (
+                        <option key={dt.id} value={dt.id}>{dt.name} ({dt.placeholders?.length || 0} fields)</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               </div>

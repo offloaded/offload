@@ -25,6 +25,7 @@ export interface Agent {
   // Team expectations
   team_expectations: TeamExpectation[] | null;
   assigned_templates: string[] | null;
+  default_document_template_id: string | null;
   routing_keywords: string[] | null;
   keywords_updated_at: string | null;
   last_message_at: string | null;
@@ -153,6 +154,7 @@ export interface WorkItem {
   updated_at: string;
   source?: 'manual' | 'email' | 'api';
   inbound_email_id?: string | null;
+  document_template_id?: string | null;
   // Enriched from joins
   agent_name?: string;
   agent_color?: string;
@@ -183,4 +185,44 @@ export interface ReportTemplate {
   storage_path: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface DocumentTemplatePlaceholder {
+  name: string;
+  label: string;
+  description?: string;
+}
+
+export interface DocumentTemplateSection {
+  heading: string;
+  description: string;
+}
+
+export interface DocumentTemplate {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  name: string;
+  description: string;
+  file_name: string;
+  file_size: number;
+  storage_path: string;
+  placeholders: DocumentTemplatePlaceholder[];
+  sections: Record<string, DocumentTemplateSection>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentOutput {
+  id: string;
+  workspace_id: string;
+  work_item_id: string | null;
+  document_template_id: string;
+  agent_id: string | null;
+  file_name: string;
+  storage_path: string;
+  placeholder_data: Record<string, string>;
+  status: 'generating' | 'ready' | 'error';
+  error_message: string | null;
+  created_at: string;
 }

@@ -981,6 +981,11 @@ export async function POST(request: Request) {
           /```(gcal_list_events|gcal_get_event|gcal_create_event|gcal_update_event)\s*\n?([\s\S]*?)\n?```/
         );
 
+        // Document template tool block
+        const saveDocumentMatch = fullResponse.match(
+          /```save_document\s*\n?([\s\S]*?)\n?```/
+        );
+
         // Clean the response: strip <search> blocks, schedule_request blocks, feature_request blocks, etc.
         const cleaned = cleanResponse(fullResponse);
 
@@ -1114,6 +1119,59 @@ export async function POST(request: Request) {
             }
           } catch (e) {
             console.error("[Chat] Failed to parse save_report block:", e);
+          }
+        }
+
+        // Handle save_document — fill a Word template and save the output
+        if (saveDocumentMatch) {
+          try {
+            const raw = saveDocumentMatch[1].trim();
+            const parsed = safeJsonParse(raw) as { template_id?: string; data?: Record<string, string> } | null;
+            if (parsed?.template_id && parsed?.data) {
+              // Call the assembly API internally
+              const assembleRes = await fetch(new URL("/api/document-outputs/assemble", request.url).toString(), {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  cookie: request.headers.get("cookie") || "",
+                },
+                body: JSON.stringify({
+                  template_id: parsed.template_id,
+                  data: parsed.data,
+                  work_item_id: null, // Will be linked if this is a work item chat
+                  agent_id: agent.id,
+                }),
+              });
+              if (assembleRes.ok) {
+                const result = await assembleRes.json();
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({
+                      type: "document_generated",
+                      document_output_id: result.id,
+                      file_name: result.file_name,
+                      missing_placeholders: result.missing_placeholders || [],
+                    })}\n\n`
+                  )
+                );
+                console.log(`[Chat] Document generated: ${result.file_name} (${result.id})`);
+              } else {
+                const err = await assembleRes.json().catch(() => ({ error: "Unknown error" }));
+                console.error("[Chat] Document assembly failed:", err.error);
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({
+                      type: "tool_error",
+                      tool: "document",
+                      action: "save_document",
+                      message: `Failed to generate document: ${err.error}`,
+                    })}\n\n`
+                  )
+                );
+              }
+            }
+          } catch (e) {
+            console.error("[Chat] Failed to parse save_document block:", e);
           }
         }
 

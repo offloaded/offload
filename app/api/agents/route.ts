@@ -16,7 +16,7 @@ export async function GET(request: Request) {
 
   const service = createServiceSupabase();
   // Select only the columns needed by the sidebar/UI — skip large text fields like system_prompt, knowledge_base
-  const columns = "id, workspace_id, name, role, purpose, color, model, created_at, last_message_at, deleted_at, asana_enabled, asana_projects, github_enabled, github_repositories, google_calendar_enabled, google_calendar_ids, working_style, communication_style, soft_skills, team_expectations";
+  const columns = "id, workspace_id, name, role, purpose, color, model, created_at, last_message_at, deleted_at, asana_enabled, asana_projects, github_enabled, github_repositories, google_calendar_enabled, google_calendar_ids, working_style, communication_style, soft_skills, team_expectations, default_document_template_id";
 
   let query = service
     .from("agents")
@@ -107,7 +107,7 @@ export async function PUT(request: Request) {
   }
 
   const body = await request.json();
-  const { id, name, role, purpose, color, web_search_enabled, asana_enabled, asana_projects, github_enabled, github_repositories, google_calendar_enabled, google_calendar_ids, working_style, communication_style, voice_samples, voice_profile, soft_skills, team_expectations, assigned_templates } = body;
+  const { id, name, role, purpose, color, web_search_enabled, asana_enabled, asana_projects, github_enabled, github_repositories, google_calendar_enabled, google_calendar_ids, working_style, communication_style, voice_samples, voice_profile, soft_skills, team_expectations, assigned_templates, default_document_template_id } = body;
 
   if (!id) {
     return NextResponse.json({ error: "Agent ID required" }, { status: 400 });
@@ -134,6 +134,7 @@ export async function PUT(request: Request) {
   if (soft_skills !== undefined) updates.soft_skills = soft_skills;
   if (team_expectations !== undefined) updates.team_expectations = team_expectations;
   if (assigned_templates !== undefined) updates.assigned_templates = assigned_templates;
+  if (default_document_template_id !== undefined) updates.default_document_template_id = default_document_template_id;
 
   const service = createServiceSupabase();
   const { data, error } = await service

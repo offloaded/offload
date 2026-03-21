@@ -73,6 +73,7 @@ export default function WorkItemPage() {
   // Mobile: toggle between report and chat views
   const [mobileView, setMobileView] = useState<"report" | "chat">("chat");
   const [showReassign, setShowReassign] = useState(false);
+  const [documentOutputs, setDocumentOutputs] = useState<Array<{ id: string; file_name: string; template_name: string; status: string; created_at: string }>>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -100,6 +101,21 @@ export default function WorkItemPage() {
   useEffect(() => {
     loadWorkItem();
   }, [loadWorkItem]);
+
+  // Load document outputs for this work item
+  const loadDocumentOutputs = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/document-outputs?work_item_id=${workItemId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setDocumentOutputs(data.filter((d: { status: string }) => d.status === "ready"));
+      }
+    } catch { /* non-fatal */ }
+  }, [workItemId]);
+
+  useEffect(() => {
+    loadDocumentOutputs();
+  }, [loadDocumentOutputs]);
 
   // Load the most recent execution context for this work item
   const loadExecution = useCallback(async () => {
@@ -450,12 +466,46 @@ export default function WorkItemPage() {
         {/* Report content */}
         <div className="flex-1 overflow-y-auto px-6 md:px-8 py-6">
           <div className="max-w-2xl">
+            {/* Document downloads */}
+            {documentOutputs.length > 0 && (
+              <div className="mb-6">
+                <div className="text-[12px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider mb-2">Documents</div>
+                <div className="flex flex-col gap-2">
+                  {documentOutputs.map((doc) => (
+                    <a
+                      key={doc.id}
+                      href={`/api/document-outputs/${doc.id}/download`}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-hover)] transition-colors no-underline"
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="1.5">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                        <line x1="16" y1="13" x2="8" y2="13" />
+                        <line x1="16" y1="17" x2="8" y2="17" />
+                      </svg>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13px] font-medium text-[var(--color-text)] truncate">{doc.file_name}</div>
+                        <div className="text-[11px] text-[var(--color-text-tertiary)]">
+                          {doc.template_name} &middot; {new Date(doc.created_at).toLocaleString()}
+                        </div>
+                      </div>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-tertiary)" strokeWidth="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                      </svg>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {reportContent ? (
               <div
                 className="text-[14px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap"
                 dangerouslySetInnerHTML={{ __html: reportContent.replace(/\n/g, "<br/>") }}
               />
-            ) : (
+            ) : documentOutputs.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-center">
                 <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-tertiary)" strokeWidth="1.5" className="mb-4">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -472,7 +522,7 @@ export default function WorkItemPage() {
                   The draft will appear here once ready.
                 </p>
               </div>
-            )}
+            ) : null}
           </div>
         </div>
       </div>
