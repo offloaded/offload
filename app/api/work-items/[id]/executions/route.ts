@@ -2,6 +2,7 @@ import { createServerSupabase, createServiceSupabase } from "@/lib/supabase-serv
 import { getWorkspaceContext } from "@/lib/workspace";
 import { getAnthropicClient, buildSystemPrompt, cleanResponse, resolveModel } from "@/lib/anthropic";
 import { retrieveContext, type RetrievedChunk } from "@/lib/rag";
+import { asanaPreFetch, ASANA_KEYWORDS } from "@/lib/asana";
 import { NextResponse } from "next/server";
 
 // GET /api/work-items/[id]/executions — list execution contexts for a work item
@@ -182,6 +183,27 @@ async function runAgentResponse(
     documentNames.length > 0 ? documentNames : undefined
   );
   systemPrompt += `\n\nThis is a work item execution. Process the instructions and provide a thorough response. The current date is ${new Date().toISOString().slice(0, 10)}.`;
+
+  // Pre-fetch Asana data when the instructions contain Asana-related keywords
+  // This prevents the agent from hallucinating names/data when it has no live context
+  if (agent.asana_enabled && agent.asana_projects && ASANA_KEYWORDS.test(instructions)) {
+    const asanaProjects = (agent.asana_projects as Array<{ gid: string; name: string }>).map((p) => ({
+      gid: p.gid,
+      name: p.name,
+    }));
+    if (asanaProjects.length > 0) {
+      try {
+        console.log(`[WorkExecution] Asana pre-fetch triggered for "${agent.name}" — instructions match Asana keywords`);
+        const prefetchResult = await asanaPreFetch(agent.workspace_id, asanaProjects);
+        if (prefetchResult) {
+          systemPrompt += `\n\n${prefetchResult.text}`;
+          console.log(`[WorkExecution] Asana pre-fetch: ${prefetchResult.taskNames.length} task(s) injected into context`);
+        }
+      } catch (e) {
+        console.error(`[WorkExecution] Asana pre-fetch failed (non-fatal):`, e);
+      }
+    }
+  }
 
   const anthropic = getAnthropicClient();
   const response = await anthropic.messages.create({

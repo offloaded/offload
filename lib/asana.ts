@@ -366,6 +366,100 @@ export async function addComment(
   return { ok: true, commentGid: (result.data as { gid: string })?.gid };
 }
 
+// ─── Pre-fetch for injecting live task data into system prompts ───
+
+/** Keywords that indicate the user message is Asana-related */
+export const ASANA_KEYWORDS = /\b(tasks?|asana|outstanding|overdue|due|status update|what'?s happening|action items?|to[\s-]?dos?|deadlines?|assigned|backlog|sprint|what needs|what'?s on|agenda|checklist|one on one|1:1|briefing|prepare|this week|today|upcoming|project status|working on|progress|report)\b/i;
+
+export interface AsanaPreFetchResult {
+  /** Formatted text to inject into system prompt */
+  text: string;
+  /** Task names for hallucination detection */
+  taskNames: string[];
+}
+
+/**
+ * Pre-fetch all incomplete tasks across an agent's connected Asana projects.
+ * Returns formatted text suitable for injecting into a system prompt so the
+ * model has live data and doesn't need to hallucinate or make tool calls.
+ */
+export async function asanaPreFetch(
+  workspaceId: string,
+  projects: Array<{ gid: string; name: string }>,
+): Promise<AsanaPreFetchResult | null> {
+  const { effectiveDueDate } = await import("./tool-execution");
+
+  const projectNameMap = new Map(projects.map((p) => [p.gid, p.name]));
+  const allTasks: Array<{
+    name: string; gid: string; completed: boolean;
+    start_on: string | null; due_on: string | null;
+    assignee: string | null; section: string | null; project: string;
+  }> = [];
+
+  // Fetch projects with concurrency limit to avoid rate limiting
+  const BATCH_SIZE = 3;
+  const projectResults: Array<Awaited<ReturnType<typeof listTasks>> & { gid: string }> = [];
+  for (let i = 0; i < projects.length; i += BATCH_SIZE) {
+    const batch = projects.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.all(
+      batch.map((proj) => listTasks(workspaceId, proj.gid, { completedSince: "now" }).then((r) => ({ ...r, gid: proj.gid })))
+    );
+    projectResults.push(...batchResults);
+  }
+  for (const result of projectResults) {
+    if (result.ok && result.tasks) {
+      allTasks.push(...result.tasks.map((t) => ({
+        name: t.name,
+        gid: t.gid,
+        completed: t.completed,
+        start_on: t.start_on,
+        due_on: effectiveDueDate(t),
+        assignee: t.assignee ? (t.assignee.name || t.assignee.email || t.assignee.gid) : null,
+        section: t.memberships?.[0]?.section?.name || null,
+        project: projectNameMap.get(result.gid) || result.gid,
+      })));
+    }
+  }
+
+  const taskNames = allTasks.map((t) => t.name);
+
+  if (allTasks.length === 0) {
+    return {
+      text: "[System: Live Asana data — No incomplete tasks found across any connected projects.]",
+      taskNames,
+    };
+  }
+
+  // Build a structured summary grouped by project and section
+  const byProject = new Map<string, typeof allTasks>();
+  for (const t of allTasks) {
+    if (!byProject.has(t.project)) byProject.set(t.project, []);
+    byProject.get(t.project)!.push(t);
+  }
+  let out = `[System: Live Asana data — ${allTasks.length} incomplete task(s) across ${byProject.size} project(s). Use ONLY this data to answer. Do NOT make up or guess any task information.]\n`;
+  for (const [project, tasks] of byProject) {
+    out += `\n## ${project} (${tasks.length} tasks)\n`;
+    const bySection = new Map<string, typeof tasks>();
+    for (const t of tasks) {
+      const sec = t.section || "(Default)";
+      if (!bySection.has(sec)) bySection.set(sec, []);
+      bySection.get(sec)!.push(t);
+    }
+    for (const [section, secTasks] of bySection) {
+      out += `\n### ${section}\n`;
+      out += secTasks.map((t) => {
+        let dates = "";
+        if (t.start_on && t.due_on) dates = ` ${t.start_on} → ${t.due_on}`;
+        else if (t.start_on) dates = ` starts ${t.start_on}`;
+        else if (t.due_on) dates = ` due ${t.due_on}`;
+        return `- ${t.name} (GID: ${t.gid})${t.assignee ? ` [${t.assignee}]` : ""}${dates}${t.completed ? " [DONE]" : ""}`;
+      }).join("\n");
+    }
+  }
+
+  return { text: out, taskNames };
+}
+
 /** Fetch all workspaces and their projects for the project selector */
 export async function fetchWorkspacesAndProjects(
   workspaceId: string

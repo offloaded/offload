@@ -8,6 +8,45 @@ import { MenuIcon, SendIcon, PaperclipIcon } from "@/components/Icons";
 import { sendDM } from "@/lib/inflight";
 import type { WorkItem, WorkExecutionContext, Message } from "@/lib/types";
 
+/** Max lines to show before collapsing a user message */
+const COLLAPSE_LINE_LIMIT = 6;
+
+function CollapsibleText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const lines = text.split("\n");
+  const shouldCollapse = lines.length > COLLAPSE_LINE_LIMIT;
+
+  if (!shouldCollapse || expanded) {
+    return (
+      <>
+        <p className="text-[13px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap">{text}</p>
+        {shouldCollapse && (
+          <button
+            onClick={() => setExpanded(false)}
+            className="mt-1 bg-transparent border-none p-0 text-[12px] text-[var(--color-accent)] cursor-pointer hover:underline"
+          >
+            See less
+          </button>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <p className="text-[13px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap">
+        {lines.slice(0, COLLAPSE_LINE_LIMIT).join("\n")}
+      </p>
+      <button
+        onClick={() => setExpanded(true)}
+        className="mt-1 bg-transparent border-none p-0 text-[12px] text-[var(--color-accent)] cursor-pointer hover:underline"
+      >
+        See more
+      </button>
+    </>
+  );
+}
+
 const STATUS_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
   draft: { bg: "var(--color-hover)", text: "var(--color-text-secondary)", label: "Draft" },
   in_progress: { bg: "var(--color-orange-soft)", text: "var(--color-orange)", label: "In Progress" },
@@ -468,9 +507,7 @@ export default function WorkItemPage() {
                         <span className="text-[11px] text-[var(--color-text-tertiary)]">You</span>
                       </div>
                       <div className="rounded-2xl rounded-tr-sm px-3.5 py-2.5 max-w-[90%] bg-[var(--color-hover)]">
-                        <p className="text-[13px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap">
-                          {msg.content}
-                        </p>
+                        <CollapsibleText text={msg.content} />
                       </div>
                     </div>
                   ) : (

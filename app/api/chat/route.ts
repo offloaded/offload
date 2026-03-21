@@ -8,7 +8,7 @@ import { runGroupOrchestration } from "@/lib/group-orchestration";
 import { logApiUsage, estimateCost } from "@/lib/api-usage";
 import { estimateTokens, trimHistory, trimRagChunks, shouldArchive, calculateBudget, detectTopicChange, checkConversationHealth } from "@/lib/context-manager";
 import { getWorkspaceContext } from "@/lib/workspace";
-import { listTasks, getTask, createTask, updateTask, addComment } from "@/lib/asana";
+import { listTasks, getTask, createTask, updateTask, addComment, asanaPreFetch, ASANA_KEYWORDS } from "@/lib/asana";
 import { listIssues, getIssue, createIssue, updateIssue, addIssueComment, listLabels } from "@/lib/github";
 import { listEvents as gcalListEvents } from "@/lib/google-calendar";
 import { shouldCompact, compactConversation, injectCompactionContext, type CompactableMessage } from "@/lib/compaction";
@@ -776,81 +776,17 @@ export async function POST(request: Request) {
   // has Asana enabled, pre-fetch task data and inject it into context.
   // This prevents the hallucination bug where the model generates a text
   // response instead of making a tool call.
-  const ASANA_KEYWORDS = /\b(tasks?|asana|outstanding|overdue|due|status update|what'?s happening|action items?|to[\s-]?dos?|deadlines?|assigned|backlog|sprint|what needs|what'?s on|agenda|checklist|one on one|1:1|briefing|prepare|this week|today|upcoming)\b/i;
   let asanaPreFetchResult: string | null = null;
-  // Track fetched task names for hallucination detection
   let asanaPreFetchTaskNames: string[] = [];
   if (agent.asana_enabled && asanaProjects.length > 0 && lastUserMessage?.role === "user" && ASANA_KEYWORDS.test(lastUserMessage.content)) {
     try {
       console.log(`[Chat] Asana pre-fetch triggered for "${agent.name}" — user message matches Asana keywords`);
-      const projectNameMap = new Map(asanaProjects.map((p) => [p.gid, p.name]));
-      const allTasks: Array<{ name: string; gid: string; completed: boolean; start_on: string | null; due_on: string | null; assignee: string | null; section: string | null; project: string }> = [];
-
-      // Fetch projects with concurrency limit to avoid rate limiting
-      const BATCH_SIZE = 3;
-      const projectResults: Array<Awaited<ReturnType<typeof listTasks>> & { gid: string }> = [];
-      for (let i = 0; i < asanaProjects.length; i += BATCH_SIZE) {
-        const batch = asanaProjects.slice(i, i + BATCH_SIZE);
-        const batchResults = await Promise.all(
-          batch.map((proj) => listTasks(ctx.workspaceId, proj.gid, { completedSince: "now" }).then((r) => ({ ...r, gid: proj.gid })))
-        );
-        projectResults.push(...batchResults);
-      }
-      for (const result of projectResults) {
-        if (result.ok && result.tasks) {
-          allTasks.push(...result.tasks.map((t) => ({
-            name: t.name,
-            gid: t.gid,
-            completed: t.completed,
-            start_on: t.start_on,
-            due_on: effectiveDueDate(t),
-            assignee: t.assignee ? (t.assignee.name || t.assignee.email || t.assignee.gid) : null,
-            section: t.memberships?.[0]?.section?.name || null,
-            project: projectNameMap.get(result.gid) || result.gid,
-          })));
-        }
-      }
-      asanaPreFetchTaskNames = allTasks.map((t) => t.name);
-
-      if (allTasks.length > 0) {
-        // Build a structured summary grouped by project and section
-        const byProject = new Map<string, typeof allTasks>();
-        for (const t of allTasks) {
-          if (!byProject.has(t.project)) byProject.set(t.project, []);
-          byProject.get(t.project)!.push(t);
-        }
-        let out = `[System: Live Asana data — ${allTasks.length} incomplete task(s) across ${byProject.size} project(s). Use ONLY this data to answer. Do NOT make up or guess any task information.]\n`;
-        for (const [project, tasks] of byProject) {
-          out += `\n## ${project} (${tasks.length} tasks)\n`;
-          // Group by section within project
-          const bySection = new Map<string, typeof tasks>();
-          for (const t of tasks) {
-            const sec = t.section || "(Default)";
-            if (!bySection.has(sec)) bySection.set(sec, []);
-            bySection.get(sec)!.push(t);
-          }
-          for (const [section, secTasks] of bySection) {
-            out += `\n### ${section}\n`;
-            out += secTasks.map((t) => {
-              let dates = "";
-              if (t.start_on && t.due_on) dates = ` ${t.start_on} → ${t.due_on}`;
-              else if (t.start_on) dates = ` starts ${t.start_on}`;
-              else if (t.due_on) dates = ` due ${t.due_on}`;
-              return `- ${t.name} (GID: ${t.gid})${t.assignee ? ` [${t.assignee}]` : ""}${dates}${t.completed ? " [DONE]" : ""}`;
-            }).join("\n");
-          }
-        }
-        asanaPreFetchResult = out;
-        console.log(`[Chat] Asana pre-fetch: ${allTasks.length} task(s) injected into context`);
-      } else {
-        asanaPreFetchResult = "[System: Live Asana data — No incomplete tasks found across any connected projects.]";
-        console.log(`[Chat] Asana pre-fetch: no tasks found`);
-      }
-
-      // Inject Asana data into the system prompt so the model has live data
-      // available without needing to make a tool call
-      if (asanaPreFetchResult) {
-        systemPrompt += `\n\n${asanaPreFetchResult}`;
+      const prefetchResult = await asanaPreFetch(ctx.workspaceId, asanaProjects);
+      if (prefetchResult) {
+        asanaPreFetchResult = prefetchResult.text;
+        asanaPreFetchTaskNames = prefetchResult.taskNames;
+        systemPrompt += `\n\n${prefetchResult.text}`;
+        console.log(`[Chat] Asana pre-fetch: ${prefetchResult.taskNames.length} task(s) injected into context`);
       }
     } catch (e) {
       console.error(`[Chat] Asana pre-fetch failed (non-fatal):`, e);
