@@ -412,6 +412,33 @@ export async function executeSaveReport(
   const parsed = parseSaveReportBlock(raw);
   if (!parsed) return null;
 
+  // Check if this conversation belongs to a work item with a linked report
+  const { data: linkedWorkItem } = await ctx.supabase
+    .from("work_items")
+    .select("id, report_id")
+    .eq("workspace_id", ctx.workspaceId)
+    .eq("conversation_id", ctx.conversationId)
+    .single();
+
+  if (linkedWorkItem?.report_id) {
+    // Update the existing linked report
+    const { error } = await ctx.supabase.from("reports").update({
+      title: parsed.title,
+      content: parsed.content,
+      agent_id: ctx.agentId,
+      source: "agent",
+      conversation_id: ctx.conversationId,
+      updated_at: new Date().toISOString(),
+    }).eq("id", linkedWorkItem.report_id);
+
+    if (error) {
+      console.error("[ToolExec] Failed to update linked report:", error.message);
+      return null;
+    }
+    return { id: linkedWorkItem.report_id, title: parsed.title, content: parsed.content };
+  }
+
+  // No linked work item — create a new report
   const { data, error } = await ctx.supabase.from("reports").insert({
     workspace_id: ctx.workspaceId,
     user_id: ctx.userId,

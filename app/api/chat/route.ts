@@ -1050,15 +1050,50 @@ export async function POST(request: Request) {
             }
 
             if (reportTitle && reportContent) {
-              const { data: reportData, error: reportError } = await serviceDb.from("reports").insert({
-                workspace_id: ctx.workspaceId,
-                user_id: user.id,
-                agent_id: agent.id,
-                title: reportTitle,
-                content: reportContent,
-                source: "agent",
-                conversation_id: convId,
-              }).select("id").single();
+              // Check if this conversation belongs to a work item — if so, update its linked report
+              let reportId: string | null = null;
+              let reportError: { message: string } | null = null;
+
+              const { data: linkedWorkItem } = await serviceDb
+                .from("work_items")
+                .select("id, report_id")
+                .eq("workspace_id", ctx.workspaceId)
+                .eq("conversation_id", convId)
+                .single();
+
+              if (linkedWorkItem?.report_id) {
+                // Update the existing linked report
+                const { error } = await serviceDb.from("reports").update({
+                  title: reportTitle,
+                  content: reportContent,
+                  agent_id: agent.id,
+                  source: "agent",
+                  conversation_id: convId,
+                  updated_at: new Date().toISOString(),
+                }).eq("id", linkedWorkItem.report_id);
+                if (error) {
+                  reportError = error;
+                } else {
+                  reportId = linkedWorkItem.report_id;
+                }
+              } else {
+                // No linked work item — create a new report as before
+                const { data: reportData, error } = await serviceDb.from("reports").insert({
+                  workspace_id: ctx.workspaceId,
+                  user_id: user.id,
+                  agent_id: agent.id,
+                  title: reportTitle,
+                  content: reportContent,
+                  source: "agent",
+                  conversation_id: convId,
+                }).select("id").single();
+                if (error) {
+                  reportError = error;
+                } else {
+                  reportId = reportData?.id || null;
+                }
+              }
+
               if (reportError) {
                 console.error("[Chat] Failed to save report:", reportError.message);
               } else {
@@ -1067,7 +1102,7 @@ export async function POST(request: Request) {
                     `data: ${JSON.stringify({
                       type: "report_saved",
                       title: reportTitle,
-                      report_id: reportData?.id || null,
+                      report_id: reportId,
                       content: reportContent,
                       agent_name: agent.name,
                       agent_id: agent.id,
@@ -1137,22 +1172,46 @@ export async function POST(request: Request) {
                   }
                 }
                 if (reportTitle && reportContent) {
-                  const { data: reportData, error: reportError } = await serviceDb.from("reports").insert({
-                    workspace_id: ctx.workspaceId,
-                    user_id: user.id,
-                    agent_id: agent.id,
-                    title: reportTitle,
-                    content: reportContent,
-                    source: "agent",
-                    conversation_id: convId,
-                  }).select("id").single();
-                  if (!reportError && reportData) {
+                  let retryReportId: string | null = null;
+
+                  // Check for linked work item
+                  const { data: retryWorkItem } = await serviceDb
+                    .from("work_items")
+                    .select("id, report_id")
+                    .eq("workspace_id", ctx.workspaceId)
+                    .eq("conversation_id", convId)
+                    .single();
+
+                  if (retryWorkItem?.report_id) {
+                    const { error: retryReportError } = await serviceDb.from("reports").update({
+                      title: reportTitle,
+                      content: reportContent,
+                      agent_id: agent.id,
+                      source: "agent",
+                      conversation_id: convId,
+                      updated_at: new Date().toISOString(),
+                    }).eq("id", retryWorkItem.report_id);
+                    if (!retryReportError) retryReportId = retryWorkItem.report_id;
+                  } else {
+                    const { data: reportData } = await serviceDb.from("reports").insert({
+                      workspace_id: ctx.workspaceId,
+                      user_id: user.id,
+                      agent_id: agent.id,
+                      title: reportTitle,
+                      content: reportContent,
+                      source: "agent",
+                      conversation_id: convId,
+                    }).select("id").single();
+                    retryReportId = reportData?.id || null;
+                  }
+
+                  if (retryReportId) {
                     controller.enqueue(
                       encoder.encode(
                         `data: ${JSON.stringify({
                           type: "report_saved",
                           title: reportTitle,
-                          report_id: reportData.id,
+                          report_id: retryReportId,
                           content: reportContent,
                           agent_name: agent.name,
                           agent_id: agent.id,
@@ -1310,24 +1369,46 @@ export async function POST(request: Request) {
                     reportTitle = titleSepMatch[1].trim();
                     reportContent = titleSepMatch[2].trim();
                   }
-                  const { data: savedReport } = await serviceDb
-                    .from("reports")
-                    .insert({
+
+                  let tplReportId: string | null = null;
+                  const { data: tplWorkItem } = await serviceDb
+                    .from("work_items")
+                    .select("id, report_id")
+                    .eq("workspace_id", ctx.workspaceId)
+                    .eq("conversation_id", convId)
+                    .single();
+
+                  if (tplWorkItem?.report_id) {
+                    const { error: tplErr } = await serviceDb.from("reports").update({
                       title: reportTitle,
                       content: reportContent,
                       agent_id: agent.id,
-                      workspace_id: ctx.workspaceId,
-                      user_id: user.id,
-                    })
-                    .select("id")
-                    .single();
-                  if (savedReport) {
+                      source: "agent",
+                      updated_at: new Date().toISOString(),
+                    }).eq("id", tplWorkItem.report_id);
+                    if (!tplErr) tplReportId = tplWorkItem.report_id;
+                  } else {
+                    const { data: savedReport } = await serviceDb
+                      .from("reports")
+                      .insert({
+                        title: reportTitle,
+                        content: reportContent,
+                        agent_id: agent.id,
+                        workspace_id: ctx.workspaceId,
+                        user_id: user.id,
+                      })
+                      .select("id")
+                      .single();
+                    tplReportId = savedReport?.id || null;
+                  }
+
+                  if (tplReportId) {
                     controller.enqueue(
                       encoder.encode(
                         `data: ${JSON.stringify({
                           type: "report_saved",
                           title: reportTitle,
-                          report_id: savedReport.id,
+                          report_id: tplReportId,
                           content: reportContent,
                           agent_name: agent.name,
                           agent_id: agent.id,
@@ -1441,18 +1522,40 @@ export async function POST(request: Request) {
                   const titleLine = header.match(/^title:\s*(.+)/m);
                   if (titleLine) reportTitle = titleLine[1].trim();
                 }
-                const { data: savedReport } = await serviceDb
-                  .from("reports")
-                  .insert({
+
+                let fuReportId: string | null = null;
+                const { data: fuWorkItem } = await serviceDb
+                  .from("work_items")
+                  .select("id, report_id")
+                  .eq("workspace_id", ctx.workspaceId)
+                  .eq("conversation_id", convId)
+                  .single();
+
+                if (fuWorkItem?.report_id) {
+                  const { error: fuErr } = await serviceDb.from("reports").update({
                     title: reportTitle,
                     content: reportContent,
                     agent_id: agent.id,
-                    workspace_id: ctx.workspaceId,
-                    user_id: user.id,
-                  })
-                  .select("id")
-                  .single();
-                if (savedReport) {
+                    source: "agent",
+                    updated_at: new Date().toISOString(),
+                  }).eq("id", fuWorkItem.report_id);
+                  if (!fuErr) fuReportId = fuWorkItem.report_id;
+                } else {
+                  const { data: savedReport } = await serviceDb
+                    .from("reports")
+                    .insert({
+                      title: reportTitle,
+                      content: reportContent,
+                      agent_id: agent.id,
+                      workspace_id: ctx.workspaceId,
+                      user_id: user.id,
+                    })
+                    .select("id")
+                    .single();
+                  fuReportId = savedReport?.id || null;
+                }
+
+                if (fuReportId) {
                   // Fetch templates for picker
                   const { data: templates } = await serviceDb
                     .from("report_templates")
@@ -1463,7 +1566,7 @@ export async function POST(request: Request) {
                       `data: ${JSON.stringify({
                         type: "report_saved",
                         title: reportTitle,
-                        report_id: savedReport.id,
+                        report_id: fuReportId,
                         content: reportContent,
                         agent_name: agent.name,
                         agent_id: agent.id,
